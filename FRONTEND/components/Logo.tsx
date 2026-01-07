@@ -8,36 +8,53 @@ interface LogoProps {
 
 export default function Logo({ size = 'md', showSubtext = true, className = '' }: LogoProps) {
   const sizeClasses = {
-    sm: 'text-lg',
+    sm: 'text-xl',
     md: 'text-2xl',
     lg: 'text-3xl'
   }
 
   const subtextSize = {
-    sm: 'text-xs',
-    md: 'text-sm',
-    lg: 'text-base'
+    sm: 'text-[10px]',
+    md: 'text-xs',
+    lg: 'text-sm'
   }
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <div className="flex items-center gap-2">
+    <div 
+      className={`flex items-center justify-center cursor-pointer gap-2.5 ${className}`}
+      style={{ 
+        direction: 'ltr',
+        fontFamily: "'Rubik', sans-serif"
+      }}
+    >
+      <div 
+        className={`font-black ${sizeClasses[size]}`}
+        style={{ 
+          color: '#2C3E50',
+          letterSpacing: '-1px'
+        }}
+      >
+        CLICK<span style={{ color: '#00A896' }}>.</span>
+      </div>
+      
+      <div 
+        className="w-px"
+        style={{ 
+          height: '20px', 
+          backgroundColor: '#BDC3C7' 
+        }}
+      />
+      
+      {showSubtext && (
         <div 
-          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white brand-gradient"
+          className={`font-medium ${subtextSize[size]}`}
           style={{ 
-            boxShadow: '0 2px 8px rgba(0, 168, 150, 0.3)'
+            color: '#7F8C8D',
+            lineHeight: '1.2'
           }}
         >
-          C
+          DNG<br />HUB
         </div>
-        <span className={`font-bold ${sizeClasses[size]}`} style={{ color: 'var(--text-primary)' }}>
-          Click HR
-        </span>
-      </div>
-      {showSubtext && (
-        <span className={`${subtextSize[size]} font-normal`} style={{ color: 'var(--text-secondary)' }}>
-          ניהול משאבי אנוש
-        </span>
       )}
     </div>
   )
