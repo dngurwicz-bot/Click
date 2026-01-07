@@ -159,17 +159,17 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
               <tbody className="divide-y" style={{ background: 'white', borderColor: 'var(--border-color)' }}>
                 {organizations.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={4} className="px-6 py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
                       אין ארגונים
                     </td>
                   </tr>
                 ) : (
                   organizations.map((org) => (
-                    <tr key={org.id} className="hover:bg-gray-50">
+                    <tr key={org.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <Building2 className="ml-2 text-gray-400" size={20} />
-                          <span className="text-sm font-medium text-gray-900">{org.name}</span>
+                          <Building2 className="ml-2" size={20} style={{ color: 'var(--gray-medium)' }} />
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{org.name}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -181,20 +181,21 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                           {org.is_active ? 'פעיל' : 'לא פעיל'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-secondary)' }}>
                         {new Date(org.created_at).toLocaleDateString('he-IL')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleEdit(org)}
-                            className="text-blue-600 hover:text-blue-900"
+                            style={{ color: 'var(--button-primary)' }}
+                            className="hover:opacity-80 transition-opacity"
                           >
                             <Edit2 size={18} />
                           </button>
                           <button
                             onClick={() => handleDelete(org.id)}
-                            className="text-red-600 hover:text-red-900"
+                            className="text-red-600 hover:text-red-800 transition-colors"
                           >
                             <Trash2 size={18} />
                           </button>
