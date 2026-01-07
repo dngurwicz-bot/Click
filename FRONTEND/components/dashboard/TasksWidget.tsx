@@ -51,11 +51,8 @@ export default function TasksWidget() {
                     <span className="mr-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">1</span>
                     {activeTab === 'error' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-500" />}
                 </button>
-                <button className="flex-1 py-3 text-blue-500 text-xs text-center border-r hover:underline">
+                <button className="flex-1 py-3 text-blue-500 text-xs text-center hover:underline">
                     לכל המשימות
-                </button>
-                <button className="px-4 py-1 mx-2 my-1 bg-[#95C11F] text-white text-xs font-bold rounded shadow-sm hover:bg-[#85ad1b]">
-                    אשף משימות נוכחות
                 </button>
             </div>
 

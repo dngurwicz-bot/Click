@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { api, Organization } from '@/lib/api/client'
 import Link from 'next/link'
-import { Building2, Plus, Edit2, Trash2, ArrowRight, Search, Loader2, Users } from 'lucide-react'
+import { Building2, Plus, Edit2, Trash2, ArrowRight, Search, Loader2, Users, Hash } from 'lucide-react'
 import Logo from '@/components/Logo'
 import Button from '@/components/ui/Button'
 import Card, { CardHeader, CardContent } from '@/components/ui/Card'
@@ -34,7 +34,14 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null)
 
   // Form State
-  const [formData, setFormData] = useState({ name: '', is_active: true, modules: [] as string[] })
+  const [formData, setFormData] = useState({
+    name: '',
+    hp: '',
+    contact_name: '',
+    contact_email: '',
+    is_active: true,
+    modules: [] as string[]
+  })
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,14 +66,28 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
 
   const handleCreate = () => {
     setEditingOrg(null)
-    setFormData({ name: '', is_active: true, modules: ['core'] })
+    setFormData({
+      name: '',
+      hp: '',
+      contact_name: '',
+      contact_email: '',
+      is_active: true,
+      modules: ['core']
+    })
     setError(null)
     setShowModal(true)
   }
 
   const handleEdit = (org: Organization) => {
     setEditingOrg(org)
-    setFormData({ name: org.name, is_active: org.is_active, modules: org.modules || [] })
+    setFormData({
+      name: org.name,
+      hp: org.hp || '',
+      contact_name: org.contact_name || '',
+      contact_email: org.contact_email || '',
+      is_active: org.is_active,
+      modules: org.modules || []
+    })
     setError(null)
     setShowModal(true)
   }
@@ -114,7 +135,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
   }
 
   const filteredOrganizations = organizations.filter(org =>
-    org.name.toLowerCase().includes(searchQuery.toLowerCase())
+    org.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    org.hp?.includes(searchQuery) ||
+    org.internal_id?.includes(searchQuery)
   )
 
   return (
@@ -173,7 +196,7 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
             />
             <Input
               type="text"
-              placeholder="חפש ארגון..."
+              placeholder="חפש לפי שם, ח.פ או מזהה..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pr-10"
@@ -234,7 +257,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                 <table className="min-w-full divide-y" style={{ borderColor: 'var(--border-color)' }}>
                   <thead style={{ background: 'var(--gray-50)' }}>
                     <tr>
-                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>שם הארגון</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>מזהה</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>פרטי ארגון</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>איש קשר</th>
                       <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>מודולים</th>
                       <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>סטטוס</th>
                       <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>פעולות</th>
@@ -248,14 +273,29 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                         onClick={() => handleEdit(org)}
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="font-mono text-sm text-gray-500">#{org.internal_id || 'N/A'}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-3">
                             <div className="p-2 rounded-lg" style={{ background: 'var(--accent-teal-light)' }}>
                               <Building2 size={18} style={{ color: 'var(--accent-teal)' }} />
                             </div>
                             <div>
                               <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{org.name}</div>
+                              {org.hp && (
+                                <div className="text-xs text-gray-500 flex items-center gap-1">
+                                  <Hash size={10} />
+                                  ח.פ: {org.hp}
+                                </div>
+                              )}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">{org.contact_name || '-'}</div>
+                          {org.contact_email && (
+                            <div className="text-xs text-gray-500">{org.contact_email}</div>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex gap-1 flex-wrap max-w-[200px]">
@@ -298,7 +338,7 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
           isOpen={showModal}
           onClose={() => setShowModal(false)}
           title={editingOrg ? 'עריכת ארגון' : 'ארגון חדש'}
-          size="md"
+          size="lg"
         >
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
@@ -307,19 +347,45 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
               </div>
             )}
 
-            <Input
-              label="שם הארגון"
-              type="text"
-              required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="הכנס שם ארגון"
-              error={error && !formData.name ? 'שדה חובה' : undefined}
-            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="שם הארגון"
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="הכנס שם ארגון"
+                error={error && !formData.name ? 'שדה חובה' : undefined}
+              />
+
+              <Input
+                label="ח.פ / מספר עוסק"
+                type="text"
+                value={formData.hp}
+                onChange={(e) => setFormData({ ...formData, hp: e.target.value })}
+                placeholder="000000000"
+              />
+
+              <Input
+                label="שם איש קשר (מנהל המערכת)"
+                type="text"
+                value={formData.contact_name}
+                onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
+                placeholder="ישראל ישראלי"
+              />
+
+              <Input
+                label="אימייל מנהל מערכת"
+                type="email"
+                value={formData.contact_email}
+                onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                placeholder="admin@organization.com"
+              />
+            </div>
 
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-700">מודולים פעילים</label>
-              <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+              <div className="grid grid-cols-2 gap-2 border rounded-lg p-3 bg-gray-50">
                 {AVAILABLE_MODULES.map(module => (
                   <div key={module.id} className="flex items-center">
                     <input
