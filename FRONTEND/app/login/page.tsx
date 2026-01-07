@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Mail, Lock, Loader2 } from 'lucide-react'
+import Logo from '@/components/Logo'
 
 export default function LoginPage() {
     const [email, setEmail] = useState('')
@@ -119,9 +120,7 @@ export default function LoginPage() {
                 <a href="/dashboard" className="text-xs text-gray-300 hover:text-gray-500">Manual Dashboard Link</a>
             </div>
             <div className="hidden lg:flex w-1/2 bg-[#2C3E50] items-center justify-center">
-                <div className="text-white text-9xl font-bold tracking-wider select-none">
-                    CLICK
-                </div>
+                <Logo size="2xl" variant="light" />
             </div>
         </div>
     )

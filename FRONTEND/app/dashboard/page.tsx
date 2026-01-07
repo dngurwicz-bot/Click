@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { Building2, Users, FileText, Settings } from 'lucide-react'
 import LogoutButton from '@/components/LogoutButton'
 
-import HilanIcon from '@/components/HilanIcon'
+
 
 // ... existing imports
 
@@ -31,10 +31,32 @@ export default async function DashboardPage() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-6">
               <Logo size="md" />
-              {/* Hilan-style Icons */}
-              <div className="hidden md:flex items-center gap-4 mr-8">
-                <HilanIcon letter="A" label="ניהול מערכת" variant="yellow" />
-                <HilanIcon letter="N" label="שירותי נט" variant="green" />
+              {/* Modules Navigation */}
+              <div className="hidden md:flex items-center gap-6 mr-8">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors group">
+                  <div className="p-1.5 bg-blue-500 rounded-md text-white group-hover:scale-105 transition-transform">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect width="7" height="7" x="3" y="3" rx="1" />
+                      <rect width="7" height="7" x="14" y="3" rx="1" />
+                      <rect width="7" height="7" x="14" y="14" rx="1" />
+                      <rect width="7" height="7" x="3" y="14" rx="1" />
+                    </svg>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-blue-900 leading-none">CLICK CORE</span>
+                    <span className="text-[10px] text-blue-600 font-medium pt-0.5">ניהול ארגוני מתקדם</span>
+                  </div>
+                </div>
               </div>
             </div>
 
