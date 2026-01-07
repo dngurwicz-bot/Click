@@ -1,10 +1,12 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
+import { type LucideIcon } from 'lucide-react'
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string
   error?: string
   helperText?: string
+  icon?: LucideIcon
 }
 
 export default function Input({
@@ -13,6 +15,7 @@ export default function Input({
   helperText,
   className,
   id,
+  icon: Icon,
   ...props
 }: InputProps) {
   const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`
@@ -28,15 +31,23 @@ export default function Input({
           {label}
         </label>
       )}
-      <input
-        id={inputId}
-        className={cn(
-          'input',
-          error && 'border-error focus:border-error focus:ring-error/20',
-          className
+      <div className="relative">
+        {Icon && (
+          <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+            <Icon size={18} style={{ color: 'var(--text-tertiary)' }} />
+          </div>
         )}
-        {...props}
-      />
+        <input
+          id={inputId}
+          className={cn(
+            'input',
+            Icon && 'pr-10',
+            error && 'border-error focus:border-error focus:ring-error/20',
+            className
+          )}
+          {...props}
+        />
+      </div>
       {error && (
         <p className="mt-1.5 text-sm text-error">{error}</p>
       )}
