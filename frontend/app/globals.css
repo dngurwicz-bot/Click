@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand Colors from Logo */
+  --primary-dark: #2C3E50;
+  --accent-teal: #00A896;
+  --gray-light: #BDC3C7;
+  --gray-medium: #7F8C8D;
+  
+  /* UI Colors */
+  --background: #F8F9FA;
+  --foreground: #2C3E50;
+  --card-bg: #FFFFFF;
+  --border-color: #E1E8ED;
+  --border-light: #BDC3C7;
+  
+  /* Interactive Colors */
+  --button-primary: #00A896;
+  --button-primary-hover: #008B7A;
+  --button-secondary: #2C3E50;
+  --button-secondary-hover: #1A252F;
+  
+  /* Status Colors */
+  --success: #00A896;
+  --error: #E74C3C;
+  --warning: #F39C12;
+  --info: #3498DB;
+  
+  /* Text Colors */
+  --text-primary: #2C3E50;
+  --text-secondary: #7F8C8D;
+  --text-light: #BDC3C7;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  direction: rtl;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .brand-gradient {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--accent-teal) 100%);
+  }
+  
+  .shadow-soft {
+    box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  }
+  
+  .shadow-medium {
+    box-shadow: 0 4px 16px rgba(44, 62, 80, 0.12);
+  }
+}
