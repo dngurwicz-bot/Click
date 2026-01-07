@@ -31,17 +31,35 @@ export async function middleware(request: NextRequest) {
     )
 
     // Refresh session to ensure cookies are up to date
-    await supabase.auth.getSession()
-    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    console.log('Session found:', !!session)
+    if (session) {
+      console.log('Token expires at:', new Date(session.expires_at! * 1000).toISOString())
+      console.log('System time:', new Date().toISOString())
+      // Log access token characters to verify it's not empty/malformed
+      console.log('Token start:', session.access_token.substring(0, 10) + '...')
+    }
+
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
 
+    console.log('Middleware Access:', request.nextUrl.pathname)
+    console.log('Cookies:', request.cookies.getAll().map(c => c.name))
+    console.log('User found:', !!user)
+    if (authError) {
+      console.error('Auth Error:', authError.message)
+    }
+    if (user) {
+      console.log('User ID:', user.id)
+    }
+
     // Protect dashboard routes
-    if (request.nextUrl.pathname.startsWith('/dashboard') || 
-        request.nextUrl.pathname.startsWith('/admin')) {
+    if (request.nextUrl.pathname.startsWith('/dashboard') ||
+      request.nextUrl.pathname.startsWith('/admin')) {
       if (!user) {
+        console.log('Redirecting to login (no user)')
         const loginUrl = new URL('/login', request.url)
         loginUrl.searchParams.set('redirect', request.nextUrl.pathname)
         return NextResponse.redirect(loginUrl)
@@ -50,6 +68,7 @@ export async function middleware(request: NextRequest) {
 
     // Redirect logged-in users away from login page
     if (request.nextUrl.pathname === '/login' && user) {
+      console.log('Redirecting to dashboard (user found)')
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 
@@ -60,15 +79,9 @@ export async function middleware(request: NextRequest) {
 
     return response
   } catch (error) {
-    // If there's an error with Supabase, allow the request to continue
-    // This prevents the entire app from breaking if Supabase is misconfigured
-    // Only log in development to avoid console errors in production
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Middleware error:', error)
-    }
+    console.error('Middleware error:', error)
     return response
   }
-
 }
 
 export const config = {
