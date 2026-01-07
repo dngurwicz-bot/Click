@@ -43,12 +43,8 @@ export default function LoginPage() {
         const { data: { session: verifySession } } = await supabase.auth.getSession()
         
         if (verifySession) {
-          // Use router.push first, then force reload if needed
-          router.push('/dashboard')
-          // Force a full page reload after a short delay to ensure middleware sees the session
-          setTimeout(() => {
-            window.location.href = '/dashboard'
-          }, 200)
+          // Force a full page reload to ensure middleware sees the session
+          window.location.href = '/dashboard'
         } else {
           setError('שגיאה בשמירת ה-session - נסה שוב')
           setLoading(false)
@@ -58,7 +54,10 @@ export default function LoginPage() {
         setLoading(false)
       }
     } catch (err: any) {
-      console.error('Login error:', err)
+      // Only log to console in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Login error:', err)
+      }
       setError(err.message || 'שגיאה בהתחברות')
       setLoading(false)
     }
