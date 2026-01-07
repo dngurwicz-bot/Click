@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api/client'
+import { api, Organization } from '@/lib/api/client'
 import Link from 'next/link'
-import { Building2, Plus, Edit2, Trash2, ArrowRight, Search, Loader2 } from 'lucide-react'
+import { Building2, Plus, Edit2, Trash2, ArrowRight, Search, Loader2, Users } from 'lucide-react'
 import Logo from '@/components/Logo'
 import Button from '@/components/ui/Button'
 import Card, { CardHeader, CardContent } from '@/components/ui/Card'
@@ -13,17 +13,18 @@ import Modal from '@/components/ui/Modal'
 import Badge from '@/components/ui/Badge'
 import { cn } from '@/lib/utils'
 
-interface Organization {
-  id: string
-  name: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
-
 interface OrganizationsContentProps {
   user: any
 }
+
+// Module Options
+const AVAILABLE_MODULES = [
+  { id: 'core', label: 'Click Core' },
+  { id: 'time', label: 'נוכחות' },
+  { id: 'salary', label: 'שכר' },
+  { id: 'welfare', label: 'רווחה' },
+  { id: 'recruitment', label: 'גיוס' }
+]
 
 export default function OrganizationsContent({ user }: OrganizationsContentProps) {
   const router = useRouter()
@@ -31,7 +32,10 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null)
-  const [formData, setFormData] = useState({ name: '', is_active: true })
+
+  // Form State
+  const [formData, setFormData] = useState({ name: '', is_active: true, modules: [] as string[] })
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -55,14 +59,14 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
 
   const handleCreate = () => {
     setEditingOrg(null)
-    setFormData({ name: '', is_active: true })
+    setFormData({ name: '', is_active: true, modules: ['core'] })
     setError(null)
     setShowModal(true)
   }
 
   const handleEdit = (org: Organization) => {
     setEditingOrg(org)
-    setFormData({ name: org.name, is_active: org.is_active })
+    setFormData({ name: org.name, is_active: org.is_active, modules: org.modules || [] })
     setError(null)
     setShowModal(true)
   }
@@ -100,6 +104,15 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
     }
   }
 
+  const toggleModule = (moduleId: string) => {
+    setFormData(prev => {
+      const modules = prev.modules.includes(moduleId)
+        ? prev.modules.filter(m => m !== moduleId)
+        : [...prev.modules, moduleId]
+      return { ...prev, modules }
+    })
+  }
+
   const filteredOrganizations = organizations.filter(org =>
     org.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
@@ -113,8 +126,8 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
             <div className="flex items-center gap-6">
               <Logo size="md" showSubtext={false} />
               <div className="h-6 w-px bg-gray-300" />
-              <Link 
-                href="/dashboard" 
+              <Link
+                href="/dashboard"
                 className="flex items-center gap-2 text-sm font-medium transition-colors hover:text-accent"
                 style={{ color: 'var(--text-secondary)' }}
               >
@@ -153,9 +166,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
 
           {/* Search Bar */}
           <div className="relative max-w-md">
-            <Search 
-              className="absolute right-3 top-1/2 transform -translate-y-1/2" 
-              size={18} 
+            <Search
+              className="absolute right-3 top-1/2 transform -translate-y-1/2"
+              size={18}
               style={{ color: 'var(--text-tertiary)' }}
             />
             <Input
@@ -182,16 +195,16 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
           ) : filteredOrganizations.length === 0 ? (
             <CardContent>
               <div className="text-center py-12">
-                <Building2 
-                  className="mx-auto mb-4 opacity-50" 
-                  size={48} 
+                <Building2
+                  className="mx-auto mb-4 opacity-50"
+                  size={48}
                   style={{ color: 'var(--text-tertiary)' }}
                 />
                 <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
                   {searchQuery ? 'לא נמצאו תוצאות' : 'אין ארגונים'}
                 </h3>
                 <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-                  {searchQuery 
+                  {searchQuery
                     ? 'נסה לשנות את מילות החיפוש'
                     : 'התחל על ידי יצירת ארגון חדש'
                   }
@@ -221,52 +234,34 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                 <table className="min-w-full divide-y" style={{ borderColor: 'var(--border-color)' }}>
                   <thead style={{ background: 'var(--gray-50)' }}>
                     <tr>
-                      <th 
-                        className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        שם הארגון
-                      </th>
-                      <th 
-                        className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        סטטוס
-                      </th>
-                      <th 
-                        className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        תאריך יצירה
-                      </th>
-                      <th 
-                        className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        פעולות
-                      </th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>שם הארגון</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>מודולים</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>סטטוס</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>פעולות</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y bg-white" style={{ borderColor: 'var(--border-color)' }}>
                     {filteredOrganizations.map((org) => (
-                      <tr 
-                        key={org.id} 
+                      <tr
+                        key={org.id}
                         className="hover:bg-gray-50 transition-colors cursor-pointer"
                         onClick={() => handleEdit(org)}
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-3">
-                            <div 
-                              className="p-2 rounded-lg"
-                              style={{ background: 'var(--accent-teal-light)' }}
-                            >
+                            <div className="p-2 rounded-lg" style={{ background: 'var(--accent-teal-light)' }}>
                               <Building2 size={18} style={{ color: 'var(--accent-teal)' }} />
                             </div>
                             <div>
-                              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                {org.name}
-                              </div>
+                              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{org.name}</div>
                             </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex gap-1 flex-wrap max-w-[200px]">
+                            {org.modules?.map(m => (
+                              <Badge key={m} variant="default" className="text-[10px] px-1.5 py-0.5">{AVAILABLE_MODULES.find(am => am.id === m)?.label || m}</Badge>
+                            ))}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -275,30 +270,16 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                           </Badge>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                            {new Date(org.created_at).toLocaleDateString('he-IL', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            })}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => handleEdit(org)}
-                              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                              style={{ color: 'var(--accent-teal)' }}
-                              title="עריכה"
-                            >
+                            <Link href={`/admin/organizations/${org.id}/users`}>
+                              <button className="p-2 rounded-lg hover:bg-blue-50 transition-colors text-blue-600" title="ניהול משתמשים">
+                                <Users size={18} />
+                              </button>
+                            </Link>
+                            <button onClick={() => handleEdit(org)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-teal-600" title="עריכה">
                               <Edit2 size={18} />
                             </button>
-                            <button
-                              onClick={() => handleDelete(org.id)}
-                              className="p-2 rounded-lg hover:bg-red-50 transition-colors"
-                              style={{ color: 'var(--error)' }}
-                              title="מחיקה"
-                            >
+                            <button onClick={() => handleDelete(org.id)} className="p-2 rounded-lg hover:bg-red-50 transition-colors text-red-600" title="מחיקה">
                               <Trash2 size={18} />
                             </button>
                           </div>
@@ -321,11 +302,7 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
         >
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
-              <div className="p-4 rounded-lg border" style={{ 
-                background: 'var(--error-light)', 
-                borderColor: 'var(--error)',
-                color: 'var(--error)'
-              }}>
+              <div className="p-4 rounded-lg border bg-red-50 border-red-200 text-red-600">
                 <p className="text-sm font-medium">{error}</p>
               </div>
             )}
@@ -340,38 +317,44 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
               error={error && !formData.name ? 'שדה חובה' : undefined}
             />
 
-            <div className="flex items-center gap-3 p-4 rounded-lg" style={{ background: 'var(--gray-50)' }}>
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700">מודולים פעילים</label>
+              <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+                {AVAILABLE_MODULES.map(module => (
+                  <div key={module.id} className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id={`mod-${module.id}`}
+                      checked={formData.modules.includes(module.id)}
+                      onChange={() => toggleModule(module.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <label htmlFor={`mod-${module.id}`} className="mr-2 text-sm text-gray-700 cursor-pointer select-none">
+                      {module.label}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-gray-50">
               <input
                 type="checkbox"
                 id="is_active"
                 checked={formData.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-2 focus:ring-accent"
+                className="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
               />
-              <label 
-                htmlFor="is_active" 
-                className="text-sm font-medium cursor-pointer"
-                style={{ color: 'var(--text-primary)' }}
-              >
+              <label htmlFor="is_active" className="text-sm font-medium cursor-pointer text-gray-700">
                 ארגון פעיל
               </label>
             </div>
 
             <div className="flex gap-3 pt-4">
-              <Button
-                type="button"
-                onClick={() => setShowModal(false)}
-                variant="outline"
-                className="flex-1"
-              >
+              <Button type="button" onClick={() => setShowModal(false)} variant="outline" className="flex-1">
                 ביטול
               </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                isLoading={saving}
-                className="flex-1"
-              >
+              <Button type="submit" variant="primary" isLoading={saving} className="flex-1">
                 {editingOrg ? 'עדכן' : 'צור ארגון'}
               </Button>
             </div>
