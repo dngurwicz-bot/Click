@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Building2, Users, Shield, ArrowRight } from 'lucide-react'
+import { Building2, Users, Shield, ArrowRight, Bell } from 'lucide-react'
 import Link from 'next/link'
 
 export default function SettingsPage() {
@@ -10,6 +10,7 @@ export default function SettingsPage() {
             title: 'ניהול מערכת',
             items: [
                 { label: 'ניהול ארגונים', icon: Building2, href: '/admin/organizations', description: 'הוספה ועריכה של ארגונים במערכת' },
+                { label: 'ניהול עדכונים', icon: Bell, href: '/settings/updates', description: 'פרסום הודעות ועדכונים לעובדי הארגון' },
                 { label: 'ניהול משתמשים', icon: Users, href: '#', description: 'ניהול הרשאות ומשתמשי מערכת' },
             ]
         },

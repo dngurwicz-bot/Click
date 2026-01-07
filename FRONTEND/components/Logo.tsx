@@ -1,4 +1,5 @@
 import React from 'react'
+import Link from 'next/link'
 
 interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
@@ -33,7 +34,7 @@ export default function Logo({ size = 'md', showSubtext = true, className = '', 
     },
     light: {
       text: '#FFFFFF',
-      dot: '#00A896', // Keep teal dot or make it white? Keeping teal for brand identity unless requested otherwise.
+      dot: '#00A896',
       line: 'rgba(255, 255, 255, 0.3)',
       subtext: 'rgba(255, 255, 255, 0.8)'
     }
@@ -42,42 +43,44 @@ export default function Logo({ size = 'md', showSubtext = true, className = '', 
   const currentColors = colors[variant]
 
   return (
-    <div
-      className={`flex items-center justify-center cursor-pointer gap-2.5 ${className}`}
-      style={{
-        direction: 'ltr',
-        fontFamily: "'Rubik', sans-serif"
-      }}
-    >
+    <Link href="/dashboard">
       <div
-        className={`font-black ${sizeClasses[size] || sizeClasses.md}`}
+        className={`flex items-center justify-center cursor-pointer gap-2.5 hover:opacity-80 transition-opacity ${className}`}
         style={{
-          color: currentColors.text,
-          letterSpacing: '-1px'
+          direction: 'ltr',
+          fontFamily: "'Rubik', sans-serif"
         }}
       >
-        CLICK<span style={{ color: currentColors.dot }}>.</span>
-      </div>
-
-      <div
-        className="w-px"
-        style={{
-          height: size === '2xl' ? '40px' : '20px',
-          backgroundColor: currentColors.line
-        }}
-      />
-
-      {showSubtext && (
         <div
-          className={`font-medium ${subtextSize[size] || subtextSize.md}`}
+          className={`font-black ${sizeClasses[size] || sizeClasses.md}`}
           style={{
-            color: currentColors.subtext,
-            lineHeight: '1.2'
+            color: currentColors.text,
+            letterSpacing: '-1px'
           }}
         >
-          DNG<br />HUB
+          CLICK<span style={{ color: currentColors.dot }}>.</span>
         </div>
-      )}
-    </div>
+
+        <div
+          className="w-px"
+          style={{
+            height: size === '2xl' ? '40px' : '20px',
+            backgroundColor: currentColors.line
+          }}
+        />
+
+        {showSubtext && (
+          <div
+            className={`font-medium ${subtextSize[size] || subtextSize.md}`}
+            style={{
+              color: currentColors.subtext,
+              lineHeight: '1.2'
+            }}
+          >
+            DNG<br />HUB
+          </div>
+        )}
+      </div>
+    </Link>
   )
 }

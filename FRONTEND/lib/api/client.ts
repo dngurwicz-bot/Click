@@ -102,6 +102,62 @@ class ApiClient {
     if (error) throw error
     return data as OrgUser
   }
+
+  // Updates
+  async getUpdates(orgId?: string) {
+    let query = this.supabase
+      .from('updates')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    // If orgId is provided, filter by it. 
+    // Otherwise RLS will handle it (User sees own, Admin sees all - but usually Admin wants to filter)
+    if (orgId) {
+      query = query.eq('org_id', orgId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      // If table doesn't exist yet, return empty to avoid crash during dev
+      console.warn('Error fetching updates:', error)
+      return []
+    }
+    return data
+  }
+
+  async createUpdate(update: { org_id: string; title: string; content: string; link?: string; link_text?: string }) {
+    const { data, error } = await this.supabase
+      .from('updates')
+      .insert([update])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+
+  async deleteUpdate(id: string) {
+    const { error } = await this.supabase
+      .from('updates')
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+    return true
+  }
+
+  async updateUpdate(id: string, update: { title?: string; content?: string; link?: string; link_text?: string }) {
+    const { data, error } = await this.supabase
+      .from('updates')
+      .update(update)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
 }
 
 export const api = new ApiClient()
