@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "files": [],
+  "include": [],
+  "exclude": ["**/*"]
+}
