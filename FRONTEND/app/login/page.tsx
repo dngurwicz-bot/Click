@@ -35,12 +35,30 @@ export default function LoginPage() {
         return
       }
 
-      if (data.user) {
-        // Redirect to dashboard after successful login
-        router.push('/dashboard')
-        router.refresh()
+      if (data.user && data.session) {
+        // Wait for cookies to be set by Supabase
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Verify session is set
+        const { data: { session: verifySession } } = await supabase.auth.getSession()
+        
+        if (verifySession) {
+          // Use router.push first, then force reload if needed
+          router.push('/dashboard')
+          // Force a full page reload after a short delay to ensure middleware sees the session
+          setTimeout(() => {
+            window.location.href = '/dashboard'
+          }, 200)
+        } else {
+          setError('שגיאה בשמירת ה-session - נסה שוב')
+          setLoading(false)
+        }
+      } else {
+        setError('התחברות נכשלה - אין session')
+        setLoading(false)
       }
     } catch (err: any) {
+      console.error('Login error:', err)
       setError(err.message || 'שגיאה בהתחברות')
       setLoading(false)
     }
