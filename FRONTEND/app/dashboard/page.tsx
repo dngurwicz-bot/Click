@@ -19,6 +19,8 @@ import OrganizationSwitcher from '@/components/dashboard/OrganizationSwitcher'
 
 // ... existing imports
 
+import UserAvatar from '@/components/dashboard/UserAvatar'
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -34,7 +36,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       {/* Navigation Bar */}
       <nav className="bg-white shadow-sm border-b sticky top-0 z-40" style={{ borderColor: 'var(--border-color)' }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-6">
               <Logo size="md" />
@@ -50,16 +52,14 @@ export default async function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                {user?.email || 'Guest User'}
-              </span>
               <LogoutButton />
+              <UserAvatar user={user} />
             </div>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" dir="rtl">
+      <main className="w-full px-4 sm:px-6 lg:px-8 py-8" dir="rtl">
         <div className="grid grid-cols-12 gap-6">
           {/* Top Row: User Card + Quick Actions */}
           <div className="col-span-12 lg:col-span-4">

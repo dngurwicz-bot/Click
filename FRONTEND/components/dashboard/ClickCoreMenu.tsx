@@ -29,13 +29,13 @@ export default function ClickCoreMenu() {
         <div className="relative" ref={menuRef}>
             <div
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors group"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors group"
             >
-                <div className="p-1.5 bg-blue-500 rounded-md text-white group-hover:scale-105 transition-transform">
+                <div className="p-1 bg-blue-600 rounded text-white shadow-sm">
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -49,11 +49,11 @@ export default function ClickCoreMenu() {
                         <rect width="7" height="7" x="3" y="14" rx="1" />
                     </svg>
                 </div>
-                <div className="flex flex-col">
-                    <span className="text-sm font-bold text-blue-900 leading-none">C.C</span>
-                    <span className="text-[10px] text-blue-600 font-medium pt-0.5">ניהול ארגוני מתקדם</span>
+                <div className="flex flex-col items-start">
+                    <span className="text-sm font-bold text-gray-700 leading-tight group-hover:text-blue-600 transition-colors">C.C</span>
+                    {/* <span className="text-[10px] text-gray-400 font-medium">ניהול ארגוני</span> */}
                 </div>
-                <ChevronDown size={14} className={`text-blue-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`text-gray-400 ml-1 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
             </div>
 
             {isOpen && (

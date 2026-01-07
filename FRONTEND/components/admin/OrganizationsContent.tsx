@@ -40,7 +40,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
     contact_name: '',
     contact_email: '',
     is_active: true,
-    modules: [] as string[]
+    modules: [] as string[],
+    is_master: false,
+    sync_with_master: false
   })
 
   const [saving, setSaving] = useState(false)
@@ -72,7 +74,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
       contact_name: '',
       contact_email: '',
       is_active: true,
-      modules: ['core']
+      modules: ['core'],
+      is_master: false,
+      sync_with_master: false
     })
     setError(null)
     setShowModal(true)
@@ -86,7 +90,9 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
       contact_name: org.contact_name || '',
       contact_email: org.contact_email || '',
       is_active: org.is_active,
-      modules: org.modules || []
+      modules: org.modules || [],
+      is_master: org.is_master || false,
+      sync_with_master: org.sync_with_master || false
     })
     setError(null)
     setShowModal(true)
@@ -281,7 +287,12 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
                               <Building2 size={18} style={{ color: 'var(--accent-teal)' }} />
                             </div>
                             <div>
-                              <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{org.name}</div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{org.name}</div>
+                                {org.is_master && (
+                                  <Badge variant="default" className="bg-purple-100 text-purple-700 border-purple-200 text-[10px] px-1.5 py-0.5">MASTER</Badge>
+                                )}
+                              </div>
                               {org.hp && (
                                 <div className="text-xs text-gray-500 flex items-center gap-1">
                                   <Hash size={10} />
@@ -414,6 +425,37 @@ export default function OrganizationsContent({ user }: OrganizationsContentProps
               <label htmlFor="is_active" className="text-sm font-medium cursor-pointer text-gray-700">
                 ארגון פעיל
               </label>
+            </div>
+
+            {/* Advanced Settings */}
+            <div className="space-y-3 p-4 rounded-lg bg-gray-50 border border-gray-200">
+              <h4 className="text-sm font-semibold text-gray-700">הגדרות מתקדמות</h4>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="is_master"
+                  checked={formData.is_master}
+                  onChange={(e) => setFormData({ ...formData, is_master: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <label htmlFor="is_master" className="text-sm text-gray-700 cursor-pointer">
+                  <span className="font-medium">Master Organization</span> (ארגון תבנית לבדיקות)
+                </label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="sync_with_master"
+                  checked={formData.sync_with_master}
+                  onChange={(e) => setFormData({ ...formData, sync_with_master: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="sync_with_master" className="text-sm text-gray-700 cursor-pointer">
+                  קבל עדכונים מארגון Master
+                </label>
+              </div>
             </div>
 
             <div className="flex gap-3 pt-4">

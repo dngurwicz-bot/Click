@@ -10,6 +10,8 @@ export interface Organization {
   contact_email?: string
   is_active: boolean
   modules?: string[]
+  is_master?: boolean
+  sync_with_master?: boolean
   created_at: string
   updated_at: string
 }
