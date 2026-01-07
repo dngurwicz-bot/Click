@@ -2,6 +2,24 @@
 
 מערכת SAAS רב-ארגונית לניהול משאבי אנוש עם הפרדה מלאה בין ארגונים.
 
+## מבנה הפרויקט
+
+```
+Click/
+├── BACKEND/          # FastAPI Backend
+│   ├── main.py       # Main API file
+│   ├── requirements.txt
+│   └── scripts/      # Database scripts
+│
+├── FRONTEND/         # Next.js Frontend
+│   ├── app/          # Pages and routes
+│   ├── components/   # React components
+│   ├── lib/          # Utilities and API client
+│   └── package.json
+│
+└── README.md
+```
+
 ## תכונות עיקריות
 
 ### מודול CLICK CORE (חובה לכל ארגון)
@@ -13,64 +31,84 @@
 
 ## טכנולוגיות
 
+### Frontend
 - **Next.js 14** - Framework עם App Router
 - **TypeScript** - Type safety
-- **Supabase** - מסד נתונים ואימות
 - **Tailwind CSS** - עיצוב
-- **Row Level Security (RLS)** - הפרדה מלאה בין ארגונים
+- **Supabase** - מסד נתונים ואימות
+
+### Backend
+- **FastAPI** - Python web framework
+- **Supabase** - Database backend
+- **Python 3.9+** - Runtime
 
 ## התקנה
 
-1. התקן dependencies:
+### Backend
+
+1. עבור לתיקיית backend:
+```bash
+cd BACKEND
+```
+
+2. התקן את התלויות:
+```bash
+pip install -r requirements.txt
+```
+
+3. צור קובץ `.env`:
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+PORT=8000
+```
+
+4. הרץ את השרת:
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+### Frontend
+
+1. עבור לתיקיית frontend:
+```bash
+cd FRONTEND
+```
+
+2. התקן את התלויות:
 ```bash
 npm install
 ```
 
-2. הגדר משתני סביבה:
-```bash
-cp .env.example .env
+3. צור קובץ `.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-ערוך את `.env` והוסף את פרטי Supabase שלך:
-```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-```
-
-3. הפעל את סכמת מסד הנתונים:
-- פתח את Supabase Dashboard
-- עבור ל-SQL Editor
-- העתק והפעל את התוכן מ-`supabase/schema.sql`
-- **חשוב**: ודא ש-Row Level Security (RLS) מופעל על כל הטבלאות
-
-4. צור משתמש ראשון:
-- פתח את Supabase Dashboard
-- עבור ל-Authentication > Users
-- צור משתמש חדש
-- לאחר מכן, הפעל את השאילתה הבאה ב-SQL Editor כדי לקשר את המשתמש לארגון:
-```sql
--- צור ארגון ראשון
-INSERT INTO organizations (name) VALUES ('ארגון ראשון');
-
--- קשר את המשתמש לארגון (החלף את USER_ID ב-ID של המשתמש שיצרת)
-INSERT INTO users (id, organization_id, email, role)
-VALUES (
-  'USER_ID', -- החלף ב-ID של המשתמש מ-Auth
-  (SELECT id FROM organizations WHERE name = 'ארגון ראשון' LIMIT 1),
-  'your-email@example.com', -- החלף באימייל של המשתמש
-  'super_admin' -- או 'admin' או 'user'
-);
-```
-
-5. הפעל את השרת:
+4. הרץ את השרת:
 ```bash
 npm run dev
 ```
 
-6. התחבר למערכת:
-- פתח את הדפדפן בכתובת `http://localhost:3000`
-- התחבר עם האימייל והסיסמה שיצרת ב-Supabase
+האפליקציה תהיה זמינה ב: `http://localhost:3000`
+
+## הרצה
+
+1. **הרץ את ה-backend תחילה** (בטרמינל אחד):
+```bash
+cd BACKEND
+uvicorn main:app --reload --port 8000
+```
+
+2. **הרץ את ה-frontend** (בטרמינל שני):
+```bash
+cd FRONTEND
+npm run dev
+```
+
+3. פתח בדפדפן: `http://localhost:3000`
 
 ## מבנה מסד הנתונים
 

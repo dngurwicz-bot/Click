@@ -43,3 +43,6 @@ yarn-error.log*
 # Testing
 .coverage
 .pytest_cache/
+
+# Build outputs
+*.tsbuildinfo
