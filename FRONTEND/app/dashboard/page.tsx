@@ -8,13 +8,20 @@ import Link from 'next/link'
 import { Building2, Users, FileText, Settings } from 'lucide-react'
 import LogoutButton from '@/components/LogoutButton'
 
+import HilanIcon from '@/components/HilanIcon'
+
+// ... existing imports
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  // if (!user) {
+  //   redirect('/login')
+  // }
+
+  // Debug log
+  console.log('Dashboard Rendered. User:', user ? user.id : 'None')
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
@@ -22,10 +29,18 @@ export default async function DashboardPage() {
       <nav className="bg-white shadow-sm border-b sticky top-0 z-40" style={{ borderColor: 'var(--border-color)' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <Logo size="md" />
+            <div className="flex items-center gap-6">
+              <Logo size="md" />
+              {/* Hilan-style Icons */}
+              <div className="hidden md:flex items-center gap-4 mr-8">
+                <HilanIcon letter="A" label="ניהול מערכת" variant="yellow" />
+                <HilanIcon letter="N" label="שירותי נט" variant="green" />
+              </div>
+            </div>
+
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                {user.email}
+                {user?.email || 'Guest User'}
               </span>
               <LogoutButton />
             </div>

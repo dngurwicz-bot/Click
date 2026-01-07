@@ -9,18 +9,17 @@ export async function updateSession(request: NextRequest) {
     })
 
     // 1. Create Supabase Client
-    console.log('UpdateSession for:', request.nextUrl.pathname)
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
             cookies: {
                 getAll() {
-                    const cookies = request.cookies.getAll()
-                    console.log('Middleware Cookies:', cookies.map(c => c.name))
-                    return cookies
+                    const all = request.cookies.getAll()
+                    console.log('Middleware Cookies:', all.map(c => c.name))
+                    return all
                 },
-                setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
+                setAll(cookiesToSet) {
                     cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
                     response = NextResponse.next({
                         request,
@@ -34,26 +33,20 @@ export async function updateSession(request: NextRequest) {
     )
 
     // 2. Refresh Session
-    // This will refresh the session if needed and update cookies.
-    // getUser() is used instead of getSession() for security in newer Supabase versions
     const { data: { user }, error } = await supabase.auth.getUser()
-    console.log('User found (lib):', !!user)
-    if (error) console.error('Auth Error (lib):', error.message)
-    if (user) console.log('User ID (lib):', user.id)
 
-    // 3. Protected Routes Logic
+    // 3. Protected Routes
     if (request.nextUrl.pathname.startsWith('/dashboard') ||
         request.nextUrl.pathname.startsWith('/admin')) {
         if (error || !user) {
             const loginUrl = new URL('/login', request.url)
-            loginUrl.searchParams.set('redirect', request.nextUrl.pathname)
             return NextResponse.redirect(loginUrl)
         }
     }
 
-    // Redirect logged-in users away from login
+    // 4. Redirect logged-in users
     if (request.nextUrl.pathname === '/login') {
-        if (!error && user) {
+        if (user) {
             return NextResponse.redirect(new URL('/dashboard', request.url))
         }
     }
