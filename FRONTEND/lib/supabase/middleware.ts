@@ -9,13 +9,16 @@ export async function updateSession(request: NextRequest) {
     })
 
     // 1. Create Supabase Client
+    console.log('UpdateSession for:', request.nextUrl.pathname)
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
             cookies: {
                 getAll() {
-                    return request.cookies.getAll()
+                    const cookies = request.cookies.getAll()
+                    console.log('Middleware Cookies:', cookies.map(c => c.name))
+                    return cookies
                 },
                 setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
                     cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
@@ -34,6 +37,9 @@ export async function updateSession(request: NextRequest) {
     // This will refresh the session if needed and update cookies.
     // getUser() is used instead of getSession() for security in newer Supabase versions
     const { data: { user }, error } = await supabase.auth.getUser()
+    console.log('User found (lib):', !!user)
+    if (error) console.error('Auth Error (lib):', error.message)
+    if (user) console.log('User ID (lib):', user.id)
 
     // 3. Protected Routes Logic
     if (request.nextUrl.pathname.startsWith('/dashboard') ||
