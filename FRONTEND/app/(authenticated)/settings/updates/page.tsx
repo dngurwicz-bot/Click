@@ -23,6 +23,7 @@ interface Update {
     link?: string
     link_text?: string
     created_at: string
+    is_global: boolean
 }
 
 export default function UpdatesManagementPage() {
@@ -205,8 +206,8 @@ export default function UpdatesManagementPage() {
                         <button
                             onClick={() => setActiveTab('org')}
                             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'org'
-                                    ? 'bg-teal-50 text-teal-700 shadow-sm'
-                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                ? 'bg-teal-50 text-teal-700 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                                 }`}
                         >
                             עדכוני ארגון
@@ -214,8 +215,8 @@ export default function UpdatesManagementPage() {
                         <button
                             onClick={() => setActiveTab('global')}
                             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'global'
-                                    ? 'bg-purple-50 text-purple-700 shadow-sm'
-                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                ? 'bg-purple-50 text-purple-700 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                                 }`}
                         >
                             הודעות מערכת
