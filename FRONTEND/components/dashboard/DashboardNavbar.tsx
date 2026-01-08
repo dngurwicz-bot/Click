@@ -1,4 +1,5 @@
-'use client'
+import Link from 'next/link'
+import { Settings } from 'lucide-react'
 
 import React from 'react'
 import Logo from '@/components/Logo'
@@ -52,6 +53,13 @@ export default function DashboardNavbar({ user }: DashboardNavbarProps) {
                     </div>
 
                     <div className="flex items-center gap-4">
+                        <Link
+                            href="/settings"
+                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                            title="הגדרות מערכת"
+                        >
+                            <Settings size={20} />
+                        </Link>
                         <LogoutButton />
                         <UserAvatar user={user} />
                     </div>

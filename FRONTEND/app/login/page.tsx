@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Mail, Lock, Loader2 } from 'lucide-react'
@@ -27,25 +28,15 @@ export default function LoginPage() {
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
-        console.log('Login button clicked')
-        console.log('Env Check:', {
-            url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-            key: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-        })
-
         setLoading(true)
         setError(null)
 
         try {
-            console.log('Creating client...')
             const supabase = createClient()
-
-            console.log('Sending signIn request...')
             const { data, error } = await supabase.auth.signInWithPassword({
                 email,
                 password,
             })
-            console.log('SignIn Response:', { data: !!data, error })
 
             if (error) {
                 console.error('Login error:', error)
@@ -55,14 +46,10 @@ export default function LoginPage() {
             }
 
             if (data.user) {
-                console.log('User found, redirecting...')
                 router.refresh()
-                // Wait a small amount to ensuring cookies are set
                 setTimeout(() => {
                     window.location.href = '/dashboard'
                 }, 300)
-            } else {
-                console.warn('No user in response data')
             }
         } catch (err) {
             console.error('Unexpected error trace:', err)
@@ -90,14 +77,21 @@ export default function LoginPage() {
                                 placeholder="your@email.com"
                                 required
                             />
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-4 py-3 border rounded-lg"
-                                placeholder="••••••••"
-                                required
-                            />
+                            <div className="space-y-1">
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full px-4 py-3 border rounded-lg"
+                                    placeholder="••••••••"
+                                    required
+                                />
+                                <div className="text-left rtl:text-left w-full">
+                                    <Link href="/forgot-password" className="text-sm text-[#00A896] hover:underline hover:text-[#008B7A] transition-colors">
+                                        שכחת סיסמה?
+                                    </Link>
+                                </div>
+                            </div>
                         </div>
 
                         {error && (
@@ -116,9 +110,7 @@ export default function LoginPage() {
                     </form>
                 </div>
             </div>
-            <div className="absolute top-4 right-4">
-                <a href="/dashboard" className="text-xs text-gray-300 hover:text-gray-500">Manual Dashboard Link</a>
-            </div>
+
             <div className="hidden lg:flex w-1/2 bg-[#2C3E50] items-center justify-center">
                 <Logo size="2xl" variant="light" />
             </div>

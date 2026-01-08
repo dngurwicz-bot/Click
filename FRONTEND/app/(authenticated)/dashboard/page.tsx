@@ -16,6 +16,7 @@ import ClickCoreMenu from '@/components/dashboard/ClickCoreMenu'
 // ... existing imports
 
 import OrganizationSwitcher from '@/components/dashboard/OrganizationSwitcher'
+import GlobalAnnouncementModal from '@/components/dashboard/GlobalAnnouncementModal'
 
 // ... existing imports
 
@@ -34,32 +35,10 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      {/* Navigation Bar */}
-      <nav className="bg-white shadow-sm border-b sticky top-0 z-40" style={{ borderColor: 'var(--border-color)' }}>
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-6">
-              <Logo size="md" />
-              {/* Organization Switcher */}
-              <div className="ml-4">
-                <OrganizationSwitcher />
-              </div>
-              {/* Modules Navigation */}
-              <div className="hidden md:flex items-center gap-6 mr-4">
-                <div className="h-6 w-px bg-gray-200" />
-                <ClickCoreMenu />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <LogoutButton />
-              <UserAvatar user={user} />
-            </div>
-          </div>
-        </div>
-      </nav>
+      {/* Navigation Bar Removed (Moved to Layout) */}
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-8" dir="rtl">
+        <GlobalAnnouncementModal />
         <div className="grid grid-cols-12 gap-6">
           {/* Top Row: User Card + Quick Actions */}
           <div className="col-span-12 lg:col-span-4">

@@ -5,7 +5,6 @@ import { UserPlus, Building2, FileBarChart, Settings } from 'lucide-react'
 export default function QuickActions() {
     const actions = [
         { label: 'הוספת עובד', icon: UserPlus, color: 'text-emerald-500', bg: 'bg-emerald-50', href: '/employees' },
-        { label: 'הגדרות מערכת', icon: Settings, color: 'text-slate-500', bg: 'bg-slate-50', href: '/settings' },
         { label: 'דוחות', icon: FileBarChart, color: 'text-purple-500', bg: 'bg-purple-50', href: '/dashboard' },
     ]
 

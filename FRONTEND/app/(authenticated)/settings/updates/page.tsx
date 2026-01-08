@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api/client'
+import { useOrganization } from '@/contexts/OrganizationContext'
 import Link from 'next/link'
 import { Bell, Plus, Edit2, Trash2, ArrowRight, Loader2 } from 'lucide-react'
 import Logo from '@/components/Logo'
@@ -10,9 +11,9 @@ import Card, { CardHeader, CardContent } from '@/components/ui/Card'
 import Input from '@/components/ui/Input'
 import Modal from '@/components/ui/Modal'
 import dynamic from 'next/dynamic'
-import 'react-quill/dist/quill.snow.css'
+import 'react-quill-new/dist/quill.snow.css'
 
-const ReactQuill = dynamic(() => import('react-quill'), { ssr: false })
+const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false })
 
 interface Update {
     id: string
@@ -25,24 +26,45 @@ interface Update {
 }
 
 export default function UpdatesManagementPage() {
+    const { organization } = useOrganization()
     const [updates, setUpdates] = useState<Update[]>([])
     const [loading, setLoading] = useState(true)
     const [showModal, setShowModal] = useState(false)
     const [editingUpdate, setEditingUpdate] = useState<Update | null>(null)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [selectedOrgId, setSelectedOrgId] = useState<string>('')
+    const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
     const [formData, setFormData] = useState({
         title: '',
         content: '',
         link: '',
-        link_text: ''
+        link_text: '',
+        is_global: false
+    })
+
+    const [activeTab, setActiveTab] = useState<'org' | 'global'>('org')
+
+    // Filter updates based on active tab
+    const filteredUpdates = updates.filter(update => {
+        if (activeTab === 'global') return update.is_global
+        return !update.is_global
     })
 
     useEffect(() => {
-        loadUpdates()
+        checkSuperAdmin()
     }, [])
+
+    useEffect(() => {
+        loadUpdates()
+    }, [organization])
+
+    const checkSuperAdmin = async () => {
+        const employee = await api.getCurrentEmployee()
+        if (employee && employee.is_super_admin) {
+            setIsSuperAdmin(true)
+        }
+    }
 
     // Warn about unsaved changes
     useEffect(() => {
@@ -58,14 +80,14 @@ export default function UpdatesManagementPage() {
     }, [showModal, formData])
 
     const loadUpdates = async () => {
+        // Fetch all updates (both org and global if super admin - though api might limit)
+        // Actually api.getUpdates(orgId) now gets both.
+        if (!organization) return
+
         try {
             setLoading(true)
-            const orgs = await api.getOrganizations()
-            if (orgs.length > 0) {
-                setSelectedOrgId(orgs[0].id)
-                const data = await api.getUpdates(orgs[0].id)
-                setUpdates(data as Update[])
-            }
+            const data = await api.getUpdates(organization.id)
+            setUpdates(data as Update[])
         } catch (err: any) {
             console.error('Error loading updates:', err)
         } finally {
@@ -75,7 +97,14 @@ export default function UpdatesManagementPage() {
 
     const handleCreate = () => {
         setEditingUpdate(null)
-        setFormData({ title: '', content: '', link: '', link_text: '' })
+        // Set is_global based on active tab
+        setFormData({
+            title: '',
+            content: '',
+            link: '',
+            link_text: '',
+            is_global: activeTab === 'global'
+        })
         setError(null)
         setShowModal(true)
     }
@@ -86,7 +115,8 @@ export default function UpdatesManagementPage() {
             title: update.title,
             content: update.content,
             link: update.link || '',
-            link_text: update.link_text || ''
+            link_text: update.link_text || '',
+            is_global: update.is_global || false
         })
         setError(null)
         setShowModal(true)
@@ -109,8 +139,10 @@ export default function UpdatesManagementPage() {
         try {
             if (editingUpdate) {
                 await api.updateUpdate(editingUpdate.id, formData)
-            } else {
-                await api.createUpdate({ org_id: selectedOrgId, ...formData })
+            } else if (organization) {
+                // If global, we might want org_id to be null or keep it as author's org.
+                // Keeping author's org is fine for tracking who sent it.
+                await api.createUpdate({ org_id: organization.id, ...formData })
             }
             setShowModal(false)
             await loadUpdates()
@@ -135,32 +167,61 @@ export default function UpdatesManagementPage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            <nav className="bg-white shadow-sm border-b">
+            <div className="bg-white shadow-sm border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center gap-6">
-                            <Logo size="md" showSubtext={false} />
-                            <div className="h-6 w-px bg-gray-300" />
                             <Link href="/settings" className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-teal-600">
                                 <ArrowRight size={16} />
                                 חזרה להגדרות
                             </Link>
+                            <div className="h-6 w-px bg-gray-300" />
                             <h1 className="text-xl font-bold text-gray-900">ניהול עדכונים</h1>
                         </div>
                     </div>
                 </div>
-            </nav>
+            </div>
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="mb-8 flex justify-between items-center">
                     <div>
-                        <h2 className="text-3xl font-bold text-gray-900">עדכונים והודעות</h2>
-                        <p className="text-sm text-gray-600">נהל הודעות והכרזות לעובדי הארגון</p>
+                        <h2 className="text-3xl font-bold text-gray-900">
+                            {activeTab === 'global' ? 'הודעות מערכת' : 'עדכוני ארגון'}
+                        </h2>
+                        <p className="text-sm text-gray-600">
+                            {activeTab === 'global'
+                                ? 'ניהול הודעות גלובליות לכלל לקוחות המערכת'
+                                : 'ניהול הודעות פנימיות לעובדי הארגון שלך'
+                            }
+                        </p>
                     </div>
                     <Button onClick={handleCreate} variant="primary" icon={Plus} iconPosition="right">
-                        עדכון חדש
+                        {activeTab === 'global' ? 'הודעה חדשה' : 'עדכון חדש'}
                     </Button>
                 </div>
+
+                {isSuperAdmin && (
+                    <div className="flex space-x-1 bg-white p-1 rounded-lg border border-gray-200 mb-6 w-fit mx-auto sm:mx-0">
+                        <button
+                            onClick={() => setActiveTab('org')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'org'
+                                    ? 'bg-teal-50 text-teal-700 shadow-sm'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            עדכוני ארגון
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('global')}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'global'
+                                    ? 'bg-purple-50 text-purple-700 shadow-sm'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            הודעות מערכת
+                        </button>
+                    </div>
+                )}
 
                 <Card variant="elevated">
                     {loading ? (
@@ -170,30 +231,39 @@ export default function UpdatesManagementPage() {
                                 <p className="text-sm text-gray-600">טוען עדכונים...</p>
                             </div>
                         </CardContent>
-                    ) : updates.length === 0 ? (
+                    ) : filteredUpdates.length === 0 ? (
                         <CardContent>
                             <div className="text-center py-12">
                                 <Bell className="mx-auto mb-4 opacity-50 text-gray-400" size={48} />
-                                <h3 className="text-lg font-semibold mb-2 text-gray-900">אין עדכונים</h3>
-                                <p className="text-sm mb-4 text-gray-600">התחל על ידי יצירת עדכון ראשון</p>
+                                <h3 className="text-lg font-semibold mb-2 text-gray-900">
+                                    {activeTab === 'global' ? 'אין הודעות מערכת' : 'אין עדכונים'}
+                                </h3>
+                                <p className="text-sm mb-4 text-gray-600">
+                                    {activeTab === 'global' ? 'לא נשלחו הודעות גלובליות' : 'התחל על ידי יצירת עדכון ראשון'}
+                                </p>
                                 <Button onClick={handleCreate} variant="primary" icon={Plus} iconPosition="right">
-                                    צור עדכון ראשון
+                                    {activeTab === 'global' ? 'צור הודעה חדשה' : 'צור עדכון ראשון'}
                                 </Button>
                             </div>
                         </CardContent>
                     ) : (
                         <>
                             <CardHeader>
-                                <h3 className="text-sm font-semibold text-gray-900">סה&quot;כ עדכונים: {updates.length}</h3>
+                                <h3 className="text-sm font-semibold text-gray-900">סה&quot;כ עדכונים: {filteredUpdates.length}</h3>
                             </CardHeader>
                             <div className="divide-y">
-                                {updates.map((update) => (
+                                {filteredUpdates.map((update) => (
                                     <div key={update.id} className="p-6 hover:bg-gray-50">
                                         <div className="flex justify-between items-start gap-4">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-3 mb-2">
-                                                    <Bell size={18} className="text-teal-600" />
+                                                    <Bell size={18} className={update.is_global ? "text-purple-600" : "text-teal-600"} />
                                                     <h4 className="text-lg font-bold text-gray-900">{update.title}</h4>
+                                                    {update.is_global && (
+                                                        <span className="px-2 py-0.5 text-xs font-bold bg-purple-100 text-purple-700 rounded-full">
+                                                            מערכת
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div className="text-sm text-gray-600 mb-3 rendered-content" dangerouslySetInnerHTML={{ __html: update.content }} />
                                                 {update.link && (
@@ -221,7 +291,7 @@ export default function UpdatesManagementPage() {
                     )}
                 </Card>
 
-                <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUpdate ? 'עריכת עדכון' : 'עדכון חדש'} size="lg">
+                <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editingUpdate ? 'עריכת עדכון' : (activeTab === 'global' ? 'הודעת מערכת חדשה' : 'עדכון חדש')} size="lg">
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {error && <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>}
 
@@ -264,6 +334,8 @@ export default function UpdatesManagementPage() {
                                 placeholder="קרא עוד"
                             />
                         </div>
+
+                        {/* Checkbox removed as per separation logic */}
 
                         <div className="flex gap-3">
                             <Button type="button" onClick={() => setShowModal(false)} variant="outline" className="flex-1">ביטול</Button>
