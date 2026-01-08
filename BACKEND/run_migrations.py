@@ -64,6 +64,7 @@ try:
         ('scripts/01_organizational_structure_simple.sql', 'Organizational Structure Tables'),
         ('scripts/02_organizational_structure_rls.sql', 'RLS Policies'),
         ('scripts/05_add_organization_details.sql', 'Add Organization Details'),
+        ('scripts/06_add_organization_insert_policy.sql', 'Add Organization Insert Policy'),
     ]
     
     success_count = 0
