@@ -6,75 +6,46 @@ import { OrganizationSettings } from '@/types/organization'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import { Save, AlertCircle, CheckCircle } from 'lucide-react'
-
-// Mock Org ID - In real app this comes from context/auth
-const MOCK_ORG_ID = '123e4567-e89b-12d3-a456-426614174000'
+import { useOrganization } from '@/contexts/OrganizationContext'
 
 export default function OrganizationSettingsForm() {
+    const { organization } = useOrganization()
     const [settings, setSettings] = useState<OrganizationSettings | null>(null)
-    const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
     const [success, setSuccess] = useState('')
 
-    // First fetch my org id, then settings
     useEffect(() => {
-        loadSettings()
-    }, [])
+        if (organization?.id) {
+            loadSettings(organization.id)
+        } else {
+            setSettings(null)
+        }
+    }, [organization])
 
-    const loadSettings = async () => {
+    const loadSettings = async (orgId: string) => {
         try {
             setLoading(true)
-            // In real implementation we'll get orgId efficiently. 
-            // For now we'll assume we can pass a dummy UUID or fetch user's org
-            // We'll update get_my_org_id logic later if needed
-
-            // Let's try to fetch settings for current user's org
-            // Since we don't have auth context fully wired in this chat, 
-            // we'll rely on the API to handle permissions or mock it
-
-            // Note: orgApi.getSettings needs an orgId. 
-            // We need a way to get the current user's organization ID.
-            // For MVP we'll query the first org user belongs to or similar.
-            // But wait, the API client requires us to pass orgID.
-
-            // Temporary solution: We will use a placeholder OR fetch from profile if available
-            // Let's use a function that gets "MY" settings if org_id not provided?
-            // No, let's just use a hardcoded valid UUID for testing flows or similar.
-            // Actually, better: We'll wrap this in a try/catch and if it fails due to ID, we show error.
-
-            const data = await orgApi.getSettings(MOCK_ORG_ID)
+            const data = await orgApi.getSettings(orgId)
             setSettings(data)
         } catch (err) {
             console.error('Failed to load settings', err)
-            setError('אנא התחבר מחדש או וודא שיש לך הרשאות מתאימות')
-            // Fallback for UI development without DB connection:
-            setSettings({
-                id: '1',
-                organization_id: MOCK_ORG_ID,
-                use_divisions: false,
-                use_departments: true,
-                departments_under_divisions: false,
-                positions_are_org_wide: true,
-                allow_multiple_positions: false,
-                use_position_levels: true,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
+            setError('לא ניתן לטעון הגדרות. וודא שיש לך הרשאות מתאימות.')
         } finally {
             setLoading(false)
         }
     }
 
     const handleSave = async () => {
-        if (!settings) return
+        if (!settings || !organization) return
 
         try {
             setSaving(true)
             setError('')
             setSuccess('')
 
-            await orgApi.updateSettings(settings.organization_id, {
+            await orgApi.updateSettings(organization.id, {
                 use_divisions: settings.use_divisions,
                 use_departments: settings.use_departments,
                 departments_under_divisions: settings.departments_under_divisions,
@@ -98,9 +69,27 @@ export default function OrganizationSettingsForm() {
         setSettings(prev => prev ? ({ ...prev, [key]: !prev[key] }) : null)
     }
 
+    if (!organization) {
+        return (
+            <Card className="max-w-4xl mx-auto p-8 text-center text-gray-500">
+                <p>אנא בחר ארגון כדי לצפות בהגדרות</p>
+            </Card>
+        )
+    }
+
     if (loading) return <div className="p-8 text-center text-gray-500">טוען הגדרות...</div>
 
-    if (!settings) return <div className="p-8 text-center text-red-500">לא נמצאו הגדרות</div>
+    if (!settings) return (
+        <Card className="max-w-4xl mx-auto p-8 text-center text-red-500">
+            <div className="flex flex-col items-center gap-4">
+                <AlertCircle className="h-8 w-8 text-red-500" />
+                <p>לא נמצאו הגדרות עבור ארגון זה, או שאין לך הרשאות צפייה.</p>
+                <Button variant="outline" onClick={() => loadSettings(organization.id)}>
+                    נסה שוב
+                </Button>
+            </div>
+        </Card>
+    )
 
     return (
         <Card className="max-w-4xl mx-auto">
@@ -134,7 +123,7 @@ export default function OrganizationSettingsForm() {
                 <div className="space-y-6">
                     <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                         <p className="text-sm text-blue-800">
-                            הגדרות אלו קובעות את אופן התנהלות המבנה הארגוני במערכת. שינוי הגדרות אלו עשוי להשפיע על המידע המוצג באזור הניהול.
+                            הגדרות אלו קובעות את אופן התנהלות המבנה הארגוני עבור <strong>{organization.name}</strong>.
                         </p>
                     </div>
 
@@ -247,9 +236,6 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
           pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out
           ${checked ? 'translate-x-0' : '-translate-x-5'} 
         `}
-                // Note: translate logic is reversed because of RTL direction in app usually
-                // If app is LTR, it should be translate-x-5 for checked
-                // Let's adjust styles to be direction agnostic if possible or assume RTL
                 style={{ transform: checked ? 'translateX(0)' : 'translateX(-1.25rem)' }}
             />
         </button>

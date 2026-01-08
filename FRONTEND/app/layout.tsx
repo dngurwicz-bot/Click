@@ -13,6 +13,8 @@ export const viewport = {
   initialScale: 1,
 }
 
+import Providers from '@/components/Providers'
+
 export default function RootLayout({
   children,
 }: {
@@ -24,7 +26,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   )
 }

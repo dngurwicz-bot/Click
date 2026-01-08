@@ -1,44 +1,21 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { api, Organization } from '@/lib/api/client'
+import { useState } from 'react'
+import { Organization } from '@/lib/api/client'
 import { ChevronDown, Building2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useOrganization } from '@/contexts/OrganizationContext'
 
 export default function OrganizationSwitcher() {
-    const [organizations, setOrganizations] = useState<Organization[]>([])
-    const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null)
+    const { organization, organizations, setOrganization, isLoading } = useOrganization()
     const [isOpen, setIsOpen] = useState(false)
-    const [loading, setLoading] = useState(true)
-
-    useEffect(() => {
-        loadOrganizations()
-    }, [])
-
-    const loadOrganizations = async () => {
-        try {
-            const data = await api.getOrganizations()
-            setOrganizations(data)
-            if (data.length > 0) {
-                // Here you might check for a specialized valid logic for default, 
-                // e.g. localStorage or the first one.
-                setSelectedOrg(data[0])
-            }
-        } catch (err) {
-            console.error('Failed to load organizations', err)
-        } finally {
-            setLoading(false)
-        }
-    }
 
     const handleSelect = (org: Organization) => {
-        setSelectedOrg(org)
+        setOrganization(org)
         setIsOpen(false)
-        // In a real app, you would likely update a global context or URL query here
-        console.log('Switched to org:', org.name)
     }
 
-    if (loading) {
+    if (isLoading) {
         return <div className="h-10 w-48 bg-gray-100/50 animate-pulse rounded-full" />
     }
 
@@ -56,7 +33,7 @@ export default function OrganizationSwitcher() {
                     <Building2 size={14} />
                 </div>
                 <span className="flex-1 text-right truncate">
-                    {selectedOrg ? selectedOrg.name : 'בחר ארגון'}
+                    {organization ? organization.name : 'בחר ארגון'}
                 </span>
                 <ChevronDown size={14} className={cn("text-gray-400 transition-transform", isOpen && "rotate-180")} />
             </button>
@@ -81,16 +58,16 @@ export default function OrganizationSwitcher() {
                                     <div className="flex items-center gap-3 overflow-hidden">
                                         <div className={cn(
                                             "w-2 h-2 rounded-full",
-                                            selectedOrg?.id === org.id ? "bg-blue-500" : "bg-gray-300 group-hover:bg-blue-300"
+                                            organization?.id === org.id ? "bg-blue-500" : "bg-gray-300 group-hover:bg-blue-300"
                                         )} />
                                         <span className={cn(
                                             "text-sm truncate",
-                                            selectedOrg?.id === org.id ? "font-semibold text-blue-700" : "text-gray-700"
+                                            organization?.id === org.id ? "font-semibold text-blue-700" : "text-gray-700"
                                         )}>
                                             {org.name}
                                         </span>
                                     </div>
-                                    {selectedOrg?.id === org.id && (
+                                    {organization?.id === org.id && (
                                         <Check size={14} className="text-blue-600" />
                                     )}
                                 </button>

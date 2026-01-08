@@ -63,6 +63,7 @@ try:
     migrations = [
         ('scripts/01_organizational_structure_simple.sql', 'Organizational Structure Tables'),
         ('scripts/02_organizational_structure_rls.sql', 'RLS Policies'),
+        ('scripts/05_add_organization_details.sql', 'Add Organization Details'),
     ]
     
     success_count = 0

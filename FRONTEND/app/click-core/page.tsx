@@ -30,7 +30,7 @@ export default async function ClickCorePage() {
             title: 'ניהול מבנה ארגוני',
             description: 'מחלקות, כפיפויות ומנהלים',
             icon: Network,
-            href: '/admin/organizations',
+            href: '/admin/organization/settings',
             color: 'green'
         }
     ]
