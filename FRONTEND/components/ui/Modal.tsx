@@ -8,7 +8,7 @@ import Button from './Button'
 interface ModalProps {
   isOpen: boolean
   onClose: () => void
-  title: string
+  title: React.ReactNode
   children: React.ReactNode
   footer?: React.ReactNode
   size?: 'sm' | 'md' | 'lg' | 'xl'
@@ -60,9 +60,9 @@ export default function Modal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+          <div className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             {title}
-          </h3>
+          </div>
           <button
             onClick={onClose}
             className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
