@@ -1,0 +1,398 @@
+import uuid
+import httpx
+from datetime import date
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete, update
+
+from app.database import get_db
+from app.config import get_settings
+from app.middleware.auth import require_super_admin, CurrentUser, get_current_user
+from app.models.admin_user import AdminUser
+from app.models.admin_user_permission import AdminUserPermission, RESOURCES
+from app.schemas.admin_user import (
+    AdminUserCreate, AdminUserUpdate, AdminUserOut, AdminUserActionBody,
+    PermissionOut, DEFAULT_PERMISSIONS, ALL_RESOURCES,
+)
+
+router = APIRouter(prefix="/api/admin/users", tags=["admin_users"])
+settings = get_settings()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+async def _load_permissions(db: AsyncSession, user_id: uuid.UUID) -> list[PermissionOut]:
+    result = await db.execute(
+        select(AdminUserPermission).where(AdminUserPermission.user_id == user_id)
+    )
+    rows = result.scalars().all()
+    perm_map = {r.resource: r for r in rows}
+    # Always return all resources in fixed order
+    return [
+        PermissionOut(
+            resource=res,
+            can_view=perm_map[res].can_view if res in perm_map else False,
+            can_edit=perm_map[res].can_edit if res in perm_map else False,
+        )
+        for res in ALL_RESOURCES
+    ]
+
+
+async def _upsert_permissions(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    permissions_in: list,
+) -> None:
+    # Delete existing
+    await db.execute(
+        delete(AdminUserPermission).where(AdminUserPermission.user_id == user_id)
+    )
+    # Insert new
+    for p in permissions_in:
+        # can_edit implies can_view
+        can_view = p.can_view or p.can_edit
+        db.add(AdminUserPermission(
+            user_id=user_id,
+            resource=p.resource,
+            can_view=can_view,
+            can_edit=p.can_edit,
+        ))
+
+
+def _default_permissions_for_role(role: str) -> list:
+    """Build PermissionIn-compatible list from role defaults."""
+    from app.schemas.admin_user import PermissionIn
+    defaults = DEFAULT_PERMISSIONS.get(role, {})
+    return [
+        PermissionIn(
+            resource=res,
+            can_view=defaults.get(res, {}).get("can_view", False),
+            can_edit=defaults.get(res, {}).get("can_edit", False),
+        )
+        for res in ALL_RESOURCES
+    ]
+
+
+async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
+    """Create user in Supabase Auth and return their UUID."""
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
+        )
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            headers={
+                "apikey": settings.SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password, "email_confirm": True},
+            timeout=10,
+        )
+    if resp.status_code not in (200, 201):
+        body = resp.json()
+        msg = body.get("message") or body.get("msg") or "Supabase error"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": msg, "code": "SUPABASE_ERROR"},
+        )
+    return uuid.UUID(resp.json()["id"])
+
+
+async def _delete_supabase_user(user_id: uuid.UUID) -> None:
+    """Remove user from Supabase Auth (best-effort, no raise on failure)."""
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+        return
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers={
+                "apikey": settings.SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+            },
+            timeout=10,
+        )
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("", response_model=list[AdminUserOut])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(AdminUser).order_by(AdminUser.created_at.desc()))
+    users = result.scalars().all()
+    out = []
+    for u in users:
+        perms = await _load_permissions(db, u.id)
+        obj = AdminUserOut.model_validate(u)
+        obj.permissions = perms
+        out.append(obj)
+    return out
+
+
+@router.post("", response_model=AdminUserOut, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    body: AdminUserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    # Only super_admin can create another super_admin
+    if body.role == "super_admin" and not current_user.is_super_admin():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Only super_admin can create super_admin users", "code": "FORBIDDEN"},
+        )
+
+    # Check duplicate email in our table
+    existing = await db.execute(select(AdminUser).where(AdminUser.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "Email already exists", "code": "DUPLICATE_EMAIL"},
+        )
+
+    # Create in Supabase Auth
+    supabase_id = await _create_supabase_user(body.email, body.password)
+
+    # Create in our admin_users table
+    user = AdminUser(
+        id=supabase_id,
+        full_name=body.full_name,
+        email=body.email,
+        role=body.role,
+        created_by=current_user.id,
+        valid_from=body.valid_from or date.today(),
+    )
+    db.add(user)
+    await db.flush()  # get ID before permissions insert
+
+    # Resolve permissions
+    perms_in = body.permissions if body.permissions is not None else _default_permissions_for_role(body.role)
+    await _upsert_permissions(db, user.id, perms_in)
+
+    await db.commit()
+    await db.refresh(user)
+
+    perms_out = await _load_permissions(db, user.id)
+    obj = AdminUserOut.model_validate(user)
+    obj.permissions = perms_out
+    return obj
+
+
+@router.put("/{user_id}", response_model=AdminUserOut)
+async def update_user(
+    user_id: uuid.UUID,
+    body: AdminUserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail={"error": "User not found", "code": "NOT_FOUND"})
+
+    # Self-protection: cannot change own role or deactivate yourself
+    if user_id == current_user.id:
+        if body.role is not None and body.role != user.role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Cannot change your own role", "code": "SELF_ROLE_CHANGE"},
+            )
+        if body.is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Cannot deactivate your own account", "code": "SELF_DEACTIVATE"},
+            )
+
+    # Prevent demoting last super_admin
+    if body.role is not None and user.role == "super_admin" and body.role != "super_admin":
+        count_result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.role == "super_admin",
+                AdminUser.is_active == True,  # noqa: E712
+            )
+        )
+        active_super_admins = count_result.scalars().all()
+        if len(active_super_admins) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Cannot demote the last super_admin", "code": "LAST_SUPER_ADMIN"},
+            )
+
+    if body.full_name is not None:
+        user.full_name = body.full_name
+    if body.role is not None:
+        user.role = body.role
+    if body.is_active is not None:
+        user.is_active = body.is_active
+
+    if body.permissions is not None:
+        await _upsert_permissions(db, user.id, body.permissions)
+
+    await db.commit()
+    await db.refresh(user)
+
+    perms_out = await _load_permissions(db, user.id)
+    obj = AdminUserOut.model_validate(user)
+    obj.permissions = perms_out
+    return obj
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail={"error": "User not found", "code": "NOT_FOUND"})
+
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Cannot delete your own account", "code": "SELF_DELETE"},
+        )
+
+    # Prevent deleting last super_admin
+    if user.role == "super_admin":
+        count_result = await db.execute(
+            select(AdminUser).where(
+                AdminUser.role == "super_admin",
+                AdminUser.is_active == True,  # noqa: E712
+            )
+        )
+        if len(count_result.scalars().all()) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Cannot delete the last super_admin", "code": "LAST_SUPER_ADMIN"},
+            )
+
+    # Remove from Supabase Auth (best-effort)
+    await _delete_supabase_user(user_id)
+
+    # Permissions cascade-deleted by FK
+    await db.delete(user)
+    await db.commit()
+
+
+@router.put("/{user_id}/temporal", response_model=AdminUserOut)
+async def temporal_user_action(
+    user_id: uuid.UUID,
+    body: AdminUserActionBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    """Temporal actions: update (in-place) | close (set valid_to) | delete."""
+    result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail={"error": "User not found", "code": "NOT_FOUND"})
+
+    action = body.action or "update"
+
+    # ── Action: delete ────────────────────────────────────────────────────────
+    if action == "delete":
+        if user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "Cannot delete your own account", "code": "SELF_DELETE"},
+            )
+        if user.role == "super_admin":
+            count_result = await db.execute(
+                select(AdminUser).where(
+                    AdminUser.role == "super_admin",
+                    AdminUser.is_active == True,  # noqa: E712
+                )
+            )
+            if len(count_result.scalars().all()) <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "Cannot delete the last super_admin", "code": "LAST_SUPER_ADMIN"},
+                )
+        await _delete_supabase_user(user_id)
+        await db.delete(user)
+        await db.commit()
+        return user  # already loaded; return before commit clears it (won't be used by response after 204)
+
+    # ── Action: close ─────────────────────────────────────────────────────────
+    if action == "close":
+        if not body.valid_to:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Close action requires valid_to", "code": "MISSING_DATE"},
+            )
+        await db.execute(
+            update(AdminUser)
+            .where(AdminUser.id == user_id)
+            .values(valid_to=body.valid_to)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        await db.refresh(user)
+        perms_out = await _load_permissions(db, user.id)
+        obj = AdminUserOut.model_validate(user)
+        obj.permissions = perms_out
+        return obj
+
+    # ── Action: update (in-place) ─────────────────────────────────────────────
+    if action == "update":
+        # Self-protection checks
+        if user_id == current_user.id:
+            if body.role is not None and body.role != user.role:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "Cannot change your own role", "code": "SELF_ROLE_CHANGE"},
+                )
+            if body.is_active is False:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "Cannot deactivate your own account", "code": "SELF_DEACTIVATE"},
+                )
+
+        # Prevent demoting last super_admin
+        if body.role is not None and user.role == "super_admin" and body.role != "super_admin":
+            count_result = await db.execute(
+                select(AdminUser).where(
+                    AdminUser.role == "super_admin",
+                    AdminUser.is_active == True,  # noqa: E712
+                )
+            )
+            active_super_admins = count_result.scalars().all()
+            if len(active_super_admins) <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "Cannot demote the last super_admin", "code": "LAST_SUPER_ADMIN"},
+                )
+
+        if body.full_name is not None:
+            user.full_name = body.full_name
+        if body.role is not None:
+            user.role = body.role
+        if body.is_active is not None:
+            user.is_active = body.is_active
+        if body.valid_from is not None:
+            user.valid_from = body.valid_from
+        if body.valid_to is not None:
+            user.valid_to = body.valid_to
+
+        if body.permissions is not None:
+            await _upsert_permissions(db, user.id, body.permissions)
+
+        await db.commit()
+        await db.refresh(user)
+
+        perms_out = await _load_permissions(db, user.id)
+        obj = AdminUserOut.model_validate(user)
+        obj.permissions = perms_out
+        return obj
+
+    raise HTTPException(
+        status_code=422,
+        detail={"error": f"Unknown action: {action}", "code": "UNKNOWN_ACTION"},
+    )

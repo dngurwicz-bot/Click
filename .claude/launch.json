@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "CLICK Backend (FastAPI)",
+      "runtimeExecutable": "C:\\Click\\backend\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "C:\\Click\\backend",
+      "port": 8000
+    },
+    {
+      "name": "CLICK Frontend (Next.js)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+import uuid
+from datetime import datetime, date
+from decimal import Decimal
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer, func, CheckConstraint, Sequence
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
+from app.database import Base
+
+_org_seq = Sequence("tenants_org_seq")
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    org_number: Mapped[int] = mapped_column(
+        Integer, _org_seq, server_default=_org_seq.next_value(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class TenantIdentity(Base):
+    __tablename__ = "tenant_identity"
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('company','self_employed','nonprofit','gov')",
+            name="ck_tenant_identity_entity_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    name_he: Mapped[str] = mapped_column(String, nullable=False)
+    name_en: Mapped[str | None] = mapped_column(String, nullable=True)
+    tax_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    logo_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    industry_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantContact(Base):
+    __tablename__ = "tenant_contact"
+    __table_args__ = (
+        CheckConstraint(
+            "contact_type IN ('main','billing','technical','other')",
+            name="ck_tenant_contact_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    contact_type: Mapped[str] = mapped_column(String, nullable=False, default="main")
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    phone: Mapped[str] = mapped_column(String, nullable=False)
+    phone_alt: Mapped[str | None] = mapped_column(String, nullable=True)
+    contact_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    website: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantAddress(Base):
+    __tablename__ = "tenant_address"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    street: Mapped[str] = mapped_column(String, nullable=False)
+    city: Mapped[str] = mapped_column(String, nullable=False)
+    zip_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    country: Mapped[str] = mapped_column(String, nullable=False, default="IL")
+    addr_type: Mapped[str] = mapped_column(String, nullable=False, default="main")
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantSubscription(Base):
+    __tablename__ = "tenant_subscription"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    package_slug: Mapped[str] = mapped_column(String, nullable=False)
+    billing_cycle: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
+    currency: Mapped[str] = mapped_column(String, nullable=False, default="ILS")
+    discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
+    is_price_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    next_renewal_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantStatus(Base):
+    __tablename__ = "tenant_status"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('trial','active','suspended','cancelled')",
+            name="ck_tenant_status_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="trial")
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
