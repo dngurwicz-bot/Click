@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, isLoggedIn } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
+import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
 import Link from "next/link";
-import { ArrowRight, HelpCircle } from "lucide-react";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -19,22 +19,74 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const INPUT = "w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs text-right focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-colors";
 const SELECT = "w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-colors";
 
+interface TemplatePricingSummary {
+  seat_count: number;
+  modules_count: number;
+  recurring_after_discount_ils: string;
+  setup_after_discount_ils: string;
+  total_after_discount_ils: string;
+}
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  default_package_slug: string | null;
+  default_billing_cycle: string;
+  valid_to?: string | null;
+  module_slugs: string[];
+  discount_pct: string;
+  is_price_locked: boolean;
+  seat_count: number;
+  pricing_summary: TemplatePricingSummary | null;
+}
+
+function fmtMoney(v?: string | null) {
+  const n = parseFloat(v ?? "0");
+  return `₪${n.toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function NewTenantPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
 
   const [form, setForm] = useState({
     name_he: "", name_en: "", tax_id: "", entity_type: "company", logo_url: "",
     email: "", phone: "", contact_name: "", website: "",
     street: "", city: "", zip_code: "", country: "IL",
     package_slug: "starter", billing_cycle: "monthly",
+    seat_count: "0",
+    selected_module_slugs: [] as string[],
+    discount_pct: "0", is_price_locked: false,
     status: "trial",
+    template_id: "",
   });
 
   function set(k: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
   }
+
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
+    api.get<TemplateOption[]>("/api/admin/templates")
+      .then((data) => setTemplates(data.filter((template) => !template.valid_to)))
+      .catch(() => {})
+      .finally(() => setTemplatesLoading(false));
+  }, [router]);
+
+  const selectedTemplate = templates.find((template) => template.id === form.template_id) ?? null;
+  const packageOptions = Array.from(new Set([
+    "starter",
+    "professional",
+    "enterprise",
+    ...templates.map((template) => template.default_package_slug).filter(Boolean) as string[],
+    form.package_slug,
+  ]));
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -45,7 +97,15 @@ export default function NewTenantPage() {
         identity: { name_he: form.name_he, name_en: form.name_en || null, tax_id: form.tax_id, entity_type: form.entity_type, logo_url: form.logo_url || null },
         contact: { email: form.email, phone: form.phone, contact_name: form.contact_name || null, website: form.website || null },
         address: { street: form.street, city: form.city, zip_code: form.zip_code || null, country: form.country },
-        subscription: { package_slug: form.package_slug, billing_cycle: form.billing_cycle },
+        subscription: {
+          template_id: form.template_id || null,
+          package_slug: form.package_slug,
+          billing_cycle: form.billing_cycle,
+          seat_count: parseInt(form.seat_count, 10) || 0,
+          selected_module_slugs: form.selected_module_slugs,
+          discount_pct: parseFloat(form.discount_pct) || 0,
+          is_price_locked: form.is_price_locked,
+        },
         status: { status: form.status },
       };
       await api.post("/api/admin/tenants", payload);
@@ -61,38 +121,17 @@ export default function NewTenantPage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav />
-
-      {/* ── Title Bar ───────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-           style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-        <div className="flex items-center gap-0.5">
-          <button title="עזרה"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <HelpCircle size={13} />
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/admin/tenants"
-            className="text-xs text-slate-400 hover:text-brand-600 transition-colors flex items-center gap-1">
-            <ArrowRight size={12} />
-            ניהול ארגונים
-          </Link>
-          <span className="text-slate-300 text-xs">/</span>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>ארגון חדש</h1>
-        </div>
-      </div>
-
-      {/* ── Form Content ────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-2xl px-4 py-5">
+      <AdminGrandchildLayout
+        title="ארגון חדש"
+        backHref="/admin/tenants"
+        backLabel="ניהול ארגונים"
+        maxWidthClass="max-w-2xl"
+      >
           <form onSubmit={handleSubmit} className="space-y-4">
 
             {/* Identity */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">פרטי ארגון</h2>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-3">
+            <AdminSectionCard title="פרטי ארגון">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="שם בעברית *">
                   <input required className={INPUT} value={form.name_he} onChange={(e) => set("name_he", e.target.value)} />
                 </Field>
@@ -111,14 +150,11 @@ export default function NewTenantPage() {
                   </select>
                 </Field>
               </div>
-            </div>
+            </AdminSectionCard>
 
             {/* Contact */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">פרטי קשר</h2>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-3">
+            <AdminSectionCard title="פרטי קשר">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="דוא״ל *">
                   <input required type="email" className={INPUT} value={form.email} onChange={(e) => set("email", e.target.value)} />
                 </Field>
@@ -132,14 +168,11 @@ export default function NewTenantPage() {
                   <input className={INPUT} value={form.website} onChange={(e) => set("website", e.target.value)} />
                 </Field>
               </div>
-            </div>
+            </AdminSectionCard>
 
             {/* Address */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">כתובת</h2>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-3">
+            <AdminSectionCard title="כתובת">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="רחוב *">
                   <input required className={INPUT} value={form.street} onChange={(e) => set("street", e.target.value)} />
                 </Field>
@@ -153,26 +186,69 @@ export default function NewTenantPage() {
                   <input className={INPUT} value={form.country} onChange={(e) => set("country", e.target.value)} />
                 </Field>
               </div>
-            </div>
+            </AdminSectionCard>
 
             {/* Subscription */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">מנוי וסטטוס</h2>
-              </div>
-              <div className="p-4 grid grid-cols-3 gap-3">
+            <AdminSectionCard title="מנוי וסטטוס">
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="תבנית הקמה">
+                  <select
+                    className={SELECT}
+                    value={form.template_id}
+                    onChange={(e) => {
+                      const templateId = e.target.value;
+                      const template = templates.find((item) => item.id === templateId);
+                      setForm((current) => ({
+                        ...current,
+                        template_id: templateId,
+                        package_slug: template?.default_package_slug || current.package_slug,
+                        billing_cycle: template?.default_billing_cycle || current.billing_cycle,
+                        seat_count: String(template?.seat_count ?? current.seat_count),
+                        selected_module_slugs: template?.module_slugs ?? current.selected_module_slugs,
+                        discount_pct: template?.discount_pct || current.discount_pct,
+                        is_price_locked: template?.is_price_locked ?? current.is_price_locked,
+                      }));
+                    }}
+                    disabled={templatesLoading}
+                  >
+                    <option value="">{templatesLoading ? "טוען תבניות..." : "ללא תבנית"}</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                  </select>
+                </Field>
                 <Field label="חבילה">
                   <select className={SELECT} value={form.package_slug} onChange={(e) => set("package_slug", e.target.value)}>
-                    <option value="starter">Starter</option>
-                    <option value="professional">Professional</option>
-                    <option value="enterprise">Enterprise</option>
+                    {packageOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
                   </select>
                 </Field>
                 <Field label="מחזור חיוב">
                   <select className={SELECT} value={form.billing_cycle} onChange={(e) => set("billing_cycle", e.target.value)}>
                     <option value="monthly">חודשי</option>
-                    <option value="annual">שנתי</option>
+                    <option value="quarterly">רבעוני</option>
+                    <option value="yearly">שנתי</option>
                   </select>
+                </Field>
+                <Field label="הנחה %">
+                  <input className={INPUT} type="number" min="0" step="0.01" value={form.discount_pct} onChange={(e) => set("discount_pct", e.target.value)} />
+                </Field>
+                <Field label="מושבים לחיוב">
+                  <input className={INPUT} type="number" min="0" step="1" value={form.seat_count} onChange={(e) => set("seat_count", e.target.value)} />
+                </Field>
+                <Field label="מחיר נעול">
+                  <button
+                    type="button"
+                    onClick={() => setForm((current) => ({ ...current, is_price_locked: !current.is_price_locked }))}
+                    className={`relative rounded-full transition-colors duration-200 ${form.is_price_locked ? "bg-emerald-500" : "bg-slate-200"}`}
+                    style={{ width: 32, height: 18 }}
+                  >
+                    <span
+                      className={`absolute top-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${form.is_price_locked ? "translate-x-[14px]" : "translate-x-0.5"}`}
+                      style={{ width: 14, height: 14 }}
+                    />
+                  </button>
                 </Field>
                 <Field label="סטטוס התחלתי">
                   <select className={SELECT} value={form.status} onChange={(e) => set("status", e.target.value)}>
@@ -181,7 +257,39 @@ export default function NewTenantPage() {
                   </select>
                 </Field>
               </div>
-            </div>
+              {selectedTemplate?.pricing_summary && (
+                <div className="px-4 pb-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs space-y-2">
+                    <div className="font-semibold text-slate-700">תמחור מתבנית: {selectedTemplate.name}</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">מודולים</span>
+                      <span className="font-semibold text-slate-800">{selectedTemplate.pricing_summary.modules_count}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">מושבים</span>
+                      <span className="font-semibold text-slate-800">{selectedTemplate.pricing_summary.seat_count}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">חודשי משוער</span>
+                      <span className="font-semibold text-slate-800">{fmtMoney(selectedTemplate.pricing_summary.recurring_after_discount_ils)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">דמי הקמה משוערים</span>
+                      <span className="font-semibold text-slate-800">{fmtMoney(selectedTemplate.pricing_summary.setup_after_discount_ils)}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+                      <span className="text-slate-600 font-semibold">סה"כ מחזור ראשון</span>
+                      <span className="font-bold text-slate-900">{fmtMoney(selectedTemplate.pricing_summary.total_after_discount_ils)}</span>
+                    </div>
+                    {selectedTemplate.module_slugs.length > 0 && (
+                      <div className="border-t border-slate-200 pt-2 text-[11px] text-slate-500">
+                        מודולים: {selectedTemplate.module_slugs.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </AdminSectionCard>
 
             {error && (
               <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-xs text-red-700">{error}</div>
@@ -202,8 +310,7 @@ export default function NewTenantPage() {
               </Link>
             </div>
           </form>
-        </div>
-      </main>
+      </AdminGrandchildLayout>
     </div>
   );
 }

@@ -1,8 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronRight, Printer, RefreshCw, HelpCircle, Plus, Search } from "lucide-react";
-import Link from "next/link";
+import { Plus } from "lucide-react";
+import { AdminActionBar, AdminTitleBar } from "@/components/layout/AdminShell";
+import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
+import {
+  createDefaultTemporalFilterState,
+  getTemporalFilterError,
+  overlapsTemporalFilter,
+  type TemporalFilterState,
+} from "@/lib/temporalFilter";
 
 export interface FormTab {
   id: string;
@@ -17,11 +24,18 @@ export interface ChildColumn {
   width?: string;
 }
 
+export interface ChildRow extends Record<string, React.ReactNode> {
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
+}
+
 export interface ChildTab {
   id: string;
   label: string;
   columns: ChildColumn[];
-  rows: Record<string, React.ReactNode>[];
+  rows: ChildRow[];
+  temporalFilter?: boolean;
   emptyMessage?: string;
   onRowDoubleClick?: (rowIndex: number) => void;
   onAddClick?: () => void;
@@ -34,7 +48,7 @@ export interface CardPageAction {
   icon?: React.ReactNode;
 }
 
-interface CardPageProps {
+export interface CardPageProps {
   title: string;
   backHref?: string;
   backLabel?: string;
@@ -61,6 +75,7 @@ export function CardPage({
 }: CardPageProps) {
   const [activeFormTab,  setActiveFormTab]  = useState(formTabs[0]?.id ?? "");
   const [activeChildTab, setActiveChildTab] = useState(childTabs[0]?.id ?? "");
+  const [temporalFilters, setTemporalFilters] = useState<Record<string, TemporalFilterState>>({});
 
   useEffect(() => {
     if (childTabs.length > 0 && !childTabs.find((t) => t.id === activeChildTab)) {
@@ -68,9 +83,52 @@ export function CardPage({
     }
   }, [childTabs, activeChildTab]);
 
+  useEffect(() => {
+    setTemporalFilters((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const tab of childTabs) {
+        if (tab.temporalFilter && !next[tab.id]) {
+          next[tab.id] = createDefaultTemporalFilterState();
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [childTabs]);
+
   const statusCfg      = status ? STATUS_CONFIG[status.type] : null;
   const currentFormTab = formTabs.find((t) => t.id === activeFormTab);
   const currentChildTab = childTabs.find((t) => t.id === activeChildTab);
+  const temporalFilterEnabled = Boolean(
+    currentChildTab?.temporalFilter &&
+    currentChildTab.rows.some((row) => row._valid_from_raw),
+  );
+  const currentTemporalFilter = currentChildTab
+    ? (temporalFilters[currentChildTab.id] ?? createDefaultTemporalFilterState())
+    : createDefaultTemporalFilterState();
+  const temporalFilterError = temporalFilterEnabled
+    ? getTemporalFilterError(currentTemporalFilter)
+    : null;
+  const visibleRows = currentChildTab
+    ? currentChildTab.rows.filter((row) => {
+        if (!temporalFilterEnabled || temporalFilterError) return true;
+        return overlapsTemporalFilter({
+          rowFrom: row._valid_from_raw,
+          rowTo: row._valid_to_raw,
+          filter: currentTemporalFilter,
+        });
+      })
+    : [];
+
+  function updateTemporalFilter(tabId: string, nextFilter: TemporalFilterState) {
+    setTemporalFilters((prev) => ({
+      ...prev,
+      [tabId]: nextFilter,
+    }));
+  }
 
   if (loading) {
     return (
@@ -83,48 +141,11 @@ export function CardPage({
   return (
     <div className="flex flex-col h-full min-h-0">
 
-      {/* ── Title Bar ─────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-           style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-        {/* LEFT: icons + back */}
-        <div className="flex items-center gap-0.5">
-          <button title="עזרה"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <HelpCircle size={13} />
-          </button>
-          <button title="הדפסה"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <Printer size={13} />
-          </button>
-          <button title="רענן"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <RefreshCw size={13} />
-          </button>
-          {backHref && (
-            <>
-              <div className="w-px h-4 bg-slate-200 mx-1.5" />
-              <Link
-                href={backHref}
-                className="flex items-center gap-0.5 text-xs text-slate-500 hover:text-brand-600
-                           px-2 py-0.5 rounded hover:bg-brand-50 transition-colors font-medium"
-              >
-                <ChevronRight size={13} />
-                {backLabel ?? "רשימה"}
-              </Link>
-            </>
-          )}
-        </div>
-        {/* RIGHT: title */}
-        <h1 className="text-sm font-semibold text-navy-700 tracking-wide"
-            style={{ color: "#1c2831" }}>
-          {title}
-        </h1>
-      </div>
+      <AdminTitleBar title={title} backHref={backHref} backLabel={backLabel} />
 
-      {/* ── Action Bar ────────────────────────────────────────────── */}
-      <div className="bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0 gap-4">
-        {/* RIGHT: new + search */}
-        <div className="flex items-center gap-2">
+      <AdminActionBar
+        start={
+          <>
           {onNew && (
             <button
               onClick={onNew}
@@ -135,21 +156,16 @@ export function CardPage({
               חדש
             </button>
           )}
-          <button className="flex items-center gap-1.5 border border-slate-300 bg-white text-slate-600
-                             text-xs px-3 py-1.5 rounded-md hover:bg-slate-50 hover:border-slate-400 transition-colors">
-            <Search size={11} />
-            חיפוש מתקדם
-          </button>
-        </div>
-        {/* MIDDLE: status */}
-        {statusCfg && status && (
+          </>
+        }
+        center={statusCfg && status ? (
           <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${statusCfg.bg}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
             <span className={statusCfg.text}>{status.label}</span>
           </div>
-        )}
-        {/* LEFT: action buttons */}
-        <div className="flex items-center gap-2">
+        ) : undefined}
+        end={
+          <>
           {primaryActions.map((action, i) => (
             <button
               key={i}
@@ -164,8 +180,9 @@ export function CardPage({
               {action.label}
             </button>
           ))}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ── Parent Content (static) OR Form Tabs ──────────────────── */}
       {parentContent ? (
@@ -237,66 +254,87 @@ export function CardPage({
       {/* ── Child Grid ────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto bg-white min-h-0">
         {currentChildTab && (
-          <table className="w-full text-xs border-collapse min-w-max">
-            <thead className="sticky top-0 z-10">
-              <tr>
-                {currentChildTab.columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className={`text-right px-3 py-2 font-semibold text-slate-600
+          <>
+            {temporalFilterEnabled && (
+              <TemporalFilterBar
+                filter={currentTemporalFilter}
+                onChange={(nextFilter) => updateTemporalFilter(currentChildTab.id, nextFilter)}
+                rowRanges={currentChildTab.rows.map((row) => ({
+                  valid_from: row._valid_from_raw,
+                  valid_to: row._valid_to_raw,
+                }))}
+                idPrefix={`temporal-${currentChildTab.id}`}
+              />
+            )}
+
+            <table className="w-full text-xs border-collapse min-w-max">
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  {currentChildTab.columns.map((col) => (
+                    <th
+                      key={col.key}
+                      className={`text-right px-3 py-2 font-semibold text-slate-600
                                bg-slate-100 border-b border-slate-200 border-l border-slate-200 whitespace-nowrap ${col.width ?? ""}`}
-                  >
-                    {col.required && <span className="text-red-400 ml-0.5">*</span>}
-                    {col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {currentChildTab.rows.length === 0 ? (
-                <tr
-                  onClick={currentChildTab.onAddClick}
-                  className={currentChildTab.onAddClick ? "cursor-pointer hover:bg-blue-50 transition-colors" : ""}
-                >
-                  <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
-                    {currentChildTab.onAddClick ? (
-                      <span className="flex items-center justify-center gap-1.5">
-                        <Plus size={14} />
-                        {currentChildTab.emptyMessage ?? "לחץ להוספת רשומה"}
-                      </span>
-                    ) : (
-                      currentChildTab.emptyMessage ?? "אין רשומות"
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                currentChildTab.rows.map((row, i) => {
-                  const isCurrent = row._current === true;
-                  const hasClick = !!currentChildTab.onRowDoubleClick;
-                  return (
-                    <tr
-                      key={i}
-                      onDoubleClick={() => currentChildTab.onRowDoubleClick?.(i)}
-                      title={hasClick ? "לחץ פעמיים לעריכה" : undefined}
-                      className={`transition-colors ${hasClick ? "cursor-pointer" : ""} ${
-                        isCurrent
-                          ? "bg-brand-50 font-medium hover:bg-brand-100"
-                          : i % 2 === 0
-                            ? "bg-white hover:bg-slate-50 text-slate-600"
-                            : "bg-slate-50/60 hover:bg-slate-100 text-slate-600"
-                      }`}
                     >
-                      {currentChildTab.columns.map((col) => (
-                        <td key={col.key} className="px-3 py-1.5 border-b border-slate-100 border-l border-slate-100">
-                          {row[col.key] ?? ""}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                      {col.required && <span className="text-red-400 ml-0.5">*</span>}
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.length === 0 ? (
+                  <tr
+                    onClick={currentChildTab.rows.length === 0 ? currentChildTab.onAddClick : undefined}
+                    className={currentChildTab.rows.length === 0 && currentChildTab.onAddClick ? "cursor-pointer hover:bg-blue-50 transition-colors" : ""}
+                  >
+                    <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
+                      {currentChildTab.rows.length === 0 ? (
+                        currentChildTab.onAddClick ? (
+                          <span className="flex items-center justify-center gap-1.5">
+                            <Plus size={14} />
+                            {currentChildTab.emptyMessage ?? "לחץ להוספת רשומה"}
+                          </span>
+                        ) : (
+                          currentChildTab.emptyMessage ?? "אין רשומות"
+                        )
+                      ) : (
+                        temporalFilterError
+                          ? "הטווח שנבחר אינו תקין"
+                          : "לא נמצאו רשומות עבור הסינון שנבחר"
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  visibleRows.map((row, i) => {
+                    const isCurrent = row._current === true;
+                    const hasClick = !!currentChildTab.onRowDoubleClick;
+                    const originalIndex = currentChildTab.rows.indexOf(row);
+                    return (
+                      <tr
+                        key={originalIndex >= 0 ? originalIndex : i}
+                        onDoubleClick={() => currentChildTab.onRowDoubleClick?.(originalIndex >= 0 ? originalIndex : i)}
+                        title={hasClick ? "לחץ פעמיים לעריכה" : undefined}
+                        className={`transition-colors ${hasClick ? "cursor-pointer" : ""} ${
+                          isCurrent
+                            ? "bg-brand-50 font-medium hover:bg-brand-100"
+                            : i % 2 === 0
+                              ? "bg-white hover:bg-slate-50 text-slate-600"
+                              : "bg-slate-50/60 hover:bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {currentChildTab.columns.map((col) => (
+                          <td key={col.key} className="px-3 py-1.5 border-b border-slate-100 border-l border-slate-100">
+                            {row[col.key] ?? ""}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
     </div>

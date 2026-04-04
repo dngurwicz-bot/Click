@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, date
 from decimal import Decimal
-from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer, func, CheckConstraint, Sequence
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer, Text, func, CheckConstraint, Sequence
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from app.database import Base
 
 _org_seq = Sequence("tenants_org_seq")
@@ -93,6 +93,9 @@ class TenantSubscription(Base):
     package_slug: Mapped[str] = mapped_column(String, nullable=False)
     billing_cycle: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
     currency: Mapped[str] = mapped_column(String, nullable=False, default="ILS")
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("org_templates.id"), nullable=True)
+    seat_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    selected_module_slugs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
     is_price_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     next_renewal_at: Mapped[date | None] = mapped_column(Date, nullable=True)

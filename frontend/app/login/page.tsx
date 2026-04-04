@@ -1,14 +1,12 @@
 "use client";
 
 import { useState, FormEvent, ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { Logo } from "@/components/layout/Logo";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
@@ -22,13 +20,28 @@ export default function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setError("יש להזין כתובת דואר אלקטרוני.");
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(normalizedEmail)) {
+      setError("יש להזין כתובת דואר אלקטרוני תקינה.");
+      return;
+    }
+    if (!password) {
+      setError("יש להזין סיסמה.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
-      router.replace("/dashboard");
+      await login(normalizedEmail, password);
+      window.location.replace("/dashboard");
     } catch (err: unknown) {
-      const apiErr = err as { error?: string };
-      setError(apiErr.error ?? "שגיאה בהתחברות. נסה שנית.");
+      const apiErr = err as { error?: string; message?: string };
+      setError(apiErr.error ?? apiErr.message ?? "שגיאה בהתחברות. נסה שנית.");
     } finally {
       setLoading(false);
     }
@@ -125,8 +138,8 @@ export default function LoginPage() {
             )
           ) : (
             /* ── Login form ── */
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <FormRow label="שם משתמש">
+            <form noValidate onSubmit={handleSubmit} className="space-y-4">
+              <FormRow label="דואר אלקטרוני">
                 <input
                   type="email"
                   required

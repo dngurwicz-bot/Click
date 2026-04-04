@@ -467,7 +467,7 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
               </div>
               <div className="flex items-center gap-3">
                 <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
-                  תוהף עד (אופציונלי)
+                  תוקף עד (אופציונלי)
                 </label>
                 <input
                   type="date" value={validTo}
@@ -686,6 +686,8 @@ export default function ModuleDetailPage() {
   // ── Price history rows ───────────────────────────────────────────────────────
   const priceRows = data.price_history.map((p) => ({
     _current:       !p.valid_to,
+    _valid_from_raw: p.valid_from,
+    _valid_to_raw: p.valid_to ?? null,
     base_price_ils: fmt(p.base_price_ils),
     per_seat_ils:   fmt(p.per_seat_ils),
     included_seats: p.included_seats,
@@ -727,9 +729,10 @@ export default function ModuleDetailPage() {
                 { key: "included_seats",  label: "מושבים כלולים",  width: "w-32" },
                 { key: "setup_fee_ils",   label: "דמי הקמה",        width: "w-28" },
                 { key: "valid_from",      label: "תוקף מתאריך",     width: "w-28" },
-                { key: "valid_to",        label: "תוהף עד",         width: "w-28" },
+                { key: "valid_to",        label: "תוקף עד",         width: "w-28" },
               ],
               rows: priceRows as Record<string, React.ReactNode>[],
+              temporalFilter: true,
               emptyMessage: "אין רשומות מחיר — לחץ להוספה",
               onAddClick: openNewPrice,
               onRowDoubleClick: openEditPrice,

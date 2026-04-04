@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
 import {
-  HelpCircle, Printer, RefreshCw, Search, UserCheck, UserX,
+  UserCheck, UserX,
   UserPlus, Pencil, Trash2, X, Eye, EyeOff, ShieldCheck,
 } from "lucide-react";
 
@@ -565,7 +566,7 @@ function UserModal({
                     className={`${dateCls} border-slate-300 focus:border-blue-400`} />
                 </div>
                 <div className="flex items-center gap-3">
-                  <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוהף עד (אופציונלי)</label>
+                  <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוקף עד (אופציונלי)</label>
                   <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)}
                     className={`${dateCls} border-slate-300 focus:border-blue-400`} />
                   {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
@@ -746,51 +747,13 @@ export default function AdminUsersPage() {
       <TopNav />
 
       <main className="flex-1 overflow-hidden flex flex-col">
+        <AdminTitleBar title="משתמשי מערכת" onRefresh={loadUsers} />
 
-        {/* ── Title Bar ─────────────────────────────────────────────── */}
-        <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-             style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-          <div className="flex items-center gap-0.5">
-            <button title="עזרה"
-              className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <HelpCircle size={13} />
-            </button>
-            <button title="הדפסה"
-              className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <Printer size={13} />
-            </button>
-            <button title="רענן"
-              className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              onClick={loadUsers}>
-              <RefreshCw size={13} />
-            </button>
-          </div>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>
-            משתמשי מערכת
-          </h1>
-        </div>
-
-        {/* ── Action Bar ────────────────────────────────────────────── */}
-        <div className="bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0 gap-4">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="חיפוש..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pr-8 pl-3 py-1.5 text-xs border border-slate-300 bg-white rounded-md
-                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100
-                           text-right w-48 transition-colors"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {!loading && (
-              <span className="text-xs text-slate-400 font-medium">{filtered.length} משתמשים</span>
-            )}
+        <AdminActionBar
+          start={<AdminSearchField value={search} onChange={setSearch} />}
+          end={
+            <div className="flex items-center gap-3">
+            {!loading && <AdminCountLabel>{filtered.length} משתמשים</AdminCountLabel>}
             <button
               onClick={() => setModal({ mode: "create" })}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white
@@ -800,7 +763,8 @@ export default function AdminUsersPage() {
               הוסף משתמש
             </button>
           </div>
-        </div>
+          }
+        />
 
         {/* ── Table ─────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-auto bg-white min-h-0">

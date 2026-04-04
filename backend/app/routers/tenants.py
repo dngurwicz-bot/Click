@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +11,11 @@ from app.models.tenant import (
     Tenant, TenantIdentity, TenantContact, TenantAddress,
     TenantSubscription, TenantStatus,
 )
+from app.models.module import OrgTemplate, OrgTemplateDefault, OrgTemplateModule
 from app.schemas.tenant import (
     TenantCreateRequest, TenantUpdateRequest, TenantOut,
     TenantListItem, TenantIdentityOut, TenantContactOut,
-    TenantAddressOut, TenantSubscriptionOut, TenantStatusOut,
+    TenantAddressOut, TenantSubscriptionOut, TenantStatusOut, TenantApplyTemplateRequest,
 )
 from app.services.temporal import (
     close_and_create, get_active, get_history, update_in_place,
@@ -40,6 +42,28 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
         subscription=TenantSubscriptionOut.model_validate(subscription) if subscription else None,
         status=TenantStatusOut.model_validate(status_row) if status_row else None,
     )
+
+
+async def _load_template_defaults(db: AsyncSession, template_id: uuid.UUID) -> dict[str, str]:
+    result = await db.execute(
+        select(OrgTemplateDefault.default_type, OrgTemplateDefault.default_value)
+        .where(OrgTemplateDefault.template_id == template_id)
+    )
+    return {default_type: default_value for default_type, default_value in result.all()}
+
+
+async def _load_template_modules(db: AsyncSession, template_id: uuid.UUID) -> list[str]:
+    result = await db.execute(
+        select(OrgTemplateModule.module_slug).where(OrgTemplateModule.template_id == template_id)
+    )
+    return [row[0] for row in result.all()]
+
+
+def _parse_int_or_zero(value: str | None) -> int:
+    try:
+        return max(int(value or "0"), 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 @router.get("", response_model=list[TenantListItem])
@@ -297,6 +321,60 @@ async def update_tenant(
     await _maybe_update(TenantAddress, body.address, TenantAddressOut)
     await _maybe_update(TenantSubscription, body.subscription, TenantSubscriptionOut)
     await _maybe_update(TenantStatus, body.status, TenantStatusOut)
+
+    await db.commit()
+    return await _build_tenant_out(tenant, db)
+
+
+@router.post("/{tenant_id}/apply-template", response_model=TenantOut)
+async def apply_template_to_tenant(
+    tenant_id: uuid.UUID,
+    body: TenantApplyTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_admin),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    template_result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == body.template_id))
+    template = template_result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail={"error": "Template not found", "code": "NOT_FOUND"})
+
+    effective_from = body.valid_from or date.today()
+    template_defaults = await _load_template_defaults(db, template.id)
+    module_slugs = await _load_template_modules(db, template.id)
+
+    subscription_payload = {
+        "template_id": template.id,
+        "package_slug": template.default_package_slug or "starter",
+        "billing_cycle": template.default_billing_cycle,
+        "currency": "ILS",
+        "seat_count": _parse_int_or_zero(template_defaults.get("seat_count")),
+        "selected_module_slugs": module_slugs,
+        "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
+        "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
+    }
+
+    current_subscription = await get_active(db, TenantSubscription, tenant_id)
+    if current_subscription:
+        await close_and_create(
+            db,
+            TenantSubscription,
+            tenant_id,
+            subscription_payload,
+            current_user.id,
+            new_valid_from=effective_from,
+        )
+    else:
+        db.add(TenantSubscription(
+            **subscription_payload,
+            tenant_id=tenant_id,
+            valid_from=effective_from,
+            created_by=current_user.id,
+        ))
 
     await db.commit()
     return await _build_tenant_out(tenant, db)

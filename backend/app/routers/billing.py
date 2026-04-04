@@ -21,7 +21,7 @@ Endpoints:
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from typing import Iterable, Optional
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -47,8 +47,34 @@ router = APIRouter(tags=["billing"])
 TWO_PLACES = Decimal("0.01")
 
 
-def _round2(v: Decimal) -> Decimal:
-    return v.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+def _to_decimal(value: Decimal | int | float | None) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _round2(v: Decimal | int | float | None) -> Decimal:
+    return _to_decimal(v).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+
+
+def _sum_decimal(values: Iterable[Decimal | int | float | None]) -> Decimal:
+    return sum((_to_decimal(value) for value in values), Decimal("0"))
+
+
+def _period_start(period: str) -> date:
+    year_str, month_str = period.split("-")
+    return date(int(year_str), int(month_str), 1)
+
+
+def _period_label(period: str) -> tuple[str, str]:
+    year_str, month_str = period.split("-")
+    month_name = [
+        "", "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+        "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+    ][int(month_str)]
+    return year_str, month_name
 
 
 async def _tenant_name(db: AsyncSession, tenant_id: uuid.UUID) -> str:
@@ -90,6 +116,61 @@ async def _build_invoice_out(db: AsyncSession, inv: Invoice) -> InvoiceOut:
     return out
 
 
+async def _get_active_module_price(db: AsyncSession, slug: str, today: date) -> ModulePrice | None:
+    price_result = await db.execute(
+        sa.select(ModulePrice)
+        .where(ModulePrice.module_slug == slug)
+        .where(ModulePrice.valid_from <= today)
+        .where(sa.or_(ModulePrice.valid_to.is_(None), ModulePrice.valid_to >= today))
+        .order_by(ModulePrice.valid_from.desc(), ModulePrice.created_at.desc())
+        .limit(1)
+    )
+    return price_result.scalar_one_or_none()
+
+
+async def _create_charge_if_missing(
+    *,
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    billing_period: str,
+    charge_type: str,
+    module_slug: str,
+    description: str,
+    quantity: Decimal,
+    unit_price_ils: Decimal,
+    discount_pct: Decimal,
+    current_user_id: uuid.UUID | None,
+) -> bool:
+    exists = await db.execute(
+        sa.select(BillingCharge.id).where(
+            BillingCharge.tenant_id == tenant_id,
+            BillingCharge.billing_period == billing_period,
+            BillingCharge.module_slug == module_slug,
+            BillingCharge.charge_type == charge_type,
+        )
+    )
+    if exists.first():
+        return False
+
+    amount = _round2(unit_price_ils * quantity)
+    after_discount = _round2(amount * (Decimal("1") - discount_pct / Decimal("100")))
+    db.add(BillingCharge(
+        tenant_id=tenant_id,
+        billing_period=billing_period,
+        charge_type=charge_type,
+        module_slug=module_slug,
+        description=description,
+        quantity=quantity,
+        unit_price_ils=unit_price_ils,
+        amount_ils=amount,
+        discount_pct=discount_pct,
+        amount_after_discount_ils=after_discount,
+        status="pending",
+        created_by=current_user_id,
+    ))
+    return True
+
+
 # ─── Charges — Generate ───────────────────────────────────────────────────────
 
 @router.post(
@@ -103,12 +184,12 @@ async def generate_charges(
     current_user: CurrentUser = Depends(require_admin),
 ):
     """
-    Auto-generate base_fee charges for every active/trial tenant for a given
-    billing period.  Idempotent — skips any (tenant, period, module, type)
-    combination that already has a charge record.
+    Auto-generate pricing charges for every active/trial tenant for a given
+    billing period. Idempotent per (tenant, period, module, type).
     """
     today = date.today()
     period = body.billing_period
+    period_start = _period_start(period)
 
     # ── Fetch tenants to process ──────────────────────────────────────────────
     if body.tenant_ids:
@@ -135,44 +216,25 @@ async def generate_charges(
         if not subscription:
             continue
 
-        # Fetch modules in this tenant's package
-        pkg_result = await db.execute(
-            sa.select(PackageModule.module_slug)
-            .join(Package, Package.id == PackageModule.package_id)
-            .where(Package.slug == subscription.package_slug)
-        )
-        module_slugs = [row[0] for row in pkg_result.all()]
+        module_slugs = list(subscription.selected_module_slugs or [])
+        if not module_slugs:
+            pkg_result = await db.execute(
+                sa.select(PackageModule.module_slug)
+                .join(Package, Package.id == PackageModule.package_id)
+                .where(Package.slug == subscription.package_slug)
+            )
+            module_slugs = [row[0] for row in pkg_result.all()]
 
         if not module_slugs:
             continue
 
         processed += 1
+        discount = subscription.discount_pct or Decimal("0")
+        seat_count = max(subscription.seat_count or 0, 0)
+        year_str, month_name = _period_label(period)
 
         for slug in module_slugs:
-            # Idempotency check
-            exists = await db.execute(
-                sa.select(BillingCharge.id).where(
-                    BillingCharge.tenant_id == tenant.tenant_id,
-                    BillingCharge.billing_period == period,
-                    BillingCharge.module_slug == slug,
-                    BillingCharge.charge_type == "base_fee",
-                )
-            )
-            if exists.first():
-                skipped += 1
-                continue
-
-            # Get current module price
-            price_result = await db.execute(
-                sa.select(ModulePrice)
-                .where(ModulePrice.module_slug == slug)
-                .where(ModulePrice.valid_from <= today)
-                .where(
-                    sa.or_(ModulePrice.valid_to.is_(None), ModulePrice.valid_to >= today)
-                )
-                .limit(1)
-            )
-            price = price_result.scalar_one_or_none()
+            price = await _get_active_module_price(db, slug, today)
             if not price:
                 skipped += 1
                 continue
@@ -183,37 +245,70 @@ async def generate_charges(
             )
             mod_name = mod_result.scalar_one_or_none() or slug
 
-            year_str, month_str = period.split("-")
-            month_name = [
-                "", "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
-                "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
-            ][int(month_str)]
-
-            discount = subscription.discount_pct or Decimal("0")
-            unit_price = price.base_price_ils
-            amount = _round2(unit_price * Decimal("1"))
-            after_discount = _round2(amount * (1 - discount / 100))
-
-            db.add(BillingCharge(
+            if await _create_charge_if_missing(
+                db=db,
                 tenant_id=tenant.tenant_id,
                 billing_period=period,
                 charge_type="base_fee",
                 module_slug=slug,
                 description=f"דמי מנוי — {mod_name} — {month_name} {year_str}",
                 quantity=Decimal("1"),
-                unit_price_ils=unit_price,
-                amount_ils=amount,
+                unit_price_ils=price.base_price_ils,
                 discount_pct=discount,
-                amount_after_discount_ils=after_discount,
-                status="pending",
-                created_by=current_user.id,
-            ))
-            created += 1
+                current_user_id=current_user.id,
+            ):
+                created += 1
+            else:
+                skipped += 1
 
-            # per_seat charge if applicable
-            if price.per_seat_ils and price.per_seat_ils > 0:
-                # TODO: integrate with tenant user count when user module is built
-                pass
+            billable_seats = max(seat_count - (price.included_seats or 0), 0)
+            if price.per_seat_ils and price.per_seat_ils > 0 and billable_seats > 0:
+                if await _create_charge_if_missing(
+                    db=db,
+                    tenant_id=tenant.tenant_id,
+                    billing_period=period,
+                    charge_type="per_seat",
+                    module_slug=slug,
+                    description=f"מושבים נוספים — {mod_name} — {month_name} {year_str}",
+                    quantity=Decimal(str(billable_seats)),
+                    unit_price_ils=price.per_seat_ils,
+                    discount_pct=discount,
+                    current_user_id=current_user.id,
+                ):
+                    created += 1
+                else:
+                    skipped += 1
+
+            should_bill_setup = (
+                price.setup_fee_ils
+                and price.setup_fee_ils > 0
+                and subscription.valid_from
+                and subscription.valid_from <= period_start
+            )
+            if should_bill_setup:
+                setup_exists = await db.execute(
+                    sa.select(BillingCharge.id).where(
+                        BillingCharge.tenant_id == tenant.tenant_id,
+                        BillingCharge.module_slug == slug,
+                        BillingCharge.charge_type == "setup_fee",
+                    )
+                )
+                if not setup_exists.first():
+                    if await _create_charge_if_missing(
+                        db=db,
+                        tenant_id=tenant.tenant_id,
+                        billing_period=period,
+                        charge_type="setup_fee",
+                        module_slug=slug,
+                        description=f"דמי הקמה — {mod_name}",
+                        quantity=Decimal("1"),
+                        unit_price_ils=price.setup_fee_ils,
+                        discount_pct=discount,
+                        current_user_id=current_user.id,
+                    ):
+                        created += 1
+                else:
+                    skipped += 1
 
     await db.commit()
     return GenerateChargesResult(created=created, skipped=skipped, tenants_processed=processed)
@@ -412,8 +507,8 @@ async def create_invoice(
             )
 
     # ── Calculate totals ──────────────────────────────────────────────────────
-    subtotal = _round2(sum(c.amount_after_discount_ils for c in charges))
-    discount = _round2(sum(c.amount_ils - c.amount_after_discount_ils for c in charges))
+    subtotal = _round2(_sum_decimal(c.amount_after_discount_ils for c in charges))
+    discount = _round2(_sum_decimal(c.amount_ils - c.amount_after_discount_ils for c in charges))
     vat = _round2(subtotal * body.vat_pct / 100)
     total = _round2(subtotal + vat)
 
@@ -590,13 +685,13 @@ async def get_tenant_billing(
     charges_out = [await _enrich_charge(db, c) for c in charges]
     invoices_out = [await _enrich_invoice_list(db, inv) for inv in invoices]
 
-    pending_total = _round2(sum(
+    pending_total = _round2(_sum_decimal(
         c.amount_after_discount_ils for c in charges if c.status == "pending"
     ))
-    invoiced_total = _round2(sum(
+    invoiced_total = _round2(_sum_decimal(
         inv.total_ils for inv in invoices if inv.status not in ("cancelled",)
     ))
-    paid_total = _round2(sum(
+    paid_total = _round2(_sum_decimal(
         inv.total_ils for inv in invoices if inv.status == "paid"
     ))
 

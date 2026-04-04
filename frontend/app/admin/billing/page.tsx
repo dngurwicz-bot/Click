@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
 import {
-  HelpCircle, Printer, RefreshCw, Plus, Search,
+  Plus,
   Zap, FileText, X, AlertCircle, ChevronDown,
   CheckCircle2, Clock, Ban, Send, Wallet,
 } from "lucide-react";
@@ -714,25 +715,7 @@ export default function BillingPage() {
       <TopNav />
 
       <main className="flex-1 overflow-hidden flex flex-col">
-
-        {/* ── Title Bar ──────────────────────────────────────────────── */}
-        <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-             style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-          <div className="flex items-center gap-0.5">
-            <button title="עזרה" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <HelpCircle size={13} />
-            </button>
-            <button title="הדפסה" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <Printer size={13} />
-            </button>
-            <button title="רענן" onClick={loadData} className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <RefreshCw size={13} />
-            </button>
-          </div>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>
-            ניהול חיובים וחשבוניות
-          </h1>
-        </div>
+        <AdminTitleBar title="ניהול חיובים וחשבוניות" onRefresh={loadData} />
 
         {/* ── Stats Bar ──────────────────────────────────────────────── */}
         <div className="bg-white border-b border-slate-200 flex items-center gap-6 px-4 py-2 shrink-0">
@@ -767,9 +750,9 @@ export default function BillingPage() {
         </div>
 
         {/* ── Action Bar ─────────────────────────────────────────────── */}
-        <div className="bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0 gap-3">
-          {/* RIGHT: actions + search */}
-          <div className="flex items-center gap-2">
+        <AdminActionBar
+          start={
+            <div className="flex items-center gap-2">
             <button
               onClick={() => setShowGenerate(true)}
               className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white
@@ -782,22 +765,11 @@ export default function BillingPage() {
                          text-xs font-semibold px-3 py-1.5 rounded-md transition-colors">
               <Plus size={12} /> חשבונית חדשה
             </button>
-            <div className="relative">
-              <Search size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="חיפוש..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pr-8 pl-3 py-1.5 text-xs border border-slate-300 bg-white rounded-md
-                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100
-                           text-right w-44 transition-colors"
-              />
+            <AdminSearchField value={search} onChange={setSearch} widthClass="w-44" />
             </div>
-          </div>
-
-          {/* CENTER: filters */}
-          <div className="flex items-center gap-2">
+          }
+          center={
+            <div className="flex items-center gap-2">
             <input
               type="month"
               value={filterPeriod}
@@ -840,15 +812,10 @@ export default function BillingPage() {
                 </>
               )}
             </select>
-          </div>
-
-          {/* LEFT: count */}
-          <div className="text-xs text-slate-400 font-medium shrink-0">
-            {!loading && (
-              <span>{activeTab === "charges" ? filteredCharges.length : filteredInvoices.length} פריטים</span>
-            )}
-          </div>
-        </div>
+            </div>
+          }
+          end={!loading ? <AdminCountLabel>{activeTab === "charges" ? filteredCharges.length : filteredInvoices.length} פריטים</AdminCountLabel> : undefined}
+        />
 
         {/* ── Tab Bar ────────────────────────────────────────────────── */}
         <div className="bg-white border-b border-slate-200 flex items-end px-3 shrink-0 gap-0.5">

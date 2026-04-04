@@ -31,6 +31,7 @@ interface TenantAddressOut extends AuditFields {
 }
 interface TenantSubscriptionOut extends AuditFields {
   id: string; package_slug: string; billing_cycle: string; currency: string;
+  template_id?: string; seat_count: number; selected_module_slugs: string[];
   discount_pct: string; is_price_locked: boolean; next_renewal_at?: string;
   valid_from: string; valid_to?: string;
 }
@@ -79,6 +80,28 @@ interface TenantInvoiceDetail extends TenantInvoiceItem {
   vat_pct: string; discount_ils: string; notes?: string; payment_ref?: string;
   tenant_name?: string;
   lines: { id: string; description: string; quantity: string; unit_price_ils: string; amount_ils: string }[];
+}
+
+interface TemplatePricingSummary {
+  seat_count: number;
+  modules_count: number;
+  recurring_after_discount_ils: string;
+  setup_after_discount_ils: string;
+  total_after_discount_ils: string;
+}
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  description?: string | null;
+  default_package_slug: string | null;
+  default_billing_cycle: string;
+  module_slugs: string[];
+  discount_pct: string;
+  seat_count: number;
+  is_price_locked: boolean;
+  pricing_summary: TemplatePricingSummary | null;
+  valid_to?: string | null;
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
@@ -145,11 +168,14 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
       options: [{ value: "main", label: "ראשית" }, { value: "mailing", label: "דואר" }, { value: "branch", label: "סניף" }] },
   ],
   subscription: [
+    { key: "template_id", label: "תבנית" },
     { key: "package_slug",  label: "חבילה",       required: true, lookupKey: "package" },
     { key: "billing_cycle", label: "מחזור חיוב",  required: true, type: "select",
-      options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "annual", label: "שנתי" }] },
+      options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "yearly", label: "שנתי" }] },
     { key: "currency",      label: "מטבע",         required: true, type: "select",
       options: [{ value: "ILS", label: "₪ שקל" }, { value: "USD", label: "$ דולר" }, { value: "EUR", label: "€ יורו" }] },
+    { key: "seat_count",     label: "מושבים" },
+    { key: "selected_module_slugs", label: "מודולים" },
     { key: "discount_pct",   label: "הנחה %" },
     { key: "is_price_locked", label: "מחיר נעול", type: "checkbox" },
   ],
@@ -286,9 +312,16 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
 
   // Helper: send section payload (needed even for delete/close — backend ignores the data)
   function buildSectionPayload() {
-    const p: Record<string, string | number | boolean> = {};
+    const p: Record<string, string | number | boolean | string[]> = {};
     for (const f of fields) {
-      if (f.type === "checkbox") {
+      if (section === "subscription" && f.key === "selected_module_slugs") {
+        p[f.key] = (form[f.key] ?? "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+      } else if (section === "subscription" && f.key === "seat_count") {
+        p[f.key] = parseInt(form[f.key] ?? "0", 10) || 0;
+      } else if (f.type === "checkbox") {
         p[f.key] = form[f.key] === "true";
       } else {
         p[f.key] = form[f.key] ?? "";
@@ -886,7 +919,10 @@ function buildIdentityTab(rows: TenantIdentityOut[], onDblClick: (i: number) => 
       created_at:  fmtDateTime(r.created_at),
       created_by:  r.created_by ?? "—",
       _current:    !r.valid_to,
+      _valid_from_raw: r.valid_from,
+      _valid_to_raw: r.valid_to ?? null,
     })),
+    temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
@@ -921,7 +957,10 @@ function buildContactTab(rows: TenantContactOut[], onDblClick: (i: number) => vo
       created_at:   fmtDateTime(r.created_at),
       created_by:   r.created_by ?? "—",
       _current:     !r.valid_to,
+      _valid_from_raw: r.valid_from,
+      _valid_to_raw: r.valid_to ?? null,
     })),
+    temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
@@ -950,7 +989,10 @@ function buildAddressTab(rows: TenantAddressOut[], onDblClick: (i: number) => vo
       created_at: fmtDateTime(r.created_at),
       created_by: r.created_by ?? "—",
       _current:   !r.valid_to,
+      _valid_from_raw: r.valid_from,
+      _valid_to_raw: r.valid_to ?? null,
     })),
+    temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
@@ -962,8 +1004,11 @@ function buildSubscriptionTab(rows: TenantSubscriptionOut[], onDblClick: (i: num
     columns: [
       { key: "valid_from",    label: "תוקף מ",       required: true },
       { key: "valid_to",      label: "תוקף עד" },
+      { key: "template_id",   label: "תבנית" },
       { key: "package_slug",  label: "חבילה",        required: true },
       { key: "billing_cycle", label: "מחזור חיוב",   required: true },
+      { key: "seat_count",    label: "מושבים" },
+      { key: "modules",       label: "מודולים" },
       { key: "currency",      label: "מטבע",         required: true },
       { key: "discount_pct",  label: "הנחה %" },
       { key: "created_at",    label: "תאריך שינוי" },
@@ -972,14 +1017,20 @@ function buildSubscriptionTab(rows: TenantSubscriptionOut[], onDblClick: (i: num
     rows: sorted.map((r) => ({
       valid_from:    fmtDate(r.valid_from),
       valid_to:      r.valid_to ? fmtDate(r.valid_to) : "—",
+      template_id:   r.template_id ?? "—",
       package_slug:  r.package_slug,
       billing_cycle: r.billing_cycle,
+      seat_count:    r.seat_count,
+      modules:       r.selected_module_slugs?.length ? r.selected_module_slugs.join(", ") : "—",
       currency:      r.currency,
       discount_pct:  `${r.discount_pct}%`,
       created_at:    fmtDateTime(r.created_at),
       created_by:    r.created_by ?? "—",
       _current:      !r.valid_to,
+      _valid_from_raw: r.valid_from,
+      _valid_to_raw: r.valid_to ?? null,
     })),
+    temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
@@ -1004,7 +1055,10 @@ function buildStatusTab(rows: TenantStatusOut[], onDblClick: (i: number) => void
       created_at: fmtDateTime(r.created_at),
       created_by: r.created_by ?? "—",
       _current:   !r.valid_to,
+      _valid_from_raw: r.valid_from,
+      _valid_to_raw: r.valid_to ?? null,
     })),
+    temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
@@ -1046,6 +1100,163 @@ const CHARGE_TYPE_LABELS: Record<string, string> = {
 function periodShort(p: string) {
   const [y, m] = p.split("-");
   return `${ILS_MONTHS_SHORT[parseInt(m)]} ${y}`;
+}
+
+function ApplyTemplateModal({
+  tenantId,
+  onClose,
+  onApplied,
+}: {
+  tenantId: string;
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<TemplateOption[]>("/api/admin/templates")
+      .then((data) => setTemplates(data.filter((template) => !template.valid_to)))
+      .catch(() => setError("לא הצלחתי לטעון תבניות"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const selectedTemplate = templates.find((template) => template.id === selectedId) ?? null;
+
+  async function handleApply() {
+    if (!selectedId) {
+      setError("יש לבחור תבנית");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/admin/tenants/${tenantId}/apply-template`, {
+        template_id: selectedId,
+        valid_from: effectiveFrom,
+      });
+      onApplied();
+      onClose();
+    } catch (e: unknown) {
+      const err = e as { error?: string; detail?: { error?: string } };
+      setError(err?.error ?? err?.detail?.error ?? "שגיאה בהחלת התבנית");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">החל תבנית על הארגון</h3>
+            <p className="mt-1 text-[11px] text-slate-500">הפעולה תעדכן את פרטי המנוי, המודולים והמושבים של הארגון מתאריך שתבחר.</p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
+        </div>
+
+        <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">תבנית</label>
+              <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400"
+                disabled={loading}
+              >
+                <option value="">{loading ? "טוען תבניות..." : "בחר תבנית"}</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף מתאריך</label>
+              <input
+                type="date"
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400"
+              />
+            </div>
+
+            {selectedTemplate && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 space-y-2">
+                <div className="font-semibold text-slate-800">{selectedTemplate.name}</div>
+                {selectedTemplate.description && <div>{selectedTemplate.description}</div>}
+                <div className="grid grid-cols-2 gap-2">
+                  <span>חבילה: {selectedTemplate.default_package_slug ?? "—"}</span>
+                  <span>מחזור: {selectedTemplate.default_billing_cycle}</span>
+                  <span>מושבים: {selectedTemplate.seat_count}</span>
+                  <span>הנחה: {selectedTemplate.discount_pct}%</span>
+                </div>
+                <div className="border-t border-slate-200 pt-2 text-[11px] text-slate-500">
+                  מודולים: {selectedTemplate.module_slugs.length ? selectedTemplate.module_slugs.join(", ") : "ללא מודולים"}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-900 p-4 text-white">
+            <div className="text-sm font-semibold">תצוגה מקדימה</div>
+            <p className="mt-1 text-[11px] text-slate-300">אחרי ההחלה, החיובים החדשים ייגזרו מהמנוי המעודכן הזה.</p>
+            {selectedTemplate?.pricing_summary ? (
+              <div className="mt-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">מודולים</span>
+                  <span className="font-semibold">{selectedTemplate.pricing_summary.modules_count}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">מושבים</span>
+                  <span className="font-semibold">{selectedTemplate.pricing_summary.seat_count}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">חודשי משוער</span>
+                  <span className="font-semibold">{fmtIls(selectedTemplate.pricing_summary.recurring_after_discount_ils)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">הקמה משוערת</span>
+                  <span className="font-semibold">{fmtIls(selectedTemplate.pricing_summary.setup_after_discount_ils)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-white/10 pt-2">
+                  <span className="text-slate-100 font-semibold">סה"כ מחזור ראשון</span>
+                  <span className="text-lg font-bold">{fmtIls(selectedTemplate.pricing_summary.total_after_discount_ils)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 text-xs text-slate-300">בחר תבנית כדי לראות סיכום כספי.</div>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div className="px-5 pb-2 text-xs text-red-600">{error}</div>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
+          <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+            ביטול
+          </button>
+          <button
+            onClick={handleApply}
+            disabled={saving || loading}
+            className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            <FileText size={12} />
+            {saving ? "מחיל..." : "החל תבנית"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Tenant Invoice Detail Modal ──────────────────────────────────────────────
@@ -1204,7 +1415,7 @@ function getRawFields(section: SectionKey, item: TenantIdentityOut | TenantConta
   return Object.fromEntries(
     Object.entries(r)
       .filter(([k]) => !["id", "tenant_id", "valid_from", "valid_to", "created_at", "created_by", "updated_at", "updated_by"].includes(k))
-      .map(([k, v]) => [k, String(v ?? "")])
+      .map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : String(v ?? "")])
   );
 }
 
@@ -1218,6 +1429,7 @@ export default function TenantDetailPage() {
   const [billing, setBilling] = useState<TenantBillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<TenantInvoiceItem | null>(null);
+  const [showApplyTemplate, setShowApplyTemplate] = useState(false);
   const [editState, setEditState] = useState<{
     section: SectionKey;
     data: Record<string, string>;
@@ -1354,7 +1566,13 @@ export default function TenantDetailPage() {
               : undefined
           }
           onNew={() => router.push("/admin/tenants/new")}
-          primaryActions={[]}
+          primaryActions={[
+            {
+              label: "החל תבנית",
+              onClick: () => setShowApplyTemplate(true),
+              icon: <FileText size={12} />,
+            },
+          ]}
           parentContent={tenant ? (
             <ParentForm
               tenant={tenant}
@@ -1391,6 +1609,17 @@ export default function TenantDetailPage() {
           invoice={selectedBillingInvoice}
           onClose={() => setSelectedBillingInvoice(null)}
           onUpdated={() => { setSelectedBillingInvoice(null); loadData(); }}
+        />
+      )}
+
+      {showApplyTemplate && tenant && (
+        <ApplyTemplateModal
+          tenantId={tenant.tenant_id}
+          onClose={() => setShowApplyTemplate(false)}
+          onApplied={() => {
+            setShowApplyTemplate(false);
+            loadData();
+          }}
         />
       )}
     </div>

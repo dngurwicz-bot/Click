@@ -57,11 +57,12 @@ export function Logo({ href = "/dashboard", size = "md", variant = "dark" }: Log
 
       <span
         style={{
-          fontFamily: "'Heebo', sans-serif",
+          fontFamily: "'Rubik', 'Heebo', sans-serif",
           fontSize: s.subText,
-          fontWeight: 500,
+          fontWeight: 600,
           color: v.sub,
           lineHeight: 1.2,
+          letterSpacing: "0.04em",
         }}
       >
         DNG

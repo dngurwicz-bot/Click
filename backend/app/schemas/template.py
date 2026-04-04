@@ -2,6 +2,34 @@ from pydantic import BaseModel
 import uuid
 from datetime import date, datetime
 from typing import Optional
+from decimal import Decimal
+
+
+class TemplateModulePricing(BaseModel):
+    module_slug: str
+    module_name: str
+    has_active_price: bool = False
+    base_price_ils: Decimal = Decimal("0")
+    per_seat_ils: Decimal = Decimal("0")
+    included_seats: int = 0
+    setup_fee_ils: Decimal = Decimal("0")
+    seat_count: int = 0
+    billable_seats: int = 0
+    recurring_total_ils: Decimal = Decimal("0")
+    setup_total_ils: Decimal = Decimal("0")
+
+
+class TemplatePricingSummary(BaseModel):
+    seat_count: int = 0
+    discount_pct: Decimal = Decimal("0")
+    is_price_locked: bool = False
+    modules_count: int = 0
+    recurring_before_discount_ils: Decimal = Decimal("0")
+    recurring_after_discount_ils: Decimal = Decimal("0")
+    setup_before_discount_ils: Decimal = Decimal("0")
+    setup_after_discount_ils: Decimal = Decimal("0")
+    total_before_discount_ils: Decimal = Decimal("0")
+    total_after_discount_ils: Decimal = Decimal("0")
 
 
 class TemplateOut(BaseModel):
@@ -19,6 +47,11 @@ class TemplateOut(BaseModel):
     valid_to: Optional[date] = None
     created_at: Optional[datetime] = None
     module_slugs: list[str] = []
+    seat_count: int = 0
+    discount_pct: Decimal = Decimal("0")
+    is_price_locked: bool = False
+    module_pricing: list[TemplateModulePricing] = []
+    pricing_summary: Optional[TemplatePricingSummary] = None
 
     model_config = {"from_attributes": True}
 
@@ -36,6 +69,9 @@ class TemplateCreate(BaseModel):
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
     module_slugs: list[str] = []
+    seat_count: int = 0
+    discount_pct: Decimal = Decimal("0")
+    is_price_locked: bool = False
 
 
 class TemplateActionBody(BaseModel):
@@ -54,3 +90,6 @@ class TemplateActionBody(BaseModel):
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
     module_slugs: Optional[list[str]] = None
+    seat_count: Optional[int] = None
+    discount_pct: Optional[Decimal] = None
+    is_price_locked: Optional[bool] = None

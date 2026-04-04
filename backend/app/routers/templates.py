@@ -1,15 +1,27 @@
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 
 from app.database import get_db
 from app.middleware.auth import require_super_admin, CurrentUser
-from app.models.module import OrgTemplate, OrgTemplateModule
-from app.schemas.template import TemplateOut, TemplateCreate, TemplateActionBody
+from app.models.module import OrgTemplate, OrgTemplateModule, OrgTemplateDefault, Module, ModulePrice
+from app.schemas.template import (
+    TemplateOut, TemplateCreate, TemplateActionBody,
+    TemplateModulePricing, TemplatePricingSummary,
+)
 
 router = APIRouter(prefix="/api/admin/templates", tags=["templates"])
+
+TWO_PLACES = Decimal("0.01")
+DEFAULT_SEAT_COUNT = 0
+DEFAULT_DISCOUNT_PCT = Decimal("0")
+
+
+def _round2(value: Decimal) -> Decimal:
+    return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -31,6 +43,165 @@ async def _save_module_slugs(db: AsyncSession, template_id: uuid.UUID, slugs: li
         db.add(OrgTemplateModule(template_id=template_id, module_slug=s))
 
 
+async def _load_template_defaults(db: AsyncSession, template_id: uuid.UUID) -> dict[str, str]:
+    res = await db.execute(
+        select(OrgTemplateDefault.default_type, OrgTemplateDefault.default_value)
+        .where(OrgTemplateDefault.template_id == template_id)
+    )
+    return {default_type: default_value for default_type, default_value in res.all()}
+
+
+async def _delete_template_defaults(db: AsyncSession, template_id: uuid.UUID) -> None:
+    await db.execute(
+        delete(OrgTemplateDefault)
+        .where(OrgTemplateDefault.template_id == template_id)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def _save_template_defaults(
+    db: AsyncSession,
+    template_id: uuid.UUID,
+    *,
+    seat_count: int,
+    discount_pct: Decimal,
+    is_price_locked: bool,
+) -> None:
+    await _delete_template_defaults(db, template_id)
+    defaults = [
+        ("seat_count", str(seat_count), "ברירת מחדל למספר מושבים"),
+        ("discount_pct", str(discount_pct), "ברירת מחדל לאחוז הנחה"),
+        ("is_price_locked", "true" if is_price_locked else "false", "האם המחיר נעול כברירת מחדל"),
+    ]
+    for default_type, default_value, note in defaults:
+        db.add(
+            OrgTemplateDefault(
+                template_id=template_id,
+                default_type=default_type,
+                default_value=default_value,
+                is_mandatory=False,
+                note=note,
+            )
+        )
+
+
+def _default_seat_count(defaults: dict[str, str]) -> int:
+    try:
+        return max(int(defaults.get("seat_count", DEFAULT_SEAT_COUNT)), 0)
+    except (TypeError, ValueError):
+        return DEFAULT_SEAT_COUNT
+
+
+def _default_discount_pct(defaults: dict[str, str]) -> Decimal:
+    raw = defaults.get("discount_pct")
+    try:
+        value = Decimal(raw) if raw is not None else DEFAULT_DISCOUNT_PCT
+    except Exception:
+        value = DEFAULT_DISCOUNT_PCT
+    return max(value, Decimal("0"))
+
+
+def _default_price_locked(defaults: dict[str, str]) -> bool:
+    return defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"}
+
+
+async def _build_module_pricing(
+    db: AsyncSession,
+    module_slugs: list[str],
+    seat_count: int,
+) -> list[TemplateModulePricing]:
+    if not module_slugs:
+        return []
+
+    today = date.today()
+    modules_result = await db.execute(
+        select(Module).where(Module.slug.in_(module_slugs))
+    )
+    module_map = {module.slug: module for module in modules_result.scalars().all()}
+
+    price_result = await db.execute(
+        select(ModulePrice)
+        .where(ModulePrice.module_slug.in_(module_slugs))
+        .where(ModulePrice.valid_from <= today)
+        .where((ModulePrice.valid_to.is_(None)) | (ModulePrice.valid_to >= today))
+        .order_by(ModulePrice.module_slug, ModulePrice.valid_from.desc())
+    )
+    price_map: dict[str, ModulePrice] = {}
+    for price in price_result.scalars().all():
+        price_map.setdefault(price.module_slug, price)
+
+    items: list[TemplateModulePricing] = []
+    for slug in module_slugs:
+        module = module_map.get(slug)
+        price = price_map.get(slug)
+        included_seats = price.included_seats if price else 0
+        billable_seats = max(seat_count - included_seats, 0)
+        base_price = price.base_price_ils if price else Decimal("0")
+        per_seat_price = price.per_seat_ils if price else Decimal("0")
+        setup_fee = price.setup_fee_ils if price else Decimal("0")
+        recurring_total = _round2(base_price + (per_seat_price * Decimal(billable_seats)))
+        setup_total = _round2(setup_fee)
+        items.append(
+            TemplateModulePricing(
+                module_slug=slug,
+                module_name=module.name if module else slug,
+                has_active_price=price is not None,
+                base_price_ils=base_price,
+                per_seat_ils=per_seat_price,
+                included_seats=included_seats,
+                setup_fee_ils=setup_fee,
+                seat_count=seat_count,
+                billable_seats=billable_seats,
+                recurring_total_ils=recurring_total,
+                setup_total_ils=setup_total,
+            )
+        )
+    return items
+
+
+def _build_pricing_summary(
+    module_pricing: list[TemplateModulePricing],
+    *,
+    seat_count: int,
+    discount_pct: Decimal,
+    is_price_locked: bool,
+) -> TemplatePricingSummary:
+    recurring_before = _round2(sum((item.recurring_total_ils for item in module_pricing), Decimal("0")))
+    setup_before = _round2(sum((item.setup_total_ils for item in module_pricing), Decimal("0")))
+    discount_factor = Decimal("1") - (discount_pct / Decimal("100"))
+    recurring_after = _round2(recurring_before * discount_factor)
+    setup_after = _round2(setup_before * discount_factor)
+    return TemplatePricingSummary(
+        seat_count=seat_count,
+        discount_pct=discount_pct,
+        is_price_locked=is_price_locked,
+        modules_count=len(module_pricing),
+        recurring_before_discount_ils=recurring_before,
+        recurring_after_discount_ils=recurring_after,
+        setup_before_discount_ils=setup_before,
+        setup_after_discount_ils=setup_after,
+        total_before_discount_ils=_round2(recurring_before + setup_before),
+        total_after_discount_ils=_round2(recurring_after + setup_after),
+    )
+
+
+async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> TemplateOut:
+    out = TemplateOut.model_validate(template)
+    out.module_slugs = await _load_module_slugs(db, template.id)
+    defaults = await _load_template_defaults(db, template.id)
+    out.seat_count = _default_seat_count(defaults)
+    out.discount_pct = _default_discount_pct(defaults)
+    out.is_price_locked = _default_price_locked(defaults)
+    out.module_pricing = await _build_module_pricing(db, out.module_slugs, out.seat_count)
+    out.pricing_summary = _build_pricing_summary(
+        out.module_pricing,
+        seat_count=out.seat_count,
+        discount_pct=out.discount_pct,
+        is_price_locked=out.is_price_locked,
+    )
+    return out
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[TemplateOut])
@@ -43,12 +214,7 @@ async def list_templates(
         select(OrgTemplate).order_by(OrgTemplate.valid_from.desc())
     )
     templates = result.scalars().all()
-    out = []
-    for t in templates:
-        item = TemplateOut.model_validate(t)
-        item.module_slugs = await _load_module_slugs(db, t.id)
-        out.append(item)
-    return out
+    return [await _build_template_out(db, template) for template in templates]
 
 
 @router.post("", response_model=TemplateOut, status_code=201)
@@ -75,10 +241,15 @@ async def create_template(
     await db.flush()
     await db.refresh(new_template)
     await _save_module_slugs(db, new_template.id, body.module_slugs)
+    await _save_template_defaults(
+        db,
+        new_template.id,
+        seat_count=body.seat_count,
+        discount_pct=body.discount_pct,
+        is_price_locked=body.is_price_locked,
+    )
     await db.commit()
-    out = TemplateOut.model_validate(new_template)
-    out.module_slugs = await _load_module_slugs(db, new_template.id)
-    return out
+    return await _build_template_out(db, new_template)
 
 
 @router.put("/{template_id}", response_model=TemplateOut)
@@ -110,11 +281,16 @@ async def update_template(
 
     # TemplateCreate.module_slugs defaults to [] — treat as "replace with provided list"
     await _save_module_slugs(db, template_id, body.module_slugs)
+    await _save_template_defaults(
+        db,
+        template_id,
+        seat_count=body.seat_count,
+        discount_pct=body.discount_pct,
+        is_price_locked=body.is_price_locked,
+    )
     await db.commit()
     await db.refresh(template)
-    out = TemplateOut.model_validate(template)
-    out.module_slugs = await _load_module_slugs(db, template.id)
-    return out
+    return await _build_template_out(db, template)
 
 
 @router.delete("/{template_id}")
@@ -129,6 +305,7 @@ async def delete_template(
     if not template:
         raise HTTPException(status_code=404, detail={"error": "Template not found", "code": "NOT_FOUND"})
 
+    await _delete_template_defaults(db, template_id)
     await db.execute(
         delete(OrgTemplate)
         .where(OrgTemplate.id == template_id)
@@ -156,12 +333,7 @@ async def get_template(
         .order_by(OrgTemplate.valid_from.desc())
     )
     history = history_result.scalars().all()
-    out = []
-    for t in history:
-        item = TemplateOut.model_validate(t)
-        item.module_slugs = await _load_module_slugs(db, t.id)
-        out.append(item)
-    return out
+    return [await _build_template_out(db, row) for row in history]
 
 
 @router.put("/{template_id}/record", response_model=TemplateOut)
@@ -193,13 +365,14 @@ async def template_record_action(
 
     # ── Action: delete — hard-delete this specific row ───────────────────────
     if action == "delete":
+        await _delete_template_defaults(db, template_id)
         await db.execute(
             delete(OrgTemplate)
             .where(OrgTemplate.id == template_id)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        return TemplateOut.model_validate(anchor)
+        return await _build_template_out(db, anchor)
 
     # ── Action: close — set valid_to on this row ─────────────────────────────
     if action == "close":
@@ -217,9 +390,7 @@ async def template_record_action(
         await db.commit()
         refreshed = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
         updated = refreshed.scalar_one()
-        out = TemplateOut.model_validate(updated)
-        out.module_slugs = await _load_module_slugs(db, updated.id)
-        return out
+        return await _build_template_out(db, updated)
 
     # ── Action: update ────────────────────────────────────────────────────────
     # same valid_from → in-place update of all fields
@@ -272,12 +443,18 @@ async def template_record_action(
             )
             if body.module_slugs is not None:
                 await _save_module_slugs(db, template_id, body.module_slugs)
+            current_defaults = await _load_template_defaults(db, template_id)
+            await _save_template_defaults(
+                db,
+                template_id,
+                seat_count=body.seat_count if body.seat_count is not None else _default_seat_count(current_defaults),
+                discount_pct=body.discount_pct if body.discount_pct is not None else _default_discount_pct(current_defaults),
+                is_price_locked=body.is_price_locked if body.is_price_locked is not None else _default_price_locked(current_defaults),
+            )
             await db.commit()
             refreshed = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
             updated = refreshed.scalar_one()
-            out = TemplateOut.model_validate(updated)
-            out.module_slugs = await _load_module_slugs(db, updated.id)
-            return out
+            return await _build_template_out(db, updated)
         else:
             # Date changed: close original + insert new row
             close_to = body.valid_from - timedelta(days=1)
@@ -302,10 +479,16 @@ async def template_record_action(
             else:
                 slugs_to_copy = await _load_module_slugs(db, template_id)
             await _save_module_slugs(db, new_row.id, slugs_to_copy)
+            anchor_defaults = await _load_template_defaults(db, template_id)
+            await _save_template_defaults(
+                db,
+                new_row.id,
+                seat_count=body.seat_count if body.seat_count is not None else _default_seat_count(anchor_defaults),
+                discount_pct=body.discount_pct if body.discount_pct is not None else _default_discount_pct(anchor_defaults),
+                is_price_locked=body.is_price_locked if body.is_price_locked is not None else _default_price_locked(anchor_defaults),
+            )
             await db.commit()
-            out = TemplateOut.model_validate(new_row)
-            out.module_slugs = await _load_module_slugs(db, new_row.id)
-            return out
+            return await _build_template_out(db, new_row)
 
     # ── Action: add — insert a new record ────────────────────────────────────
     if action == "add":
@@ -336,10 +519,15 @@ async def template_record_action(
         await db.flush()
         await db.refresh(new_row)
         await _save_module_slugs(db, new_row.id, body.module_slugs or [])
+        await _save_template_defaults(
+            db,
+            new_row.id,
+            seat_count=body.seat_count if body.seat_count is not None else DEFAULT_SEAT_COUNT,
+            discount_pct=body.discount_pct if body.discount_pct is not None else DEFAULT_DISCOUNT_PCT,
+            is_price_locked=body.is_price_locked if body.is_price_locked is not None else False,
+        )
         await db.commit()
-        out = TemplateOut.model_validate(new_row)
-        out.module_slugs = await _load_module_slugs(db, new_row.id)
-        return out
+        return await _build_template_out(db, new_row)
 
     # ── Action: set (kabiya) ──────────────────────────────────────────────────
     # Load all rows for this template name as plain tuples (NOT ORM objects),
@@ -406,6 +594,15 @@ async def template_record_action(
                     valid_to=rec_to,
                 )
                 db.add(right_row)
+                row_defaults = await _load_template_defaults(db, rec_id)
+                await db.flush()
+                await _save_template_defaults(
+                    db,
+                    right_row.id,
+                    seat_count=_default_seat_count(row_defaults),
+                    discount_pct=_default_discount_pct(row_defaults),
+                    is_price_locked=_default_price_locked(row_defaults),
+                )
                 await db.execute(
                     update(OrgTemplate)
                     .where(OrgTemplate.id == rec_id)
@@ -433,6 +630,7 @@ async def template_record_action(
 
             else:
                 # COMPLETELY WITHIN new period → delete
+                await _delete_template_defaults(db, rec_id)
                 await db.execute(
                     delete(OrgTemplate)
                     .where(OrgTemplate.id == rec_id)
@@ -457,10 +655,16 @@ async def template_record_action(
         await db.flush()
         await db.refresh(new_row)
         await _save_module_slugs(db, new_row.id, body.module_slugs or [])
+        anchor_defaults = await _load_template_defaults(db, template_id)
+        await _save_template_defaults(
+            db,
+            new_row.id,
+            seat_count=body.seat_count if body.seat_count is not None else _default_seat_count(anchor_defaults),
+            discount_pct=body.discount_pct if body.discount_pct is not None else _default_discount_pct(anchor_defaults),
+            is_price_locked=body.is_price_locked if body.is_price_locked is not None else _default_price_locked(anchor_defaults),
+        )
         await db.commit()
-        out = TemplateOut.model_validate(new_row)
-        out.module_slugs = await _load_module_slugs(db, new_row.id)
-        return out
+        return await _build_template_out(db, new_row)
 
     raise HTTPException(
         status_code=422,

@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Heebo", "Inter", "sans-serif"],
+        sans: ["Rubik", "Heebo", "Inter", "sans-serif"],
       },
       colors: {
         // Primary accent — teal from the logo dot (#00A896)

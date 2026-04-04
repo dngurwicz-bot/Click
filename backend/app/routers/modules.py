@@ -7,10 +7,11 @@ from sqlalchemy import select, update, delete
 from app.database import get_db
 from app.middleware.auth import require_super_admin, CurrentUser
 from app.models.module import Module, ModulePrice
+from app.services.module_pricing_research import build_module_pricing_research
 from app.schemas.module import (
     ModuleWithPrice, ModuleWithHistory, ModulePriceOut,
     ModulePriceActionBody,
-    ModuleCreate, ModuleUpdate, ModuleOut,
+    ModuleCreate, ModuleUpdate, ModuleOut, ModulePricingResearchOut,
 )
 
 router = APIRouter(prefix="/api/admin/modules", tags=["modules"])
@@ -65,6 +66,27 @@ async def create_module(
     await db.commit()
     await db.refresh(new_module)
     return ModuleOut.model_validate(new_module)
+
+
+@router.get("/pricing-recommendations", response_model=ModulePricingResearchOut)
+async def get_module_pricing_recommendations(
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(Module).order_by(Module.sort_order))
+    modules = result.scalars().all()
+
+    current_prices: dict[str, ModulePrice | None] = {}
+    for module in modules:
+        price_result = await db.execute(
+            select(ModulePrice)
+            .where(ModulePrice.module_slug == module.slug)
+            .where(ModulePrice.valid_to.is_(None))
+            .limit(1)
+        )
+        current_prices[module.slug] = price_result.scalar_one_or_none()
+
+    return build_module_pricing_research(current_prices)
 
 
 @router.put("/{slug}", response_model=ModuleOut)

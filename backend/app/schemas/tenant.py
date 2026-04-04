@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -76,6 +76,9 @@ class TenantSubscriptionBase(BaseModel):
     package_slug: str
     billing_cycle: str = "monthly"
     currency: str = "ILS"
+    template_id: Optional[uuid.UUID] = None
+    seat_count: int = 0
+    selected_module_slugs: list[str] = Field(default_factory=list)
     discount_pct: Decimal = Decimal("0")
     is_price_locked: bool = False
 
@@ -152,6 +155,11 @@ class TenantUpdateRequest(BaseModel):
     address: Optional[TenantAddressUpdate] = None
     subscription: Optional[TenantSubscriptionUpdate] = None
     status: Optional[TenantStatusUpdate] = None
+
+
+class TenantApplyTemplateRequest(BaseModel):
+    template_id: uuid.UUID
+    valid_from: Optional[date] = None
 
 
 # --- Response ---

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { Plus, Search, HelpCircle, Printer, RefreshCw, Pencil, Trash2 } from "lucide-react";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 
 interface LookupListItem {
   id: string;
@@ -60,29 +61,11 @@ export default function LookupsPage() {
     <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav />
       <main className="flex-1 overflow-hidden flex flex-col">
+        <AdminTitleBar title="ניהול רשימות ארגוניות" onRefresh={loadLists} />
 
-        {/* Title Bar */}
-        <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-             style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-          <div className="flex items-center gap-0.5">
-            <button title="עזרה" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <HelpCircle size={13} />
-            </button>
-            <button title="הדפסה" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-              <Printer size={13} />
-            </button>
-            <button title="רענן" className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors" onClick={loadLists}>
-              <RefreshCw size={13} />
-            </button>
-          </div>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>
-            ניהול רשימות ארגוניות
-          </h1>
-        </div>
-
-        {/* Action Bar */}
-        <div className="bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0 gap-4">
-          <div className="flex items-center gap-2">
+        <AdminActionBar
+          start={
+            <>
             <button
               onClick={() => router.push("/admin/lookups/new")}
               className="flex items-center gap-1 bg-brand-600 hover:bg-brand-700 text-white
@@ -91,23 +74,11 @@ export default function LookupsPage() {
               <Plus size={12} />
               חדש
             </button>
-            <div className="relative">
-              <Search size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="חיפוש..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pr-8 pl-3 py-1.5 text-xs border border-slate-300 bg-white rounded-md
-                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100
-                           text-right w-48 transition-colors"
-              />
-            </div>
-          </div>
-          <div className="text-xs text-slate-400 font-medium">
-            {!loading && <span>{filtered.length} רשימות</span>}
-          </div>
-        </div>
+            <AdminSearchField value={search} onChange={setSearch} />
+            </>
+          }
+          end={!loading ? <AdminCountLabel>{filtered.length} רשימות</AdminCountLabel> : undefined}
+        />
 
         {/* Table */}
         <div className="flex-1 overflow-auto bg-white min-h-0">

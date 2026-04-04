@@ -4,8 +4,8 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
+import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
 import Link from "next/link";
-import { ArrowRight, HelpCircle } from "lucide-react";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -66,38 +66,17 @@ export default function NewModulePage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav />
-
-      {/* ── Title Bar ───────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-           style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-        <div className="flex items-center gap-0.5">
-          <button title="עזרה"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <HelpCircle size={13} />
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/admin/modules"
-            className="text-xs text-slate-400 hover:text-brand-600 transition-colors flex items-center gap-1">
-            <ArrowRight size={12} />
-            מודולים ומחירון
-          </Link>
-          <span className="text-slate-300 text-xs">/</span>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>מודול חדש</h1>
-        </div>
-      </div>
-
-      {/* ── Form Content ────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-2xl px-4 py-5">
+      <AdminGrandchildLayout
+        title="מודול חדש"
+        backHref="/admin/modules"
+        backLabel="מודולים ומחירון"
+        maxWidthClass="max-w-2xl"
+      >
           <form onSubmit={handleSubmit} className="space-y-4">
 
             {/* פרטי מודול */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">פרטי מודול</h2>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-3">
+            <AdminSectionCard title="פרטי מודול">
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="שם המודול *">
                   <input
                     required
@@ -129,14 +108,11 @@ export default function NewModulePage() {
                   </Field>
                 </div>
               </div>
-            </div>
+            </AdminSectionCard>
 
             {/* הגדרות */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">הגדרות</h2>
-              </div>
-              <div className="p-4 grid grid-cols-3 gap-3">
+            <AdminSectionCard title="הגדרות">
+              <div className="grid grid-cols-3 gap-3">
                 <Field label="סטטוס">
                   <select className={SELECT} value={form.is_active} onChange={(e) => set("is_active", e.target.value)}>
                     <option value="true">פעיל</option>
@@ -159,7 +135,7 @@ export default function NewModulePage() {
                   />
                 </Field>
               </div>
-            </div>
+            </AdminSectionCard>
 
             {error && (
               <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-xs text-red-700">{error}</div>
@@ -181,8 +157,7 @@ export default function NewModulePage() {
             </div>
 
           </form>
-        </div>
-      </main>
+      </AdminGrandchildLayout>
     </div>
   );
 }
