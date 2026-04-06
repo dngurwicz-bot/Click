@@ -15,6 +15,39 @@ from app.models.audit_log import AuditLog
 
 class AuditMiddleware(BaseHTTPMiddleware):
     MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+    ACTION_SUFFIX_MAP = {
+        "finalize": "finalize",
+        "mark-paid": "mark_paid",
+        "mark_paid": "mark_paid",
+        "temporal": "update",
+        "record": "update",
+        "apply-template": "apply_template",
+        "apply_template": "apply_template",
+    }
+
+    @staticmethod
+    def _parse_path(path: str) -> tuple[str, uuid.UUID | None, str | None]:
+        parts = [part for part in path.strip("/").split("/") if part]
+        if parts[:2] == ["api", "admin"]:
+            parts = parts[2:]
+
+        explicit_action = None
+        if parts and parts[-1] in AuditMiddleware.ACTION_SUFFIX_MAP:
+            explicit_action = AuditMiddleware.ACTION_SUFFIX_MAP[parts[-1]]
+            parts = parts[:-1]
+
+        entity_type = parts[-1] if parts else "unknown"
+        entity_id: uuid.UUID | None = None
+
+        for index in range(len(parts) - 1, -1, -1):
+            try:
+                entity_id = uuid.UUID(parts[index])
+                entity_type = parts[index - 1] if index > 0 else entity_type
+                break
+            except ValueError:
+                continue
+
+        return entity_type, entity_id, explicit_action
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -34,13 +67,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if actor_id is None:
             return response
 
-        path_parts = request.url.path.strip("/").split("/")
-        entity_type = path_parts[-2] if len(path_parts) >= 2 else path_parts[-1]
-        entity_id_str = path_parts[-1] if len(path_parts) >= 2 else None
-        try:
-            entity_id = uuid.UUID(entity_id_str) if entity_id_str else None
-        except (ValueError, AttributeError):
-            entity_id = None
+        entity_type, entity_id, explicit_action = self._parse_path(request.url.path)
 
         action = {
             "POST": "create",
@@ -48,6 +75,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             "PATCH": "update",
             "DELETE": "delete",
         }.get(request.method, request.method.lower())
+        if explicit_action:
+            action = explicit_action
 
         ip_address = request.client.host if request.client else None
 

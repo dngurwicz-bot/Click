@@ -39,6 +39,9 @@ export interface ChildTab {
   emptyMessage?: string;
   onRowDoubleClick?: (rowIndex: number) => void;
   onAddClick?: () => void;
+  addDisabled?: boolean;
+  addDisabledReason?: string;
+  toolbarNote?: string;
 }
 
 export interface CardPageAction {
@@ -46,6 +49,8 @@ export interface CardPageAction {
   onClick: () => void;
   variant?: "default" | "primary";
   icon?: React.ReactNode;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 export interface CardPageProps {
@@ -75,7 +80,7 @@ export function CardPage({
 }: CardPageProps) {
   const [activeFormTab,  setActiveFormTab]  = useState(formTabs[0]?.id ?? "");
   const [activeChildTab, setActiveChildTab] = useState(childTabs[0]?.id ?? "");
-  const [temporalFilters, setTemporalFilters] = useState<Record<string, TemporalFilterState>>({});
+  const [pageTemporalFilter, setPageTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
 
   useEffect(() => {
     if (childTabs.length > 0 && !childTabs.find((t) => t.id === activeChildTab)) {
@@ -83,52 +88,29 @@ export function CardPage({
     }
   }, [childTabs, activeChildTab]);
 
-  useEffect(() => {
-    setTemporalFilters((prev) => {
-      let changed = false;
-      const next = { ...prev };
-
-      for (const tab of childTabs) {
-        if (tab.temporalFilter && !next[tab.id]) {
-          next[tab.id] = createDefaultTemporalFilterState();
-          changed = true;
-        }
-      }
-
-      return changed ? next : prev;
-    });
-  }, [childTabs]);
-
   const statusCfg      = status ? STATUS_CONFIG[status.type] : null;
   const currentFormTab = formTabs.find((t) => t.id === activeFormTab);
   const currentChildTab = childTabs.find((t) => t.id === activeChildTab);
-  const temporalFilterEnabled = Boolean(
+  const pageTemporalFilterEnabled = childTabs.some(
+    (tab) => tab.temporalFilter && tab.rows.some((row) => row._valid_from_raw),
+  );
+  const temporalFilterError = pageTemporalFilterEnabled
+    ? getTemporalFilterError(pageTemporalFilter)
+    : null;
+  const currentTabTemporalFiltering = Boolean(
     currentChildTab?.temporalFilter &&
     currentChildTab.rows.some((row) => row._valid_from_raw),
   );
-  const currentTemporalFilter = currentChildTab
-    ? (temporalFilters[currentChildTab.id] ?? createDefaultTemporalFilterState())
-    : createDefaultTemporalFilterState();
-  const temporalFilterError = temporalFilterEnabled
-    ? getTemporalFilterError(currentTemporalFilter)
-    : null;
   const visibleRows = currentChildTab
     ? currentChildTab.rows.filter((row) => {
-        if (!temporalFilterEnabled || temporalFilterError) return true;
+        if (!currentTabTemporalFiltering || temporalFilterError) return true;
         return overlapsTemporalFilter({
           rowFrom: row._valid_from_raw,
           rowTo: row._valid_to_raw,
-          filter: currentTemporalFilter,
+          filter: pageTemporalFilter,
         });
       })
     : [];
-
-  function updateTemporalFilter(tabId: string, nextFilter: TemporalFilterState) {
-    setTemporalFilters((prev) => ({
-      ...prev,
-      [tabId]: nextFilter,
-    }));
-  }
 
   if (loading) {
     return (
@@ -170,11 +152,13 @@ export function CardPage({
             <button
               key={i}
               onClick={action.onClick}
+              disabled={action.disabled}
+              title={action.disabledReason}
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border transition-colors
                 ${action.variant === "primary"
                   ? "bg-brand-600 hover:bg-brand-700 text-white border-brand-600 shadow-sm"
                   : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400"
-                }`}
+                } ${action.disabled ? "cursor-not-allowed opacity-50 hover:bg-inherit hover:border-inherit" : ""}`}
             >
               {action.icon}
               {action.label}
@@ -218,6 +202,22 @@ export function CardPage({
         </>
       )}
 
+      {pageTemporalFilterEnabled && (
+        <TemporalFilterBar
+          filter={pageTemporalFilter}
+          onChange={setPageTemporalFilter}
+          rowRanges={childTabs.flatMap((tab) => (
+            tab.temporalFilter
+              ? tab.rows.map((row) => ({
+                  valid_from: row._valid_from_raw,
+                  valid_to: row._valid_to_raw,
+                }))
+              : []
+          ))}
+          idPrefix="card-page-temporal"
+        />
+      )}
+
       {/* ── Child Tabs ────────────────────────────────────────────── */}
       {childTabs.length > 0 && (
         <div className="bg-slate-100 border-b border-slate-200 flex items-center px-3 shrink-0 mt-0.5 gap-0.5">
@@ -237,12 +237,18 @@ export function CardPage({
             ))}
           </div>
           {/* Add button for current tab */}
+          {currentChildTab?.toolbarNote && (
+            <div className="shrink-0 text-[11px] text-slate-500">
+              {currentChildTab.toolbarNote}
+            </div>
+          )}
           {currentChildTab?.onAddClick && (
             <button
               onClick={currentChildTab.onAddClick}
-              title="הוסף רשומה"
+              disabled={currentChildTab.addDisabled}
+              title={currentChildTab.addDisabledReason ?? "הוסף רשומה"}
               className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded
-                         bg-brand-600 hover:bg-brand-700 text-white transition-colors shrink-0"
+                         bg-brand-600 hover:bg-brand-700 text-white transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus size={11} />
               הוסף
@@ -255,18 +261,6 @@ export function CardPage({
       <div className="flex-1 overflow-auto bg-white min-h-0">
         {currentChildTab && (
           <>
-            {temporalFilterEnabled && (
-              <TemporalFilterBar
-                filter={currentTemporalFilter}
-                onChange={(nextFilter) => updateTemporalFilter(currentChildTab.id, nextFilter)}
-                rowRanges={currentChildTab.rows.map((row) => ({
-                  valid_from: row._valid_from_raw,
-                  valid_to: row._valid_to_raw,
-                }))}
-                idPrefix={`temporal-${currentChildTab.id}`}
-              />
-            )}
-
             <table className="w-full text-xs border-collapse min-w-max">
               <thead className="sticky top-0 z-10">
                 <tr>
@@ -285,15 +279,25 @@ export function CardPage({
               <tbody>
                 {visibleRows.length === 0 ? (
                   <tr
-                    onClick={currentChildTab.rows.length === 0 ? currentChildTab.onAddClick : undefined}
-                    className={currentChildTab.rows.length === 0 && currentChildTab.onAddClick ? "cursor-pointer hover:bg-blue-50 transition-colors" : ""}
+                    onClick={
+                      currentChildTab.rows.length === 0 && !currentChildTab.addDisabled
+                        ? currentChildTab.onAddClick
+                        : undefined
+                    }
+                    className={
+                      currentChildTab.rows.length === 0 && currentChildTab.onAddClick && !currentChildTab.addDisabled
+                        ? "cursor-pointer hover:bg-blue-50 transition-colors"
+                        : ""
+                    }
                   >
                     <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
                       {currentChildTab.rows.length === 0 ? (
                         currentChildTab.onAddClick ? (
                           <span className="flex items-center justify-center gap-1.5">
                             <Plus size={14} />
-                            {currentChildTab.emptyMessage ?? "לחץ להוספת רשומה"}
+                            {currentChildTab.addDisabled
+                              ? (currentChildTab.addDisabledReason ?? currentChildTab.emptyMessage ?? "לא ניתן להוסיף רשומה")
+                              : (currentChildTab.emptyMessage ?? "לחץ להוספת רשומה")}
                           </span>
                         ) : (
                           currentChildTab.emptyMessage ?? "אין רשומות"

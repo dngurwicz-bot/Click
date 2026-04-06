@@ -30,7 +30,6 @@ interface TemplatePricingSummary {
 interface TemplateOption {
   id: string;
   name: string;
-  default_package_slug: string | null;
   default_billing_cycle: string;
   valid_to?: string | null;
   module_slugs: string[];
@@ -56,7 +55,7 @@ export default function NewTenantPage() {
     name_he: "", name_en: "", tax_id: "", entity_type: "company", logo_url: "",
     email: "", phone: "", contact_name: "", website: "",
     street: "", city: "", zip_code: "", country: "IL",
-    package_slug: "starter", billing_cycle: "monthly",
+    billing_cycle: "monthly",
     seat_count: "0",
     selected_module_slugs: [] as string[],
     discount_pct: "0", is_price_locked: false,
@@ -74,19 +73,14 @@ export default function NewTenantPage() {
       return;
     }
     api.get<TemplateOption[]>("/api/admin/templates")
-      .then((data) => setTemplates(data.filter((template) => !template.valid_to)))
+      .then((templateData) => {
+        setTemplates(templateData.filter((template) => !template.valid_to));
+      })
       .catch(() => {})
       .finally(() => setTemplatesLoading(false));
   }, [router]);
 
   const selectedTemplate = templates.find((template) => template.id === form.template_id) ?? null;
-  const packageOptions = Array.from(new Set([
-    "starter",
-    "professional",
-    "enterprise",
-    ...templates.map((template) => template.default_package_slug).filter(Boolean) as string[],
-    form.package_slug,
-  ]));
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -99,7 +93,6 @@ export default function NewTenantPage() {
         address: { street: form.street, city: form.city, zip_code: form.zip_code || null, country: form.country },
         subscription: {
           template_id: form.template_id || null,
-          package_slug: form.package_slug,
           billing_cycle: form.billing_cycle,
           seat_count: parseInt(form.seat_count, 10) || 0,
           selected_module_slugs: form.selected_module_slugs,
@@ -201,7 +194,6 @@ export default function NewTenantPage() {
                       setForm((current) => ({
                         ...current,
                         template_id: templateId,
-                        package_slug: template?.default_package_slug || current.package_slug,
                         billing_cycle: template?.default_billing_cycle || current.billing_cycle,
                         seat_count: String(template?.seat_count ?? current.seat_count),
                         selected_module_slugs: template?.module_slugs ?? current.selected_module_slugs,
@@ -214,13 +206,6 @@ export default function NewTenantPage() {
                     <option value="">{templatesLoading ? "טוען תבניות..." : "ללא תבנית"}</option>
                     {templates.map((template) => (
                       <option key={template.id} value={template.id}>{template.name}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="חבילה">
-                  <select className={SELECT} value={form.package_slug} onChange={(e) => set("package_slug", e.target.value)}>
-                    {packageOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
                     ))}
                   </select>
                 </Field>
@@ -278,7 +263,7 @@ export default function NewTenantPage() {
                       <span className="font-semibold text-slate-800">{fmtMoney(selectedTemplate.pricing_summary.setup_after_discount_ils)}</span>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                      <span className="text-slate-600 font-semibold">סה"כ מחזור ראשון</span>
+                      <span className="text-slate-600 font-semibold">סה&quot;כ מחזור ראשון</span>
                       <span className="font-bold text-slate-900">{fmtMoney(selectedTemplate.pricing_summary.total_after_discount_ils)}</span>
                     </div>
                     {selectedTemplate.module_slugs.length > 0 && (

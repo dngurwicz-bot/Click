@@ -4,7 +4,7 @@ Validates JWT tokens, extracts user_id + role + permissions.
 """
 from typing import Optional
 import uuid
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,7 @@ class CurrentUser:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
@@ -90,7 +91,11 @@ async def get_current_user(
         for p in perm_result.scalars().all():
             perms[p.resource] = {"can_view": p.can_view, "can_edit": p.can_edit}
 
-    return CurrentUser(id=user.id, email=user.email, role=user.role, permissions=perms)
+    current_user = CurrentUser(id=user.id, email=user.email, role=user.role, permissions=perms)
+    request.state.user_id = user.id
+    request.state.actor_type = "admin_user"
+    request.state.tenant_id = None
+    return current_user
 
 
 def require_roles(*roles: str):

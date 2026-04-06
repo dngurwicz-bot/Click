@@ -7,7 +7,7 @@ from sqlalchemy import select, delete, update
 
 from app.database import get_db
 from app.config import get_settings
-from app.middleware.auth import require_super_admin, CurrentUser, get_current_user
+from app.middleware.auth import require_permission, CurrentUser
 from app.models.admin_user import AdminUser
 from app.models.admin_user_permission import AdminUserPermission, RESOURCES
 from app.schemas.admin_user import (
@@ -121,7 +121,7 @@ async def _delete_supabase_user(user_id: uuid.UUID) -> None:
 @router.get("", response_model=list[AdminUserOut])
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("users", "view")),
 ):
     result = await db.execute(select(AdminUser).order_by(AdminUser.created_at.desc()))
     users = result.scalars().all()
@@ -138,7 +138,7 @@ async def list_users(
 async def create_user(
     body: AdminUserCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("users", "edit")),
 ):
     # Only super_admin can create another super_admin
     if body.role == "super_admin" and not current_user.is_super_admin():
@@ -188,7 +188,7 @@ async def update_user(
     user_id: uuid.UUID,
     body: AdminUserUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("users", "edit")),
 ):
     result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))
     user = result.scalar_one_or_none()
@@ -246,7 +246,7 @@ async def update_user(
 async def delete_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("users", "edit")),
 ):
     result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))
     user = result.scalar_one_or_none()
@@ -286,7 +286,7 @@ async def temporal_user_action(
     user_id: uuid.UUID,
     body: AdminUserActionBody,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("users", "edit")),
 ):
     """Temporal actions: update (in-place) | close (set valid_to) | delete."""
     result = await db.execute(select(AdminUser).where(AdminUser.id == user_id))

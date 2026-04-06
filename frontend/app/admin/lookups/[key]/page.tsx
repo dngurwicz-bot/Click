@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, ReactNode } from "react";
+import { useCallback, useEffect, useState, ReactNode } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
@@ -157,18 +157,18 @@ export default function LookupDetailPage() {
   const [loading, setLoading] = useState(true);
   const [modal,   setModal]   = useState<{ open: boolean; item?: LookupItemOut }>({ open: false });
 
-  function loadData() {
+  const loadData = useCallback(() => {
     setLoading(true);
     api.get<LookupListOut>(`/api/admin/lookups/${listKey}`)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }
+  }, [listKey]);
 
   useEffect(() => {
     if (!isLoggedIn()) { router.replace("/login"); return; }
     loadData();
-  }, [router, listKey]);
+  }, [router, loadData]);
 
   if (loading || !data) {
     return (

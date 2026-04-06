@@ -12,7 +12,7 @@ interface TenantListItem {
   tenant_id: string;
   name_he: string;
   status: string;
-  package_slug: string;
+  template_name?: string | null;
   created_at: string;
 }
 
@@ -53,7 +53,7 @@ export default function TenantsPage() {
   }, [router]);
 
   const filtered = tenants.filter((t) =>
-    t.name_he.includes(search) || t.status.includes(search) || t.package_slug.includes(search)
+    t.name_he.includes(search) || t.status.includes(search) || (t.template_name ?? "").includes(search)
   );
 
   return (
@@ -100,7 +100,7 @@ export default function TenantsPage() {
                     סטטוס
                   </th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
-                    חבילה
+                    תבנית
                   </th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
                     תאריך הצטרפות
@@ -122,7 +122,7 @@ export default function TenantsPage() {
                       <StatusBadge status={t.status} />
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-600 capitalize">
-                      {t.package_slug}
+                      {t.template_name ?? "—"}
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
                       {new Date(t.created_at).toLocaleDateString("he-IL")}

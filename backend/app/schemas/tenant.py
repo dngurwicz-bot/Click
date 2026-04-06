@@ -21,6 +21,9 @@ class TenantIdentityOut(TenantIdentityBase):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +51,9 @@ class TenantContactOut(TenantContactBase):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -67,13 +73,15 @@ class TenantAddressOut(TenantAddressBase):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 
 # --- Subscription ---
 class TenantSubscriptionBase(BaseModel):
-    package_slug: str
     billing_cycle: str = "monthly"
     currency: str = "ILS"
     template_id: Optional[uuid.UUID] = None
@@ -83,6 +91,67 @@ class TenantSubscriptionBase(BaseModel):
     is_price_locked: bool = False
 
 
+class TenantSubscriptionModuleBase(BaseModel):
+    module_slug: str
+    source_type: Literal["template", "manual"] = "manual"
+    status: Literal["active", "removed"] = "active"
+    seats: int = 0
+    pricing_mode: Literal["catalog", "override"] = "catalog"
+    override_base_price_ils: Optional[Decimal] = None
+    override_per_seat_ils: Optional[Decimal] = None
+    override_setup_fee_ils: Optional[Decimal] = None
+    override_included_seats: Optional[int] = None
+    price_lock_reason: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TenantSubscriptionModuleCreate(TenantSubscriptionModuleBase):
+    pass
+
+
+class TenantSubscriptionModuleUpdate(BaseModel):
+    status: Optional[Literal["active", "removed"]] = None
+    seats: Optional[int] = None
+    pricing_mode: Optional[Literal["catalog", "override"]] = None
+    override_base_price_ils: Optional[Decimal] = None
+    override_per_seat_ils: Optional[Decimal] = None
+    override_setup_fee_ils: Optional[Decimal] = None
+    override_included_seats: Optional[int] = None
+    price_lock_reason: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TenantSubscriptionModuleActionBody(BaseModel):
+    action: Literal["update", "add", "set", "delete", "close"] = "update"
+    module_id: Optional[uuid.UUID] = None
+    module_slug: Optional[str] = None
+    source_type: Optional[Literal["template", "manual"]] = None
+    status: Optional[Literal["active", "removed"]] = None
+    seats: Optional[int] = None
+    pricing_mode: Optional[Literal["catalog", "override"]] = None
+    override_base_price_ils: Optional[Decimal] = None
+    override_per_seat_ils: Optional[Decimal] = None
+    override_setup_fee_ils: Optional[Decimal] = None
+    override_included_seats: Optional[int] = None
+    price_lock_reason: Optional[str] = None
+    notes: Optional[str] = None
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+
+
+class TenantSubscriptionModuleOut(TenantSubscriptionModuleBase):
+    id: uuid.UUID
+    tenant_subscription_id: uuid.UUID
+    valid_from: date
+    valid_to: Optional[date] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class TenantSubscriptionOut(TenantSubscriptionBase):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -90,6 +159,9 @@ class TenantSubscriptionOut(TenantSubscriptionBase):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -107,6 +179,9 @@ class TenantStatusOut(TenantStatusBase):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -157,20 +232,19 @@ class TenantUpdateRequest(BaseModel):
     status: Optional[TenantStatusUpdate] = None
 
 
-class TenantApplyTemplateRequest(BaseModel):
-    template_id: uuid.UUID
-    valid_from: Optional[date] = None
-
-
 # --- Response ---
 class TenantOut(BaseModel):
     tenant_id: uuid.UUID
     org_number: int
     created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
     identity: Optional[TenantIdentityOut] = None
     contact: Optional[TenantContactOut] = None
     address: Optional[TenantAddressOut] = None
     subscription: Optional[TenantSubscriptionOut] = None
+    subscription_modules: list[TenantSubscriptionModuleOut] = []
     status: Optional[TenantStatusOut] = None
 
     model_config = {"from_attributes": True}
@@ -181,5 +255,43 @@ class TenantListItem(BaseModel):
     org_number: int
     name_he: str
     status: str
-    package_slug: str
+    template_name: Optional[str] = None
     created_at: datetime
+
+
+class TenantSyncPreviewModuleDiff(BaseModel):
+    module_slug: str
+    module_name: str
+    action: Literal["add", "remove", "update"]
+    current_seats: int = 0
+    proposed_seats: int = 0
+    pricing_mode: Literal["catalog", "override"] = "catalog"
+    current_monthly_ils: Decimal = Decimal("0")
+    proposed_monthly_ils: Decimal = Decimal("0")
+    current_setup_ils: Decimal = Decimal("0")
+    proposed_setup_ils: Decimal = Decimal("0")
+
+
+class TenantSyncPreviewOut(BaseModel):
+    tenant_id: uuid.UUID
+    template_id: uuid.UUID
+    effective_from: date
+    current_discount_pct: Decimal = Decimal("0")
+    proposed_discount_pct: Decimal = Decimal("0")
+    current_is_price_locked: bool = False
+    proposed_is_price_locked: bool = False
+    module_diffs: list[TenantSyncPreviewModuleDiff] = []
+    current_monthly_total_ils: Decimal = Decimal("0")
+    proposed_monthly_total_ils: Decimal = Decimal("0")
+    current_setup_total_ils: Decimal = Decimal("0")
+    proposed_setup_total_ils: Decimal = Decimal("0")
+
+
+class TenantApplyTemplateRequest(BaseModel):
+    template_id: uuid.UUID
+    valid_from: Optional[date] = None
+
+
+class TenantApplySyncRequest(BaseModel):
+    template_id: uuid.UUID
+    valid_from: Optional[date] = None

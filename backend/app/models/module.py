@@ -37,32 +37,12 @@ class ModulePrice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Package(Base):
-    __tablename__ = "packages"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
-    sort_order: Mapped[int] = mapped_column(Integer, default=10)
-
-
-class PackageModule(Base):
-    __tablename__ = "package_modules"
-
-    package_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("packages.id"), primary_key=True)
-    module_slug: Mapped[str] = mapped_column(String, ForeignKey("modules.slug"), primary_key=True)
-
-
 class OrgTemplate(Base):
     __tablename__ = "org_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    default_package_slug: Mapped[str | None] = mapped_column(String, ForeignKey("packages.slug"), nullable=True)
     default_billing_cycle: Mapped[str] = mapped_column(String, default="monthly")
     trial_days: Mapped[int] = mapped_column(Integer, default=30)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

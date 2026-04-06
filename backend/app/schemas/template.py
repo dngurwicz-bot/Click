@@ -36,7 +36,6 @@ class TemplateOut(BaseModel):
     id: uuid.UUID
     name: str
     description: Optional[str] = None
-    default_package_slug: Optional[str] = None
     default_billing_cycle: str
     trial_days: int
     is_active: bool
@@ -59,7 +58,6 @@ class TemplateOut(BaseModel):
 class TemplateCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    default_package_slug: Optional[str] = None
     default_billing_cycle: str = "monthly"
     trial_days: int = 30
     is_active: bool = True
@@ -80,7 +78,6 @@ class TemplateActionBody(BaseModel):
     template_id: Optional[uuid.UUID] = None  # row identifier for "update"
     name: Optional[str] = None
     description: Optional[str] = None
-    default_package_slug: Optional[str] = None
     default_billing_cycle: Optional[str] = None
     trial_days: Optional[int] = None
     is_active: Optional[bool] = None

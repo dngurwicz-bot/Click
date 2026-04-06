@@ -1,7 +1,21 @@
-import Cookies from "js-cookie";
-
 // Use empty base so requests go through Next.js rewrites proxy → backend
 const API_BASE = "";
+
+function getCookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function setCookie(name: string, value: string, maxAgeSeconds: number) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Strict`;
+}
+
+function removeCookie(name: string) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=; path=/; max-age=0; SameSite=Strict`;
+}
 
 export interface ApiError {
   error: string;
@@ -51,7 +65,7 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = Cookies.get("click_token");
+  const token = getCookie("click_token");
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -115,13 +129,13 @@ export interface LoginResponse {
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const data = await api.post<LoginResponse>("/api/auth/login", { email, password });
-  Cookies.set("click_token", data.access_token, { expires: 1, sameSite: "strict" });
+  setCookie("click_token", data.access_token, 60 * 60 * 24);
   localStorage.setItem("click_user", JSON.stringify(data.user));
   return data;
 }
 
 export function logout() {
-  Cookies.remove("click_token");
+  removeCookie("click_token");
   localStorage.removeItem("click_user");
 }
 
@@ -132,7 +146,7 @@ export function getStoredUser(): UserInfo | null {
 }
 
 export function isLoggedIn(): boolean {
-  return !!Cookies.get("click_token");
+  return !!getCookie("click_token");
 }
 
 // ── Permission helpers ─────────────────────────────────────────────────────

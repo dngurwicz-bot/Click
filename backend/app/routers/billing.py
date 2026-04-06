@@ -13,31 +13,42 @@ Endpoints:
   POST /api/admin/billing/invoices           — create invoice from charges
   GET  /api/admin/billing/invoices/{id}      — get invoice + lines
   PUT  /api/admin/billing/invoices/{id}      — update invoice metadata
-  POST /api/admin/billing/invoices/{id}/finalize   — draft → sent
-  POST /api/admin/billing/invoices/{id}/mark-paid  — mark as paid
+  POST /api/admin/billing/invoices/{id}/finalize      — draft → sent
+  POST /api/admin/billing/invoices/{id}/mark-paid     — mark as paid
+  POST /api/admin/billing/invoices/mark-overdue       — bulk mark overdue
 
-  GET  /api/admin/tenants/{tenant_id}/billing — tenant billing summary
+  GET  /api/admin/billing/invoices/{id}/pdf           — download PDF
+
+  GET  /api/admin/tenants/{tenant_id}/billing         — tenant billing summary
+  GET  /api/admin/tenants/{tenant_id}/seat-changes    — seat change history
 """
+import calendar
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable, Optional
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
-from app.middleware.auth import require_admin, CurrentUser
-from app.models.billing import BillingCharge, Invoice, InvoiceLine
-from app.models.module import Module, ModulePrice, Package, PackageModule
-from app.models.tenant import Tenant, TenantIdentity, TenantSubscription, TenantStatus
+from app.middleware.auth import require_permission, CurrentUser
+from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine
+from app.models.module import Module, ModulePrice
+from app.models.seat_change_log import SeatChangeLog
+from app.models.tenant import Tenant, TenantAddress, TenantIdentity, TenantSubscription, TenantStatus
 from app.schemas.billing import (
+    BillingSettingsOut, BillingSettingsUpdate,
     BillingChargeCreate, BillingChargeOut, BillingChargeUpdate,
     GenerateChargesRequest, GenerateChargesResult,
     InvoiceCreate, InvoiceListItem, InvoiceOut, InvoiceUpdate,
-    MarkPaidRequest, TenantBillingSummary,
+    MarkPaidRequest, SeatChangeLogOut, TenantBillingSummary,
 )
+from app.services.invoice_pdf import TaxInvoiceValidationError, render_invoice_pdf
+from app.services.subscription_modules import get_effective_module_prices, get_effective_subscription_module, load_subscription_modules
 from app.services.temporal import get_active
 
 router = APIRouter(tags=["billing"])
@@ -116,6 +127,72 @@ async def _build_invoice_out(db: AsyncSession, inv: Invoice) -> InvoiceOut:
     return out
 
 
+def _billing_settings_from_env() -> dict[str, str | None]:
+    settings = get_settings()
+    return {
+        "issuer_name_he": settings.COMPANY_NAME_HE,
+        "issuer_name_en": settings.COMPANY_NAME_EN or None,
+        "issuer_tax_id": settings.COMPANY_TAX_ID or None,
+        "issuer_address": settings.COMPANY_ADDRESS or None,
+        "issuer_phone": settings.COMPANY_PHONE or None,
+        "issuer_email": settings.COMPANY_EMAIL or None,
+        "issuer_logo_url": None,
+        "payment_instructions": None,
+        "footer_text": None,
+    }
+
+
+def _missing_tax_fields(payload: dict[str, str | None]) -> list[str]:
+    required = {
+        "issuer_name_he": "שם מנפיק",
+        "issuer_tax_id": "ח.פ / ע.מ",
+        "issuer_address": "כתובת מנפיק",
+    }
+    return [label for key, label in required.items() if not (payload.get(key) or "").strip()]
+
+
+async def _get_billing_settings_payload(db: AsyncSession) -> tuple[BillingSettings | None, dict[str, str | None], str]:
+    result = await db.execute(
+        sa.select(BillingSettings).order_by(BillingSettings.created_at.desc()).limit(1)
+    )
+    settings_row = result.scalar_one_or_none()
+    if settings_row is None:
+        return None, _billing_settings_from_env(), "env"
+
+    return settings_row, {
+        "issuer_name_he": settings_row.issuer_name_he,
+        "issuer_name_en": settings_row.issuer_name_en,
+        "issuer_tax_id": settings_row.issuer_tax_id,
+        "issuer_address": settings_row.issuer_address,
+        "issuer_phone": settings_row.issuer_phone,
+        "issuer_email": settings_row.issuer_email,
+        "issuer_logo_url": settings_row.issuer_logo_url,
+        "payment_instructions": settings_row.payment_instructions,
+        "footer_text": settings_row.footer_text,
+    }, "database"
+
+
+async def _serialize_billing_settings(db: AsyncSession) -> BillingSettingsOut:
+    settings_row, payload, source = await _get_billing_settings_payload(db)
+    missing_tax_fields = _missing_tax_fields(payload)
+    return BillingSettingsOut(
+        id=settings_row.id if settings_row else None,
+        issuer_name_he=payload.get("issuer_name_he") or "",
+        issuer_name_en=payload.get("issuer_name_en"),
+        issuer_tax_id=payload.get("issuer_tax_id"),
+        issuer_address=payload.get("issuer_address"),
+        issuer_phone=payload.get("issuer_phone"),
+        issuer_email=payload.get("issuer_email"),
+        issuer_logo_url=payload.get("issuer_logo_url"),
+        payment_instructions=payload.get("payment_instructions"),
+        footer_text=payload.get("footer_text"),
+        missing_tax_fields=missing_tax_fields,
+        can_render_tax_invoice=len(missing_tax_fields) == 0,
+        source=source,
+        updated_at=settings_row.updated_at if settings_row else None,
+    )
+
+
 async def _get_active_module_price(db: AsyncSession, slug: str, today: date) -> ModulePrice | None:
     price_result = await db.execute(
         sa.select(ModulePrice)
@@ -147,6 +224,7 @@ async def _create_charge_if_missing(
             BillingCharge.billing_period == billing_period,
             BillingCharge.module_slug == module_slug,
             BillingCharge.charge_type == charge_type,
+            BillingCharge.status != "cancelled",
         )
     )
     if exists.first():
@@ -171,6 +249,43 @@ async def _create_charge_if_missing(
     return True
 
 
+@router.get("/api/admin/billing/settings", response_model=BillingSettingsOut)
+async def get_billing_settings(
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    return await _serialize_billing_settings(db)
+
+
+@router.put("/api/admin/billing/settings", response_model=BillingSettingsOut)
+async def update_billing_settings(
+    body: BillingSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    result = await db.execute(
+        sa.select(BillingSettings).order_by(BillingSettings.created_at.desc()).limit(1)
+    )
+    settings_row = result.scalar_one_or_none()
+    payload = body.model_dump()
+
+    if settings_row is None:
+        settings_row = BillingSettings(
+            **payload,
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(settings_row)
+    else:
+        for key, value in payload.items():
+            setattr(settings_row, key, value)
+        settings_row.updated_by = current_user.id
+    settings_row.updated_at = datetime.now(UTC)
+
+    await db.commit()
+    return await _serialize_billing_settings(db)
+
+
 # ─── Charges — Generate ───────────────────────────────────────────────────────
 
 @router.post(
@@ -181,15 +296,19 @@ async def _create_charge_if_missing(
 async def generate_charges(
     body: GenerateChargesRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     """
     Auto-generate pricing charges for every active/trial tenant for a given
     billing period. Idempotent per (tenant, period, module, type).
     """
-    today = date.today()
     period = body.billing_period
     period_start = _period_start(period)
+
+    # Compute period boundaries for proration
+    p_year, p_month = map(int, period.split("-"))
+    total_days_in_period = calendar.monthrange(p_year, p_month)[1]
+    period_end = date(p_year, p_month, total_days_in_period)
 
     # ── Fetch tenants to process ──────────────────────────────────────────────
     if body.tenant_ids:
@@ -198,53 +317,81 @@ async def generate_charges(
         )
         tenants = t_result.scalars().all()
     else:
-        # All tenants whose current status is active or trial
         t_result = await db.execute(sa.select(Tenant))
         tenants = t_result.scalars().all()
 
     created = 0
     skipped = 0
     processed = 0
+    year_str, month_name = _period_label(period)
+
+    # ── Pre-load all active modules once (avoids N×M queries in inner loop) ──
+    all_modules_result = await db.execute(
+        sa.select(Module).where(Module.is_active == True)   # noqa: E712
+    )
+    active_modules_map: dict[str, Module] = {
+        m.slug: m for m in all_modules_result.scalars().all()
+    }
+
+    # ── Pre-load all unbilled seat changes for this period ────────────────────
+    all_seat_changes_result = await db.execute(
+        sa.select(SeatChangeLog)
+        .where(
+            SeatChangeLog.effective_date >= period_start,
+            SeatChangeLog.effective_date <= period_end,
+            SeatChangeLog.billed == False,   # noqa: E712
+        )
+        .order_by(SeatChangeLog.tenant_id, SeatChangeLog.module_slug, SeatChangeLog.effective_date)
+    )
+    # Group: (tenant_id, module_slug) → [SeatChangeLog, ...]
+    from collections import defaultdict
+    seat_changes_index: dict[tuple, list[SeatChangeLog]] = defaultdict(list)
+    for sc in all_seat_changes_result.scalars().all():
+        seat_changes_index[(sc.tenant_id, sc.module_slug)].append(sc)
 
     for tenant in tenants:
         # Skip tenants without active/trial status
-        status_row = await get_active(db, TenantStatus, tenant.tenant_id)
+        status_row = await get_active(db, TenantStatus, tenant.tenant_id, as_of=period_start)
         if not status_row or status_row.status not in ("active", "trial"):
             continue
 
-        subscription = await get_active(db, TenantSubscription, tenant.tenant_id)
+        subscription = await get_active(db, TenantSubscription, tenant.tenant_id, as_of=period_start)
         if not subscription:
             continue
 
-        module_slugs = list(subscription.selected_module_slugs or [])
-        if not module_slugs:
-            pkg_result = await db.execute(
-                sa.select(PackageModule.module_slug)
-                .join(Package, Package.id == PackageModule.package_id)
-                .where(Package.slug == subscription.package_slug)
-            )
-            module_slugs = [row[0] for row in pkg_result.all()]
-
-        if not module_slugs:
+        subscription_modules = [
+            row for row in await load_subscription_modules(db, subscription.id, as_of=period_start)
+            if row.status == "active"
+        ]
+        if not subscription_modules:
             continue
 
         processed += 1
         discount = subscription.discount_pct or Decimal("0")
-        seat_count = max(subscription.seat_count or 0, 0)
-        year_str, month_name = _period_label(period)
+        module_prices = await get_effective_module_prices(
+            db,
+            [row.module_slug for row in subscription_modules],
+            as_of=period_start,
+        )
 
-        for slug in module_slugs:
-            price = await _get_active_module_price(db, slug, today)
+        for module_row in subscription_modules:
+            slug = module_row.module_slug
+            price = module_prices.get(slug)
             if not price:
                 skipped += 1
                 continue
 
-            # Get module name for description
-            mod_result = await db.execute(
-                sa.select(Module.name).where(Module.slug == slug)
-            )
-            mod_name = mod_result.scalar_one_or_none() or slug
+            # Skip modules not in the active map (already filtered to is_active=True)
+            module_obj = active_modules_map.get(slug)
+            if not module_obj:
+                skipped += 1
+                continue
+            mod_name = module_obj.name or slug
 
+            effective_included = module_row.override_included_seats if module_row.pricing_mode == "override" else price.included_seats
+            effective_per_seat = module_row.override_per_seat_ils if module_row.pricing_mode == "override" else price.per_seat_ils
+
+            # ── Base fee ──────────────────────────────────────────────────────
             if await _create_charge_if_missing(
                 db=db,
                 tenant_id=tenant.tenant_id,
@@ -253,7 +400,7 @@ async def generate_charges(
                 module_slug=slug,
                 description=f"דמי מנוי — {mod_name} — {month_name} {year_str}",
                 quantity=Decimal("1"),
-                unit_price_ils=price.base_price_ils,
+                unit_price_ils=module_row.override_base_price_ils if module_row.pricing_mode == "override" else price.base_price_ils,
                 discount_pct=discount,
                 current_user_id=current_user.id,
             ):
@@ -261,29 +408,120 @@ async def generate_charges(
             else:
                 skipped += 1
 
-            billable_seats = max(seat_count - (price.included_seats or 0), 0)
-            if price.per_seat_ils and price.per_seat_ils > 0 and billable_seats > 0:
-                if await _create_charge_if_missing(
-                    db=db,
-                    tenant_id=tenant.tenant_id,
-                    billing_period=period,
-                    charge_type="per_seat",
-                    module_slug=slug,
-                    description=f"מושבים נוספים — {mod_name} — {month_name} {year_str}",
-                    quantity=Decimal(str(billable_seats)),
-                    unit_price_ils=price.per_seat_ils,
-                    discount_pct=discount,
-                    current_user_id=current_user.id,
-                ):
-                    created += 1
-                else:
-                    skipped += 1
+            # ── Per-seat base charge (at period-start seat count) ─────────────
+            if effective_per_seat and effective_per_seat > 0:
+                # Use pre-loaded seat changes (no extra DB query)
+                seat_changes = seat_changes_index.get((tenant.tenant_id, slug), [])
 
+                # Seats at the start of the period (old_seats of first change, or current)
+                period_start_seats = seat_changes[0].old_seats if seat_changes else (module_row.seats or 0)
+                billable_at_start = max(period_start_seats - (effective_included or 0), 0)
+
+                if billable_at_start > 0:
+                    if await _create_charge_if_missing(
+                        db=db,
+                        tenant_id=tenant.tenant_id,
+                        billing_period=period,
+                        charge_type="per_seat",
+                        module_slug=slug,
+                        description=f"מושבים נוספים — {mod_name} — {month_name} {year_str}",
+                        quantity=Decimal(str(billable_at_start)),
+                        unit_price_ils=effective_per_seat,
+                        discount_pct=discount,
+                        current_user_id=current_user.id,
+                    ):
+                        created += 1
+                    else:
+                        skipped += 1
+
+                # ── Proration charges for mid-period seat changes ─────────────
+                for change in seat_changes:
+                    effective_module_row = await get_effective_subscription_module(
+                        db,
+                        subscription.id,
+                        slug,
+                        as_of=change.effective_date,
+                    )
+                    if effective_module_row is None:
+                        change.billed = True
+                        change.billing_period = period
+                        skipped += 1
+                        continue
+
+                    effective_price_map = await get_effective_module_prices(
+                        db,
+                        [slug],
+                        as_of=change.effective_date,
+                    )
+                    effective_price = effective_price_map.get(slug)
+                    if effective_module_row.pricing_mode == "override":
+                        proration_included = effective_module_row.override_included_seats or 0
+                        proration_per_seat = effective_module_row.override_per_seat_ils or Decimal("0")
+                    else:
+                        proration_included = effective_price.included_seats if effective_price else 0
+                        proration_per_seat = effective_price.per_seat_ils if effective_price else Decimal("0")
+
+                    new_billable = max(change.new_seats - proration_included, 0)
+                    old_billable = max(change.old_seats - proration_included, 0)
+                    delta_billable = new_billable - old_billable
+
+                    if delta_billable == 0 or proration_per_seat <= 0:
+                        change.billed = True
+                        change.billing_period = period
+                        continue
+
+                    days_remaining = (period_end - change.effective_date).days + 1
+                    proration_qty = _round2(
+                        Decimal(str(abs(delta_billable)))
+                        * Decimal(str(days_remaining))
+                        / Decimal(str(total_days_in_period))
+                    )
+
+                    if delta_billable > 0:
+                        ctype = "per_seat"
+                        desc = (
+                            f"השלמה יחסית — {mod_name} — "
+                            f"{delta_billable} מושבים × {days_remaining}/{total_days_in_period} ימים"
+                        )
+                    else:
+                        ctype = "credit"
+                        desc = (
+                            f"זיכוי יחסי — {mod_name} — "
+                            f"{abs(delta_billable)} מושבים × {days_remaining}/{total_days_in_period} ימים"
+                        )
+
+                    amount = _round2(proration_qty * proration_per_seat)
+                    after_discount = _round2(amount * (Decimal("1") - discount / Decimal("100")))
+                    proration_charge = BillingCharge(
+                        tenant_id=tenant.tenant_id,
+                        billing_period=period,
+                        charge_type=ctype,
+                        module_slug=slug,
+                        description=desc,
+                        quantity=proration_qty,
+                        unit_price_ils=proration_per_seat,
+                        amount_ils=amount,
+                        discount_pct=discount,
+                        amount_after_discount_ils=after_discount,
+                        status="pending",
+                        created_by=current_user.id,
+                    )
+                    db.add(proration_charge)
+                    await db.flush()  # need proration_charge.id
+                    change.billed = True
+                    change.billing_period = period
+                    change.proration_charge_id = proration_charge.id
+                    created += 1
+
+            # ── Setup fee (one-time per module, billed on first charge run) ───
+            effective_setup_fee = module_row.override_setup_fee_ils if module_row.pricing_mode == "override" else price.setup_fee_ils
+            module_added_date = (
+                module_row.valid_from or subscription.valid_from
+            )
             should_bill_setup = (
-                price.setup_fee_ils
-                and price.setup_fee_ils > 0
-                and subscription.valid_from
-                and subscription.valid_from <= period_start
+                effective_setup_fee
+                and effective_setup_fee > 0
+                and module_added_date is not None
             )
             if should_bill_setup:
                 setup_exists = await db.execute(
@@ -291,6 +529,7 @@ async def generate_charges(
                         BillingCharge.tenant_id == tenant.tenant_id,
                         BillingCharge.module_slug == slug,
                         BillingCharge.charge_type == "setup_fee",
+                        BillingCharge.status != "cancelled",
                     )
                 )
                 if not setup_exists.first():
@@ -302,7 +541,7 @@ async def generate_charges(
                         module_slug=slug,
                         description=f"דמי הקמה — {mod_name}",
                         quantity=Decimal("1"),
-                        unit_price_ils=price.setup_fee_ils,
+                        unit_price_ils=effective_setup_fee,
                         discount_pct=discount,
                         current_user_id=current_user.id,
                     ):
@@ -323,7 +562,7 @@ async def list_charges(
     status_filter: Optional[str] = Query(None, alias="status"),
     module_slug: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     q = sa.select(BillingCharge).order_by(
         BillingCharge.billing_period.desc(), BillingCharge.created_at.desc()
@@ -346,7 +585,7 @@ async def list_charges(
 async def create_charge(
     body: BillingChargeCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     amount = _round2(body.quantity * body.unit_price_ils)
     after_discount = _round2(amount * (1 - body.discount_pct / 100))
@@ -376,7 +615,7 @@ async def create_charge(
 async def get_charge(
     charge_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     result = await db.execute(
         sa.select(BillingCharge).where(BillingCharge.id == charge_id)
@@ -392,7 +631,7 @@ async def update_charge(
     charge_id: uuid.UUID,
     body: BillingChargeUpdate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     result = await db.execute(
         sa.select(BillingCharge).where(BillingCharge.id == charge_id)
@@ -427,7 +666,7 @@ async def update_charge(
 async def cancel_charge(
     charge_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     result = await db.execute(
         sa.select(BillingCharge).where(BillingCharge.id == charge_id)
@@ -454,7 +693,7 @@ async def list_invoices(
     billing_period: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     q = sa.select(Invoice).order_by(Invoice.issue_date.desc(), Invoice.invoice_number.desc())
     if tenant_id:
@@ -473,7 +712,7 @@ async def list_invoices(
 async def create_invoice(
     body: InvoiceCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     # ── Fetch charges ─────────────────────────────────────────────────────────
     if body.charge_ids:
@@ -563,7 +802,7 @@ async def create_invoice(
 async def get_invoice(
     invoice_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
     invoice = result.scalar_one_or_none()
@@ -577,14 +816,14 @@ async def update_invoice(
     invoice_id: uuid.UUID,
     body: InvoiceUpdate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
     invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(404, detail={"error": "Invoice not found", "code": "NOT_FOUND"})
-    if invoice.status in ("cancelled",):
-        raise HTTPException(409, detail={"error": "לא ניתן לערוך חשבונית מבוטלת", "code": "INVOICE_CANCELLED"})
+    if invoice.status in ("cancelled", "paid", "overdue"):
+        raise HTTPException(409, detail={"error": "לא ניתן לערוך חשבונית ששולמה, בפיגור, או מבוטלת", "code": "INVOICE_LOCKED"})
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
@@ -603,7 +842,7 @@ async def update_invoice(
 async def finalize_invoice(
     invoice_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     """Advance invoice from draft → sent."""
     result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
@@ -629,7 +868,7 @@ async def mark_paid(
     invoice_id: uuid.UUID,
     body: MarkPaidRequest,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
     invoice = result.scalar_one_or_none()
@@ -652,7 +891,215 @@ async def mark_paid(
     return await _build_invoice_out(db, invoice)
 
 
+async def _load_invoice_render_payload(
+    db: AsyncSession,
+    invoice_id: uuid.UUID,
+):
+    result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(404, detail={"error": "Invoice not found", "code": "NOT_FOUND"})
+
+    lines_result = await db.execute(
+        sa.select(InvoiceLine)
+        .where(InvoiceLine.invoice_id == invoice.id)
+        .order_by(InvoiceLine.sort_order)
+    )
+    lines = lines_result.scalars().all()
+    tenant_identity = await get_active(db, TenantIdentity, invoice.tenant_id, as_of=invoice.issue_date)
+    tenant_address_row = await get_active(db, TenantAddress, invoice.tenant_id, as_of=invoice.issue_date)
+    _, issuer_payload, _ = await _get_billing_settings_payload(db)
+
+    return {
+        "invoice": invoice,
+        "lines": lines,
+        "tenant_name": tenant_identity.name_he if tenant_identity else str(invoice.tenant_id),
+        "tenant_tax_id": tenant_identity.tax_id if tenant_identity else None,
+        "tenant_address": (
+            f"{tenant_address_row.street}, {tenant_address_row.city}"
+            if tenant_address_row else None
+        ),
+        "issuer_payload": issuer_payload,
+    }
+
+
+@router.get("/api/admin/billing/invoices/{invoice_id}/preview")
+async def preview_invoice_html(
+    invoice_id: uuid.UUID,
+    variant: str = Query("statement"),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    import os
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    payload = await _load_invoice_render_payload(db, invoice_id)
+    invoice = payload["invoice"]
+    lines = payload["lines"]
+    issuer_payload = payload["issuer_payload"]
+
+    INVOICE_STATUS_LABELS_PDF = {
+        "draft": "טיוטה", "sent": "נשלח",
+        "paid": "שולם", "overdue": "בפיגור", "cancelled": "מבוטל",
+    }
+    HE_MONTHS = [
+        "", "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+        "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+    ]
+
+    def _fmt_date(d):
+        if d is None:
+            return "—"
+        if isinstance(d, str):
+            d = date.fromisoformat(d)
+        return f"{d.day:02d}/{d.month:02d}/{d.year}"
+
+    def _fmt_period(p: str) -> str:
+        try:
+            y, m = p.split("-")
+            return f"{HE_MONTHS[int(m)]} {y}"
+        except Exception:
+            return p
+
+    def _fmt_amount(v) -> str:
+        try:
+            return f"{float(str(v)):,.2f}"
+        except Exception:
+            return str(v)
+
+    def _fmt_qty(v) -> str:
+        try:
+            f = float(str(v))
+            return f"{f:.4f}".rstrip("0").rstrip(".")
+        except Exception:
+            return str(v)
+
+    templates_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+    env = Environment(
+        loader=FileSystemLoader(os.path.abspath(templates_dir)),
+        autoescape=select_autoescape(["html"]),
+    )
+    env.filters["format_date"] = _fmt_date
+    env.filters["format_period"] = _fmt_period
+    env.filters["format_amount"] = _fmt_amount
+    env.filters["format_qty"] = _fmt_qty
+
+    template = env.get_template("invoice.html")
+    html_str = template.render(
+        invoice=invoice,
+        lines=lines,
+        auto_print=True,
+        variant=variant,
+        status_label=INVOICE_STATUS_LABELS_PDF.get(invoice.status, invoice.status),
+        tenant_name=payload["tenant_name"],
+        tenant_tax_id=payload["tenant_tax_id"],
+        tenant_address=payload["tenant_address"],
+        company={
+            "name_he": issuer_payload.get("issuer_name_he"),
+            "name_en": issuer_payload.get("issuer_name_en"),
+            "tax_id": issuer_payload.get("issuer_tax_id"),
+            "address": issuer_payload.get("issuer_address"),
+            "phone": issuer_payload.get("issuer_phone"),
+            "email": issuer_payload.get("issuer_email"),
+        },
+    )
+
+    return HTMLResponse(content=html_str)
+
+
+@router.get("/api/admin/billing/invoices/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: uuid.UUID,
+    variant: str = Query("statement"),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    payload = await _load_invoice_render_payload(db, invoice_id)
+    try:
+        pdf_bytes = render_invoice_pdf(
+            invoice=payload["invoice"],
+            lines=payload["lines"],
+            tenant_name=payload["tenant_name"],
+            tenant_tax_id=payload["tenant_tax_id"],
+            tenant_address=payload["tenant_address"],
+            issuer=payload["issuer_payload"],
+            variant=variant,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "סוג PDF לא נתמך", "code": "INVALID_VARIANT"},
+        ) from exc
+    except TaxInvoiceValidationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "חסרים פרטי מנפיק נדרשים עבור חשבונית מס",
+                "code": "MISSING_TAX_FIELDS",
+                "missing_fields": exc.missing_fields,
+            },
+        ) from exc
+
+    filename_suffix = "tax" if variant == "tax" else "statement"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{payload["invoice"].invoice_number}-{filename_suffix}.pdf"',
+        },
+    )
+
+
+@router.post("/api/admin/billing/invoices/mark-overdue", response_model=dict)
+async def mark_overdue(
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    """
+    Mark all sent invoices whose due_date < today as overdue.
+    Returns the count of invoices updated.
+    """
+    today = date.today()
+    result = await db.execute(
+        sa.update(Invoice)
+        .where(Invoice.status == "sent", Invoice.due_date < today)
+        .values(status="overdue")
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    return {"updated": result.rowcount}
+
+
 # ─── Tenant Billing Summary ────────────────────────────────────────────────────
+
+@router.get(
+    "/api/admin/tenants/{tenant_id}/seat-changes",
+    response_model=list[SeatChangeLogOut],
+)
+async def list_seat_changes(
+    tenant_id: uuid.UUID,
+    module_slug: Optional[str] = Query(None),
+    billed: Optional[bool] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    """Return seat-change history for a tenant, used to audit proration charges."""
+    t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
+    if not t_result.scalar_one_or_none():
+        raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    q = (
+        sa.select(SeatChangeLog)
+        .where(SeatChangeLog.tenant_id == tenant_id)
+        .order_by(SeatChangeLog.effective_date.desc(), SeatChangeLog.created_at.desc())
+    )
+    if module_slug:
+        q = q.where(SeatChangeLog.module_slug == module_slug)
+    if billed is not None:
+        q = q.where(SeatChangeLog.billed == billed)
+    result = await db.execute(q)
+    return result.scalars().all()
+
 
 @router.get(
     "/api/admin/tenants/{tenant_id}/billing",
@@ -661,7 +1108,7 @@ async def mark_paid(
 async def get_tenant_billing(
     tenant_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     # Verify tenant exists
     t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))

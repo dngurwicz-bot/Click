@@ -81,7 +81,7 @@ export function FieldHelpPopup() {
       }
 
       const active = document.activeElement;
-      if (!active || !["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) return;
+      if (!active || !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(active.tagName)) return;
 
       const label = getLabelText(active);
       if (!label) return;
@@ -113,7 +113,7 @@ export function FieldHelpPopup() {
 
   if (!help) return null;
 
-  const data = FIELD_HELP[help.label];
+  const data = FIELD_HELP[normalizeLabel(help.label)];
 
   return (
     <>

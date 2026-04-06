@@ -44,6 +44,8 @@ class TenantIdentity(Base):
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TenantContact(Base):
@@ -67,6 +69,8 @@ class TenantContact(Base):
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TenantAddress(Base):
@@ -83,6 +87,8 @@ class TenantAddress(Base):
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TenantSubscription(Base):
@@ -90,7 +96,6 @@ class TenantSubscription(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
-    package_slug: Mapped[str] = mapped_column(String, nullable=False)
     billing_cycle: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
     currency: Mapped[str] = mapped_column(String, nullable=False, default="ILS")
     template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("org_templates.id"), nullable=True)
@@ -103,6 +108,48 @@ class TenantSubscription(Base):
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TenantSubscriptionModule(Base):
+    __tablename__ = "tenant_subscription_modules"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('template','manual')",
+            name="ck_tenant_subscription_module_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('active','removed')",
+            name="ck_tenant_subscription_module_status",
+        ),
+        CheckConstraint(
+            "pricing_mode IN ('catalog','override')",
+            name="ck_tenant_subscription_module_pricing_mode",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenant_subscription.id", ondelete="CASCADE"), nullable=False
+    )
+    module_slug: Mapped[str] = mapped_column(String, ForeignKey("modules.slug"), nullable=False)
+    source_type: Mapped[str] = mapped_column(String, nullable=False, default="template")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    seats: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pricing_mode: Mapped[str] = mapped_column(String, nullable=False, default="catalog")
+    override_base_price_ils: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    override_per_seat_ils: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    override_setup_fee_ils: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    override_included_seats: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price_lock_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TenantStatus(Base):
@@ -123,3 +170,5 @@ class TenantStatus(Base):
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

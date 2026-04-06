@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
@@ -626,18 +626,18 @@ export default function ModuleDetailPage() {
   const [priceModal, setPriceModal] = useState(false);
   const [editRow,    setEditRow]    = useState<ModulePriceOut | undefined>(undefined);
 
-  function loadData() {
+  const loadData = useCallback(() => {
     setLoading(true);
     api.get<ModuleWithHistory>(`/api/admin/modules/${slug}`)
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }
+  }, [slug]);
 
   useEffect(() => {
     if (!isLoggedIn()) { router.replace("/login"); return; }
     loadData();
-  }, [router, slug]);
+  }, [router, loadData]);
 
   function openNewPrice() {
     setEditRow(undefined);

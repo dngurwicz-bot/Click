@@ -20,7 +20,6 @@ interface TemplateOut {
   id: string;
   name: string;
   description: string | null;
-  default_package_slug: string | null;
   default_billing_cycle: string;
   trial_days: number;
   is_active: boolean;
@@ -104,8 +103,8 @@ const BILLING_CYCLE_LABELS: Record<string, string> = {
 
 function buildPricingPreview(selectedModules: string[], modules: ModuleOption[], seatCount: number, discountPct: number): TemplatePricingSummary {
   const rows = selectedModules.map((slug) => {
-    const module = modules.find((m) => m.slug === slug);
-    const price = module?.current_price;
+    const matchedModule = modules.find((m) => m.slug === slug);
+    const price = matchedModule?.current_price;
     const base = parseFloat(price?.base_price_ils ?? "0");
     const perSeat = parseFloat(price?.per_seat_ils ?? "0");
     const setup = parseFloat(price?.setup_fee_ils ?? "0");
@@ -140,9 +139,9 @@ function buildPricingPreview(selectedModules: string[], modules: ModuleOption[],
 function buildPricingRows(selectedModules: string[], modules: ModuleOption[], seatCount: number) {
   return selectedModules
     .map((slug) => {
-      const module = modules.find((item) => item.slug === slug);
-      if (!module) return null;
-      const price = module.current_price;
+      const matchedModule = modules.find((item) => item.slug === slug);
+      if (!matchedModule) return null;
+      const price = matchedModule.current_price;
       const base = parseFloat(price?.base_price_ils ?? "0");
       const perSeat = parseFloat(price?.per_seat_ils ?? "0");
       const setup = parseFloat(price?.setup_fee_ils ?? "0");
@@ -150,7 +149,7 @@ function buildPricingRows(selectedModules: string[], modules: ModuleOption[], se
       const billableSeats = Math.max(seatCount - included, 0);
       return {
         slug,
-        name: module.name,
+        name: matchedModule.name,
         hasPrice: Boolean(price),
         base,
         perSeat,
@@ -184,7 +183,6 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
   const [form,         setForm]         = useState({
     name:                  editRow?.name ?? "",
     description:           editRow?.description ?? "",
-    default_package_slug:  editRow?.default_package_slug ?? "",
     default_billing_cycle: editRow?.default_billing_cycle ?? "monthly",
     trial_days:            String(editRow?.trial_days ?? 30),
     is_active:             editRow?.is_active ?? true,
@@ -209,7 +207,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
   function switchToAddMode() {
     setMode("add");
     setForm({
-      name: "", description: "", default_package_slug: "",
+      name: "", description: "",
       default_billing_cycle: "monthly", trial_days: "30",
       is_active: true, sort_order: "10", target_industry: "", recommended_size: "",
     });
@@ -225,7 +223,6 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
     setForm({
       name:                  editRow?.name ?? "",
       description:           editRow?.description ?? "",
-      default_package_slug:  editRow?.default_package_slug ?? "",
       default_billing_cycle: editRow?.default_billing_cycle ?? "monthly",
       trial_days:            String(editRow?.trial_days ?? 30),
       is_active:             editRow?.is_active ?? true,
@@ -249,7 +246,6 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
       ...(action === "update" && editRow?.id ? { template_id: editRow.id } : {}),
       name:                  form.name,
       description:           form.description || null,
-      default_package_slug:  form.default_package_slug || null,
       default_billing_cycle: form.default_billing_cycle,
       trial_days:            parseInt(form.trial_days) || 30,
       is_active:             form.is_active,
@@ -422,11 +418,6 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                         <label className="mb-1 block text-xs font-semibold text-slate-600">תיאור</label>
                         <input type="text" value={form.description} onChange={(e) => setF("description", e.target.value)}
                           placeholder="תיאור קצר וברור לצוות המכירות" className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-semibold text-slate-600">מסלול ברירת מחדל</label>
-                        <input type="text" value={form.default_package_slug} onChange={(e) => setF("default_package_slug", e.target.value)}
-                          placeholder="package-slug" className={inputCls} dir="ltr" />
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-semibold text-slate-600">מחזור חיוב</label>
@@ -604,7 +595,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                         <span className="font-semibold">{fmtMoney(pricingPreview.setup_after_discount_ils)}</span>
                       </div>
                       <div className="flex items-center justify-between border-t border-white/10 pt-2">
-                        <span className="font-semibold text-slate-100">סה"כ מחזור ראשון</span>
+                        <span className="font-semibold text-slate-100">סה&quot;כ מחזור ראשון</span>
                         <span className="text-lg font-bold">{fmtMoney(pricingPreview.total_after_discount_ils)}</span>
                       </div>
                     </div>
@@ -844,8 +835,7 @@ export default function AdminTemplatesPage() {
 
   const filtered = templates.filter((t) =>
     t.name.includes(search) ||
-    (t.target_industry ?? "").includes(search) ||
-    (t.default_package_slug ?? "").includes(search)
+    (t.target_industry ?? "").includes(search)
   );
   const temporalFilterError = getTemporalFilterError(temporalFilter);
   const visibleTemplates = filtered.filter((template) => (
@@ -909,7 +899,6 @@ export default function AdminTemplatesPage() {
               <thead className="sticky top-0 z-10">
                 <tr>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">שם</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מסלול ברירת מחדל</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מחזור חיוב</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מושבים</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">הנחה</th>
@@ -938,9 +927,6 @@ export default function AdminTemplatesPage() {
                           <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[200px]">{t.description}</div>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500 font-mono text-[11px]">
-                      {t.default_package_slug ?? "—"}
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-600">
                       {BILLING_CYCLE_LABELS[t.default_billing_cycle] ?? t.default_billing_cycle}

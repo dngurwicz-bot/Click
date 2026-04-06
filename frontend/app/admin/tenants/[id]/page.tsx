@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { isLoggedIn, api } from "@/lib/api";
+import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { TopNav } from "@/components/layout/TopNav";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
@@ -30,10 +31,27 @@ interface TenantAddressOut extends AuditFields {
   country: string; addr_type: string; valid_from: string; valid_to?: string;
 }
 interface TenantSubscriptionOut extends AuditFields {
-  id: string; package_slug: string; billing_cycle: string; currency: string;
+  id: string; billing_cycle: string; currency: string;
   template_id?: string; seat_count: number; selected_module_slugs: string[];
   discount_pct: string; is_price_locked: boolean; next_renewal_at?: string;
   valid_from: string; valid_to?: string;
+}
+interface TenantSubscriptionModuleOut extends AuditFields {
+  id: string;
+  tenant_subscription_id: string;
+  module_slug: string;
+  source_type: "template" | "manual";
+  status: "active" | "removed";
+  seats: number;
+  pricing_mode: "catalog" | "override";
+  override_base_price_ils?: string | null;
+  override_per_seat_ils?: string | null;
+  override_setup_fee_ils?: string | null;
+  override_included_seats?: number | null;
+  price_lock_reason?: string | null;
+  notes?: string | null;
+  valid_from: string;
+  valid_to?: string | null;
 }
 interface TenantStatusOut extends AuditFields {
   id: string; status: string; reason?: string; notes?: string;
@@ -43,11 +61,11 @@ interface TenantOut extends AuditFields {
   tenant_id: string; org_number: number; created_at: string;
   updated_at?: string; created_by?: string; updated_by?: string;
   identity?: TenantIdentityOut; contact?: TenantContactOut;
-  address?: TenantAddressOut; subscription?: TenantSubscriptionOut; status?: TenantStatusOut;
+  address?: TenantAddressOut; subscription?: TenantSubscriptionOut; subscription_modules?: TenantSubscriptionModuleOut[]; status?: TenantStatusOut;
 }
 interface TenantHistory {
   identity: TenantIdentityOut[]; contact: TenantContactOut[];
-  address: TenantAddressOut[]; subscription: TenantSubscriptionOut[]; status: TenantStatusOut[];
+  address: TenantAddressOut[]; subscription: TenantSubscriptionOut[]; subscription_modules: TenantSubscriptionModuleOut[]; status: TenantStatusOut[];
 }
 
 type SectionKey = "identity" | "contact" | "address" | "subscription" | "status";
@@ -76,6 +94,19 @@ interface TenantBillingSummary {
   paid_total_ils: string;
 }
 
+interface SeatChangeLogItem {
+  id: string;
+  subscription_module_id: string;
+  module_slug: string;
+  old_seats: number;
+  new_seats: number;
+  effective_date: string;
+  billed: boolean;
+  billing_period?: string | null;
+  proration_charge_id?: string | null;
+  created_at: string;
+}
+
 interface TenantInvoiceDetail extends TenantInvoiceItem {
   vat_pct: string; discount_ils: string; notes?: string; payment_ref?: string;
   tenant_name?: string;
@@ -94,7 +125,6 @@ interface TemplateOption {
   id: string;
   name: string;
   description?: string | null;
-  default_package_slug: string | null;
   default_billing_cycle: string;
   module_slugs: string[];
   discount_pct: string;
@@ -102,6 +132,49 @@ interface TemplateOption {
   is_price_locked: boolean;
   pricing_summary: TemplatePricingSummary | null;
   valid_to?: string | null;
+}
+interface ModuleOption {
+  slug: string;
+  name: string;
+  is_active: boolean;
+  current_price?: {
+    base_price_ils: string;
+    per_seat_ils: string;
+    included_seats: number;
+    setup_fee_ils: string;
+    valid_from: string;
+  } | null;
+}
+interface TenantSyncPreviewModuleDiff {
+  module_slug: string;
+  module_name: string;
+  action: "add" | "remove" | "update";
+  current_seats: number;
+  proposed_seats: number;
+  pricing_mode: "catalog" | "override";
+  current_monthly_ils: string;
+  proposed_monthly_ils: string;
+  current_setup_ils: string;
+  proposed_setup_ils: string;
+}
+interface TenantSyncPreviewOut {
+  tenant_id: string;
+  template_id: string;
+  effective_from: string;
+  current_discount_pct: string;
+  proposed_discount_pct: string;
+  current_is_price_locked: boolean;
+  proposed_is_price_locked: boolean;
+  module_diffs: TenantSyncPreviewModuleDiff[];
+  current_monthly_total_ils: string;
+  proposed_monthly_total_ils: string;
+  current_setup_total_ils: string;
+  proposed_setup_total_ils: string;
+}
+
+interface BillingSettingsOut {
+  can_render_tax_invoice: boolean;
+  missing_tax_fields: string[];
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
@@ -116,10 +189,69 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_TYPE_MAP: Record<string, "active" | "trial" | "suspended" | "cancelled"> = {
   active: "active", trial: "trial", suspended: "suspended", cancelled: "cancelled",
 };
+const ACTIVE_TENANT_STATUSES = new Set(["active", "trial"]);
 const fmtDate = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString("he-IL") : "—";
 const fmtDateTime = (d?: string | null) =>
   d ? new Date(d).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—";
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+function buildActiveStatusWindows(rows: TenantStatusOut[]) {
+  return rows
+    .filter((row) => ACTIVE_TENANT_STATUSES.has(row.status))
+    .map((row) => ({
+      valid_from: row.valid_from,
+      valid_to: row.valid_to ?? null,
+    }));
+}
+
+function findStatusWindowForRange(rows: TenantStatusOut[], validFrom: string, validTo?: string | null) {
+  const windows = buildActiveStatusWindows(rows);
+  return windows.find((window) => {
+    if (window.valid_from > validFrom) return false;
+    if (window.valid_to && validFrom > window.valid_to) return false;
+    if (!validTo) return window.valid_to === null;
+    return window.valid_to === null || validTo <= window.valid_to;
+  }) ?? null;
+}
+
+function getTenantDateRangeError(rows: TenantStatusOut[], validFrom: string, validTo?: string | null) {
+  const windows = buildActiveStatusWindows(rows);
+  if (findStatusWindowForRange(rows, validFrom, validTo)) return null;
+  if (!validTo) {
+    return windows.length === 0
+      ? `לא ניתן לבצע פעולה מתאריך ${fmtDate(validFrom)} כי ללקוח אין חלון סטטוס פעיל.`
+      : `לא ניתן לבצע פעולה מתאריך ${fmtDate(validFrom)} כי הלקוח אינו פעיל בתאריך זה או שאין חלון פעיל פתוח מתאריך זה.`;
+  }
+  return windows.length === 0
+    ? `לא ניתן לבצע פעולה בטווח ${fmtDate(validFrom)} עד ${fmtDate(validTo)} כי ללקוח אין חלון סטטוס פעיל.`
+    : `לא ניתן לבצע פעולה בטווח ${fmtDate(validFrom)} עד ${fmtDate(validTo)} כי כל הטווח חייב להיות בתוך חלון סטטוס פעיל.`;
+}
+
+function getAuditStamp(row: AuditFields) {
+  return {
+    at: row.updated_at ?? row.created_at ?? null,
+    by: row.updated_by ?? row.created_by ?? null,
+  };
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError) {
+    return error.error ?? (typeof error.details === "object" && error.details && "error" in error.details
+      ? String((error.details as { error?: unknown }).error ?? fallback)
+      : fallback);
+  }
+  if (error && typeof error === "object") {
+    const candidate = error as { error?: string; detail?: { error?: string }; details?: { error?: string } };
+    return candidate.error ?? candidate.detail?.error ?? candidate.details?.error ?? fallback;
+  }
+  return fallback;
+}
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 
@@ -129,6 +261,7 @@ interface EditModalProps {
   initialValidFrom: string;
   initialValidTo: string;
   allRows: Array<{ valid_from: string; valid_to?: string }>;
+  statusRows: TenantStatusOut[];
   tenantId: string;
   onClose: () => void;
   onSaved: () => void;
@@ -169,7 +302,6 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
   ],
   subscription: [
     { key: "template_id", label: "תבנית" },
-    { key: "package_slug",  label: "חבילה",       required: true, lookupKey: "package" },
     { key: "billing_cycle", label: "מחזור חיוב",  required: true, type: "select",
       options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "yearly", label: "שנתי" }] },
     { key: "currency",      label: "מטבע",         required: true, type: "select",
@@ -256,7 +388,7 @@ function LookupInput({ value, options, onChange }: {
 
 // ── EditModal ─────────────────────────────────────────────────────────────────
 
-function EditModal({ section, initialData, initialValidFrom, initialValidTo, allRows, tenantId, onClose, onSaved, initialMode }: EditModalProps) {
+function EditModal({ section, initialData, initialValidFrom, initialValidTo, allRows, statusRows, tenantId, onClose, onSaved, initialMode }: EditModalProps) {
   const [mode, setMode]           = useState<EditMode>(initialMode ?? "update");
   const [form, setForm]           = useState<Record<string, string>>(initialData);
   const [validFrom, setValidFrom] = useState<string>(initialValidFrom);
@@ -272,14 +404,13 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
   useEffect(() => {
     const needed = Array.from(new Set(fields.filter((f) => f.lookupKey).map((f) => f.lookupKey!)));
     needed.forEach((listKey) => {
-      api.get<{ items: { item_key: string; label_he: string; is_active: boolean }[] }>(
-        `/api/admin/lookups/${listKey}`
-      ).then((data) => {
-        const opts = data.items
-          .filter((i) => i.is_active)
-          .map((i) => ({ value: i.item_key, label: i.label_he }));
-        setLookupOptions((prev) => ({ ...prev, [listKey]: opts }));
-      }).catch(() => {});
+      api.get<{ items: { item_key: string; label_he: string; is_active: boolean }[] }>(`/api/admin/lookups/${listKey}`)
+        .then((data) => {
+          const opts = data.items
+            .filter((i) => i.is_active)
+            .map((i) => ({ value: i.item_key, label: i.label_he }));
+          setLookupOptions((prev) => ({ ...prev, [listKey]: opts }));
+        }).catch(() => {});
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section]);
@@ -341,8 +472,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
       });
       onSaved(); onClose();
     } catch (e: unknown) {
-      const err = e as { error?: string; detail?: { error?: string } };
-      setError(err?.error ?? err?.detail?.error ?? "שגיאה במחיקה");
+      setError(getApiErrorMessage(e, "שגיאה במחיקה"));
     } finally { setSaving(false); }
   }
 
@@ -357,8 +487,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
       });
       onSaved(); onClose();
     } catch (e: unknown) {
-      const err = e as { error?: string; detail?: { error?: string } };
-      setError(err?.error ?? err?.detail?.error ?? "שגיאה בסגירת תקופה");
+      setError(getApiErrorMessage(e, "שגיאה בסגירת תקופה"));
     } finally { setSaving(false); }
   }
 
@@ -383,6 +512,15 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
       }
     }
 
+    if (section !== "status") {
+      const statusError = getTenantDateRangeError(statusRows, validFrom, validTo || null);
+      if (statusError) {
+        setError(statusError);
+        setSaving(false);
+        return;
+      }
+    }
+
     try {
       await api.put(`/api/admin/tenants/${tenantId}`, {
         valid_from: validFrom,
@@ -392,8 +530,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
       });
       onSaved(); onClose();
     } catch (e: unknown) {
-      const err = e as { error?: string; detail?: { error?: string } };
-      setError(err?.error ?? err?.detail?.error ?? "שגיאה בשמירה");
+      setError(getApiErrorMessage(e, "שגיאה בשמירה"));
     } finally {
       setSaving(false);
     }
@@ -771,13 +908,13 @@ function LogoUpload({ tenantId, logoUrl, onUploaded }: {
         title="לחץ להעלאת לוגו"
       >
         {/* Logo box */}
-        <div className="w-[88px] h-[88px] rounded-xl border-2 border-dashed border-slate-300 bg-slate-50
+        <div className="w-[72px] h-[72px] rounded-xl border border-dashed border-slate-300 bg-white
                         flex items-center justify-center overflow-hidden
                         group-hover:border-brand-400 transition-colors">
           {preview ? (
-            <img src={preview} alt="לוגו" className="w-full h-full object-contain p-1.5" />
+            <Image src={preview} alt="לוגו" fill sizes="72px" className="object-contain p-1.5" />
           ) : (
-            <Building2 size={30} className="text-slate-300" />
+            <Building2 size={24} className="text-slate-300" />
           )}
         </div>
 
@@ -801,7 +938,7 @@ function LogoUpload({ tenantId, logoUrl, onUploaded }: {
 
       {/* Caption / error */}
       {errMsg ? (
-        <p className="text-[10px] text-red-500 text-center leading-tight max-w-[88px]">{errMsg}</p>
+        <p className="text-[10px] text-red-500 text-center leading-tight max-w-[72px]">{errMsg}</p>
       ) : (
         <p className="text-[10px] text-slate-400 text-center leading-tight">
           {uploading ? "מעלה…" : "לחץ להעלאת לוגו"}
@@ -814,6 +951,17 @@ function LogoUpload({ tenantId, logoUrl, onUploaded }: {
 function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploaded: (url: string) => void }) {
   const statusVal = tenant.status?.status ?? "trial";
   const statusLabel = STATUS_LABELS[statusVal] ?? statusVal;
+  const identityAudit = getAuditStamp(tenant.identity ?? {});
+  const pageCreatedBy = tenant.created_by ?? identityAudit.by;
+  const pageUpdatedAt = tenant.updated_at ?? identityAudit.at;
+  const pageUpdatedBy = tenant.updated_by ?? identityAudit.by;
+  const billingCycleLabel = tenant.subscription?.billing_cycle ?? "—";
+  const activeModules = (tenant.subscription_modules ?? []).filter((item) => item.status === "active");
+  const currentValidity = tenant.identity?.valid_to
+    ? `${fmtDate(tenant.identity.valid_from)} עד ${fmtDate(tenant.identity.valid_to)}`
+    : tenant.identity?.valid_from
+      ? `מ-${fmtDate(tenant.identity.valid_from)}`
+      : "—";
   const statusCfg = {
     active:    { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50/70", border: "border-emerald-200" },
     trial:     { dot: "bg-amber-400",   text: "text-amber-700",   bg: "bg-amber-50/70",   border: "border-amber-200"  },
@@ -822,61 +970,85 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
   }[statusVal as "active" | "trial" | "suspended" | "cancelled"] ?? { dot: "bg-slate-400", text: "text-slate-500", bg: "bg-slate-100/70", border: "border-slate-200" };
 
   return (
-    <div className="flex items-start gap-5 px-5 py-4 bg-gradient-to-l from-slate-50 to-white border-b border-slate-200">
+    <div className="border-b border-slate-200 bg-gradient-to-l from-slate-50 via-white to-white px-5 py-4">
+      <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
+        <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start">
+          <div className="flex items-start gap-4">
+            <LogoUpload
+              tenantId={tenant.tenant_id}
+              logoUrl={tenant.identity?.logo_url}
+              onUploaded={onLogoUploaded}
+            />
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-2xl font-bold leading-tight text-slate-800">
+                  {tenant.identity?.name_he ?? "—"}
+                </h2>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusCfg.bg} ${statusCfg.border}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${statusCfg.dot}`} />
+                  <span className={statusCfg.text}>{statusLabel}</span>
+                </span>
+              </div>
+              {tenant.identity?.name_en && (
+                <div className="text-sm text-slate-400">{tenant.identity.name_en}</div>
+              )}
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
+                  מ.ארגון {tenant.org_number}
+                </span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
+                  מחזור {billingCycleLabel}
+                </span>
+              </div>
+            </div>
+          </div>
 
-      {/* Logo upload */}
-      <LogoUpload
-        tenantId={tenant.tenant_id}
-        logoUrl={tenant.identity?.logo_url}
-        onUploaded={onLogoUploaded}
-      />
-
-      {/* Divider */}
-      <div className="self-stretch w-px bg-slate-200 shrink-0" />
-
-      {/* Fields */}
-      <div className="flex-1 min-w-0">
-        {/* Org name + status */}
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-xl font-bold text-navy-500 leading-tight">
-            {tenant.identity?.name_he ?? "—"}
-          </h2>
-          {tenant.identity?.name_en && (
-            <span className="text-sm text-slate-400 font-normal">{tenant.identity.name_en}</span>
-          )}
-          <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full border mr-auto ${statusCfg.bg} ${statusCfg.border}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
-            <span className={statusCfg.text}>{statusLabel}</span>
-          </span>
+          <div className="grid flex-1 min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-slate-400">ח.פ / ע.מ</div>
+              <div className="text-sm font-semibold text-slate-700">{tenant.identity?.tax_id ?? "—"}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-slate-400">סוג ישות</div>
+              <div className="text-sm font-semibold text-slate-700">
+                {ENTITY_LABELS[tenant.identity?.entity_type ?? ""] ?? tenant.identity?.entity_type ?? "—"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-slate-400">תוקף נוכחי</div>
+              <div className="text-sm font-semibold text-slate-700">{currentValidity}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-slate-400">מודולים בפועל</div>
+              <div className="text-sm font-semibold text-slate-700">{activeModules.length}</div>
+            </div>
+          </div>
         </div>
 
-        {/* Detail fields grid */}
-        <div className="grid grid-cols-4 gap-x-6 gap-y-1.5">
-          <FormField label="מ.ארגון"   value={String(tenant.org_number)}                                                       readOnly />
-          <FormField label="ח.פ / ע.מ" required value={tenant.identity?.tax_id}                                                readOnly />
-          <FormField label="סוג ישות"  required value={ENTITY_LABELS[tenant.identity?.entity_type ?? ""] ?? tenant.identity?.entity_type} readOnly />
-          <FormField label="תוקף מ"    value={tenant.identity?.valid_from ? new Date(tenant.identity.valid_from).toLocaleDateString("he-IL") : "—"} readOnly />
-        </div>
-
-        {/* Audit row */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 pt-2.5 border-t border-slate-200">
-          {tenant.created_at && (
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <span className="text-slate-400">נפתח:</span>
-              <span className="font-medium text-slate-600">{fmtDateTime(tenant.created_at)}</span>
-              {tenant.created_by && <span className="text-slate-500">ע&quot;י <span className="font-semibold">{tenant.created_by}</span></span>}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-200 bg-slate-50/70 px-5 py-3 text-[11px]">
+          {activeModules.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-slate-500">
+              <span className="text-slate-400">מודולים:</span>
+              {activeModules.map((item) => (
+                <span key={item.id} className="rounded-full bg-white px-2 py-0.5 text-slate-700 border border-slate-200">
+                  {item.module_slug} · {item.seats} מושבים
+                </span>
+              ))}
             </div>
           )}
-          {tenant.updated_at && (
-            <>
-              <div className="w-px h-3 bg-slate-200 shrink-0" />
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-slate-400">עודכן:</span>
-                <span className="font-medium text-slate-600">{fmtDateTime(tenant.updated_at)}</span>
-                {tenant.updated_by && <span className="text-slate-500">ע&quot;י <span className="font-semibold">{tenant.updated_by}</span></span>}
-              </div>
-            </>
-          )}
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <span className="text-slate-400">נוצר:</span>
+            <span className="font-medium text-slate-700">{fmtDateTime(tenant.created_at)}</span>
+            <span>ע&quot;י</span>
+            <span className="font-semibold text-slate-700">{pageCreatedBy ?? "—"}</span>
+          </div>
+          <div className="h-3 w-px bg-slate-200" />
+          <div className="flex items-center gap-1.5 text-slate-500">
+            <span className="text-slate-400">עודכן:</span>
+            <span className="font-medium text-slate-700">{fmtDateTime(pageUpdatedAt)}</span>
+            <span>ע&quot;י</span>
+            <span className="font-semibold text-slate-700">{pageUpdatedBy ?? "—"}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -909,19 +1081,22 @@ function buildIdentityTab(rows: TenantIdentityOut[], onDblClick: (i: number) => 
       { key: "created_at",  label: "תאריך שינוי" },
       { key: "created_by",  label: "בוצע ע\"י" },
     ],
-    rows: sorted.map((r) => ({
+    rows: sorted.map((r) => {
+      const audit = getAuditStamp(r);
+      return {
       valid_from:  fmtDate(r.valid_from),
       valid_to:    r.valid_to ? fmtDate(r.valid_to) : "—",
       name_he:     r.name_he,
       name_en:     r.name_en ?? "—",
       tax_id:      r.tax_id,
       entity_type: ENTITY_LABELS[r.entity_type] ?? r.entity_type,
-      created_at:  fmtDateTime(r.created_at),
-      created_by:  r.created_by ?? "—",
+      created_at:  fmtDateTime(audit.at),
+      created_by:  audit.by ?? "—",
       _current:    !r.valid_to,
       _valid_from_raw: r.valid_from,
       _valid_to_raw: r.valid_to ?? null,
-    })),
+      };
+    }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
@@ -946,7 +1121,9 @@ function buildContactTab(rows: TenantContactOut[], onDblClick: (i: number) => vo
       { key: "created_at",    label: "תאריך שינוי" },
       { key: "created_by",    label: "בוצע ע\"י" },
     ],
-    rows: sorted.map((r) => ({
+    rows: sorted.map((r) => {
+      const audit = getAuditStamp(r);
+      return {
       valid_from:   fmtDate(r.valid_from),
       valid_to:     r.valid_to ? fmtDate(r.valid_to) : "—",
       contact_type: CONTACT_TYPE_LABELS[r.contact_type] ?? r.contact_type,
@@ -954,12 +1131,13 @@ function buildContactTab(rows: TenantContactOut[], onDblClick: (i: number) => vo
       phone:        r.phone,
       contact_name: r.contact_name ?? "—",
       website:      r.website ?? "—",
-      created_at:   fmtDateTime(r.created_at),
-      created_by:   r.created_by ?? "—",
+      created_at:   fmtDateTime(audit.at),
+      created_by:   audit.by ?? "—",
       _current:     !r.valid_to,
       _valid_from_raw: r.valid_from,
       _valid_to_raw: r.valid_to ?? null,
-    })),
+      };
+    }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
@@ -979,25 +1157,32 @@ function buildAddressTab(rows: TenantAddressOut[], onDblClick: (i: number) => vo
       { key: "created_at", label: "תאריך שינוי" },
       { key: "created_by", label: "בוצע ע\"י" },
     ],
-    rows: sorted.map((r) => ({
+    rows: sorted.map((r) => {
+      const audit = getAuditStamp(r);
+      return {
       valid_from: fmtDate(r.valid_from),
       valid_to:   r.valid_to ? fmtDate(r.valid_to) : "—",
       street:     r.street,
       city:       r.city,
       zip_code:   r.zip_code ?? "—",
       country:    r.country,
-      created_at: fmtDateTime(r.created_at),
-      created_by: r.created_by ?? "—",
+      created_at: fmtDateTime(audit.at),
+      created_by: audit.by ?? "—",
       _current:   !r.valid_to,
       _valid_from_raw: r.valid_from,
       _valid_to_raw: r.valid_to ?? null,
-    })),
+      };
+    }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
 }
 
-function buildSubscriptionTab(rows: TenantSubscriptionOut[], onDblClick: (i: number) => void): ChildTab {
+function buildSubscriptionTab(
+  rows: TenantSubscriptionOut[],
+  onDblClick: (i: number) => void,
+  templateNames: Record<string, string>,
+): ChildTab {
   const sorted = sortRows(rows);
   return {
     id: "subscription", label: "מנוי",
@@ -1005,7 +1190,6 @@ function buildSubscriptionTab(rows: TenantSubscriptionOut[], onDblClick: (i: num
       { key: "valid_from",    label: "תוקף מ",       required: true },
       { key: "valid_to",      label: "תוקף עד" },
       { key: "template_id",   label: "תבנית" },
-      { key: "package_slug",  label: "חבילה",        required: true },
       { key: "billing_cycle", label: "מחזור חיוב",   required: true },
       { key: "seat_count",    label: "מושבים" },
       { key: "modules",       label: "מודולים" },
@@ -1014,22 +1198,24 @@ function buildSubscriptionTab(rows: TenantSubscriptionOut[], onDblClick: (i: num
       { key: "created_at",    label: "תאריך שינוי" },
       { key: "created_by",    label: "בוצע ע\"י" },
     ],
-    rows: sorted.map((r) => ({
+    rows: sorted.map((r) => {
+      const audit = getAuditStamp(r);
+      return {
       valid_from:    fmtDate(r.valid_from),
       valid_to:      r.valid_to ? fmtDate(r.valid_to) : "—",
-      template_id:   r.template_id ?? "—",
-      package_slug:  r.package_slug,
+      template_id:   (r.template_id ? templateNames[r.template_id] : null) ?? "—",
       billing_cycle: r.billing_cycle,
       seat_count:    r.seat_count,
       modules:       r.selected_module_slugs?.length ? r.selected_module_slugs.join(", ") : "—",
       currency:      r.currency,
       discount_pct:  `${r.discount_pct}%`,
-      created_at:    fmtDateTime(r.created_at),
-      created_by:    r.created_by ?? "—",
+      created_at:    fmtDateTime(audit.at),
+      created_by:    audit.by ?? "—",
       _current:      !r.valid_to,
       _valid_from_raw: r.valid_from,
       _valid_to_raw: r.valid_to ?? null,
-    })),
+      };
+    }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
   };
@@ -1047,19 +1233,84 @@ function buildStatusTab(rows: TenantStatusOut[], onDblClick: (i: number) => void
       { key: "created_at", label: "תאריך שינוי" },
       { key: "created_by", label: "בוצע ע\"י" },
     ],
-    rows: sorted.map((r) => ({
+    rows: sorted.map((r) => {
+      const audit = getAuditStamp(r);
+      return {
       valid_from: fmtDate(r.valid_from),
       valid_to:   r.valid_to ? fmtDate(r.valid_to) : "—",
       status:     STATUS_LABELS[r.status] ?? r.status,
       reason:     r.reason ?? "—",
-      created_at: fmtDateTime(r.created_at),
-      created_by: r.created_by ?? "—",
+      created_at: fmtDateTime(audit.at),
+      created_by: audit.by ?? "—",
       _current:   !r.valid_to,
       _valid_from_raw: r.valid_from,
       _valid_to_raw: r.valid_to ?? null,
-    })),
+      };
+    }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
+  };
+}
+
+function buildSubscriptionModulesTab(
+  rows: TenantSubscriptionModuleOut[],
+  onDblClick: ((row: TenantSubscriptionModuleOut) => void) | undefined,
+  onAddClick: (() => void) | undefined,
+  options?: {
+    addDisabled?: boolean;
+    addDisabledReason?: string;
+    toolbarNote?: string;
+  },
+): ChildTab {
+  const sorted = [...rows].sort((a, b) => {
+    if (a.valid_from === b.valid_from) return a.module_slug.localeCompare(b.module_slug, "he");
+    return a.valid_from < b.valid_from ? 1 : -1;
+  });
+  return {
+    id: "subscription_modules",
+    label: "מודולי מנוי",
+    columns: [
+      { key: "module_slug", label: "מודול" },
+      { key: "source_type", label: "מקור" },
+      { key: "status", label: "סטטוס" },
+      { key: "seats", label: "מושבים למודול" },
+      { key: "pricing_mode", label: "תמחור" },
+      { key: "base_price", label: "בסיס" },
+      { key: "per_seat", label: "למושב" },
+      { key: "setup_fee", label: "הקמה" },
+      { key: "created_at", label: "עודכן" },
+      { key: "created_by", label: "ע״י" },
+      { key: "notes", label: "הערות" },
+    ],
+    rows: sorted.map((row) => {
+      const audit = getAuditStamp(row);
+      return ({
+      module_slug: row.module_slug,
+      source_type: row.source_type === "template" ? "תבנית" : "ידני",
+      status: row.status === "active" ? "פעיל" : "הוסר",
+      seats: row.seats,
+      pricing_mode: row.pricing_mode === "override" ? "Override" : "מחירון",
+      base_price: row.pricing_mode === "override" ? (row.override_base_price_ils ? fmtIls(row.override_base_price_ils) : "—") : "קטלוג",
+      per_seat: row.pricing_mode === "override" ? (row.override_per_seat_ils ? fmtIls(row.override_per_seat_ils) : "—") : "קטלוג",
+      setup_fee: row.pricing_mode === "override" ? (row.override_setup_fee_ils ? fmtIls(row.override_setup_fee_ils) : "—") : "קטלוג",
+      created_at: fmtDateTime(audit.at),
+      created_by: audit.by ?? "—",
+      notes: row.notes ?? "—",
+      _current: !row.valid_to,
+      _valid_from_raw: row.valid_from,
+      _valid_to_raw: row.valid_to ?? null,
+    });
+    }),
+    onRowDoubleClick: onDblClick ? (index) => {
+      const row = sorted[index];
+      if (row) onDblClick(row);
+    } : undefined,
+    onAddClick,
+    addDisabled: options?.addDisabled,
+    addDisabledReason: options?.addDisabledReason,
+    toolbarNote: options?.toolbarNote,
+    temporalFilter: true,
+    emptyMessage: "אין מודולים במנוי - לחץ להוספת מודול",
   };
 }
 
@@ -1104,10 +1355,12 @@ function periodShort(p: string) {
 
 function ApplyTemplateModal({
   tenantId,
+  statusRows,
   onClose,
   onApplied,
 }: {
   tenantId: string;
+  statusRows: TenantStatusOut[];
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -1132,6 +1385,11 @@ function ApplyTemplateModal({
       setError("יש לבחור תבנית");
       return;
     }
+    const statusError = getTenantDateRangeError(statusRows, effectiveFrom, effectiveFrom);
+    if (statusError) {
+      setError(statusError);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -1142,8 +1400,7 @@ function ApplyTemplateModal({
       onApplied();
       onClose();
     } catch (e: unknown) {
-      const err = e as { error?: string; detail?: { error?: string } };
-      setError(err?.error ?? err?.detail?.error ?? "שגיאה בהחלת התבנית");
+      setError(getApiErrorMessage(e, "שגיאה בהחלת התבנית"));
     } finally {
       setSaving(false);
     }
@@ -1193,7 +1450,6 @@ function ApplyTemplateModal({
                 <div className="font-semibold text-slate-800">{selectedTemplate.name}</div>
                 {selectedTemplate.description && <div>{selectedTemplate.description}</div>}
                 <div className="grid grid-cols-2 gap-2">
-                  <span>חבילה: {selectedTemplate.default_package_slug ?? "—"}</span>
                   <span>מחזור: {selectedTemplate.default_billing_cycle}</span>
                   <span>מושבים: {selectedTemplate.seat_count}</span>
                   <span>הנחה: {selectedTemplate.discount_pct}%</span>
@@ -1227,7 +1483,7 @@ function ApplyTemplateModal({
                   <span className="font-semibold">{fmtIls(selectedTemplate.pricing_summary.setup_after_discount_ils)}</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-white/10 pt-2">
-                  <span className="text-slate-100 font-semibold">סה"כ מחזור ראשון</span>
+                  <span className="text-slate-100 font-semibold">סה&quot;כ מחזור ראשון</span>
                   <span className="text-lg font-bold">{fmtIls(selectedTemplate.pricing_summary.total_after_discount_ils)}</span>
                 </div>
               </div>
@@ -1252,6 +1508,404 @@ function ApplyTemplateModal({
           >
             <FileText size={12} />
             {saving ? "מחיל..." : "החל תבנית"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionModuleModal({
+  tenantId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  tenantId: string;
+  initial?: TenantSubscriptionModuleOut | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  type ModuleMode = "update" | "add" | "set" | "close" | "delete";
+  const [modules, setModules] = useState<ModuleOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<ModuleMode>(initial ? "update" : "add");
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({
+    module_slug: initial?.module_slug ?? "",
+    source_type: initial?.source_type ?? "manual",
+    status: initial?.status ?? "active",
+    seats: String(initial?.seats ?? 0),
+    pricing_mode: initial?.pricing_mode ?? "catalog",
+    override_base_price_ils: initial?.override_base_price_ils ?? "",
+    override_per_seat_ils: initial?.override_per_seat_ils ?? "",
+    override_setup_fee_ils: initial?.override_setup_fee_ils ?? "",
+    override_included_seats: initial?.override_included_seats != null ? String(initial.override_included_seats) : "",
+    price_lock_reason: initial?.price_lock_reason ?? "",
+    notes: initial?.notes ?? "",
+  });
+  const [validFrom, setValidFrom] = useState(initial?.valid_from ?? today);
+  const [validTo, setValidTo] = useState(initial?.valid_to ?? "");
+
+  useEffect(() => {
+    api.get<ModuleOption[]>("/api/admin/modules")
+      .then((data) => setModules(data.filter((item) => item.is_active)))
+      .catch(() => setError("לא הצלחתי לטעון מודולים"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function setField<K extends keyof typeof form>(key: K, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function buildPayload() {
+    return {
+      module_id: initial?.id,
+      module_slug: form.module_slug,
+      source_type: form.source_type as "template" | "manual",
+      status: form.status as "active" | "removed",
+      seats: parseInt(form.seats, 10) || 0,
+      pricing_mode: form.pricing_mode as "catalog" | "override",
+      override_base_price_ils: form.pricing_mode === "override" && form.override_base_price_ils ? parseFloat(form.override_base_price_ils) : null,
+      override_per_seat_ils: form.pricing_mode === "override" && form.override_per_seat_ils ? parseFloat(form.override_per_seat_ils) : null,
+      override_setup_fee_ils: form.pricing_mode === "override" && form.override_setup_fee_ils ? parseFloat(form.override_setup_fee_ils) : null,
+      override_included_seats: form.pricing_mode === "override" && form.override_included_seats ? parseInt(form.override_included_seats, 10) : null,
+      price_lock_reason: form.price_lock_reason || null,
+      notes: form.notes || null,
+      valid_from: validFrom || null,
+      valid_to: validTo || null,
+    };
+  }
+
+  async function runAction(action: ModuleMode) {
+    if (!form.module_slug) {
+      setError("יש לבחור מודול");
+      return;
+    }
+    if (action !== "close" && action !== "delete" && !validFrom) {
+      setError("יש להזין תאריך תחילת תוקף");
+      return;
+    }
+    if (action === "close" && !validTo) {
+      setError("יש להזין תאריך סיום");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/api/admin/tenants/${tenantId}/subscription-modules/temporal`, {
+        ...buildPayload(),
+        action,
+      });
+      onSaved();
+      onClose();
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, "שגיאה בביצוע הפעולה על המודול"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
+  const showPayloadForm = mode === "add" || mode === "update" || mode === "set";
+  const titleMap: Record<ModuleMode, string> = {
+    update: "עדכון מודול מנוי",
+    add: "רשומת מודול חדשה",
+    set: "קבע תקופה למודול",
+    close: "סגירת תוקף מודול",
+    delete: "מחיקת שורת מודול",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">{titleMap[mode]}</h3>
+            <p className="mt-1 text-[11px] text-slate-500">כאן מנהלים היסטוריית מודולים לפי תוקף, כמו בשאר המערכת הטמפורלית.</p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
+        </div>
+        <div className="grid gap-4 p-5 md:grid-cols-2">
+          {initial && (
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">פעולה</label>
+              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as ModuleMode)} disabled={saving}>
+                <option value="update">עדכון שורה</option>
+                <option value="add">רשומה חדשה</option>
+                <option value="set">קבע תקופה</option>
+                <option value="close">סגור תקופה</option>
+                <option value="delete">מחק שורה</option>
+              </select>
+            </div>
+          )}
+
+          {showPayloadForm && (
+            <>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">מודול</label>
+            <select className={inputCls} value={form.module_slug} onChange={(e) => setField("module_slug", e.target.value)} disabled={Boolean(initial) || loading || saving}>
+              <option value="">{loading ? "טוען מודולים..." : "בחר מודול"}</option>
+              {modules.map((item) => <option key={item.slug} value={item.slug}>{item.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">מקור</label>
+            <select className={inputCls} value={form.source_type} onChange={(e) => setField("source_type", e.target.value)} disabled={Boolean(initial) || saving}>
+              <option value="manual">ידני</option>
+              <option value="template">תבנית</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">סטטוס</label>
+            <select className={inputCls} value={form.status} onChange={(e) => setField("status", e.target.value)} disabled={saving}>
+              <option value="active">פעיל</option>
+              <option value="removed">הוסר</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">מושבים למודול</label>
+            <input className={inputCls} type="number" min="0" value={form.seats} onChange={(e) => setField("seats", e.target.value)} disabled={saving} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs font-semibold text-slate-600">מצב תמחור</label>
+            <select className={inputCls} value={form.pricing_mode} onChange={(e) => setField("pricing_mode", e.target.value)} disabled={saving}>
+              <option value="catalog">מחירון פעיל</option>
+              <option value="override">Override ללקוח</option>
+            </select>
+          </div>
+          {form.pricing_mode === "override" && (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">מחיר בסיס</label>
+                <input className={inputCls} type="number" min="0" step="0.01" value={form.override_base_price_ils} onChange={(e) => setField("override_base_price_ils", e.target.value)} disabled={saving} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">מחיר למושב</label>
+                <input className={inputCls} type="number" min="0" step="0.01" value={form.override_per_seat_ils} onChange={(e) => setField("override_per_seat_ils", e.target.value)} disabled={saving} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">דמי הקמה</label>
+                <input className={inputCls} type="number" min="0" step="0.01" value={form.override_setup_fee_ils} onChange={(e) => setField("override_setup_fee_ils", e.target.value)} disabled={saving} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">מושבים כלולים</label>
+                <input className={inputCls} type="number" min="0" value={form.override_included_seats} onChange={(e) => setField("override_included_seats", e.target.value)} disabled={saving} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-semibold text-slate-600">סיבת נעילה / Override</label>
+                <input className={inputCls} value={form.price_lock_reason} onChange={(e) => setField("price_lock_reason", e.target.value)} disabled={saving} />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">מתאריך</label>
+            <input className={inputCls} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} disabled={saving} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">עד תאריך</label>
+            <input className={inputCls} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} disabled={saving} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs font-semibold text-slate-600">הערות</label>
+            <textarea className={`${inputCls} min-h-20`} value={form.notes} onChange={(e) => setField("notes", e.target.value)} disabled={saving} />
+          </div>
+            </>
+          )}
+
+          {mode === "close" && (
+            <>
+              <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                הפעולה תשאיר את השורה בהיסטוריה ותסיים את התוקף שלה בתאריך שתבחר.
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף עד</label>
+                <input className={inputCls} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} disabled={saving} />
+              </div>
+            </>
+          )}
+
+          {mode === "delete" && (
+            <div className="md:col-span-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              מחיקת שורה תסיר אותה לחלוטין מההיסטוריה. אם הכוונה רק לסיים תוקף, עדיף להשתמש ב־&quot;סגור תקופה&quot;.
+            </div>
+          )}
+        </div>
+        {error && <div className="px-5 pb-2 text-xs text-red-600">{error}</div>}
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
+            <button
+              onClick={() => runAction(mode)}
+              disabled={saving || loading}
+              className={`rounded-md px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${
+                mode === "delete" ? "bg-red-600 hover:bg-red-700" :
+                mode === "close" ? "bg-amber-600 hover:bg-amber-700" :
+                "bg-brand-600 hover:bg-brand-700"
+              }`}
+            >
+              {saving ? "שומר..." : (
+                mode === "delete" ? "מחק שורה" :
+                mode === "close" ? "סגור תקופה" :
+                mode === "set" ? "קבע תקופה" :
+                mode === "add" ? "הוסף רשומה" :
+                "שמור"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SyncTemplateModal({
+  tenantId,
+  statusRows,
+  onClose,
+  onApplied,
+}: {
+  tenantId: string;
+  statusRows: TenantStatusOut[];
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [preview, setPreview] = useState<TenantSyncPreviewOut | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [previewing, setPreviewing] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<TemplateOption[]>("/api/admin/templates")
+      .then((data) => setTemplates(data.filter((item) => !item.valid_to)))
+      .catch(() => setError("לא הצלחתי לטעון תבניות"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handlePreview() {
+    if (!selectedId) {
+      setError("יש לבחור תבנית");
+      return;
+    }
+    const statusError = getTenantDateRangeError(statusRows, effectiveFrom, effectiveFrom);
+    if (statusError) {
+      setError(statusError);
+      return;
+    }
+    setPreviewing(true);
+    setError(null);
+    try {
+      const data = await api.get<TenantSyncPreviewOut>(`/api/admin/tenants/${tenantId}/sync-preview?template_id=${selectedId}&effective_from=${effectiveFrom}`);
+      setPreview(data);
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, "שגיאה בבניית ההשוואה"));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function handleApply() {
+    if (!selectedId) return;
+    const statusError = getTenantDateRangeError(statusRows, effectiveFrom, effectiveFrom);
+    if (statusError) {
+      setError(statusError);
+      return;
+    }
+    setApplying(true);
+    setError(null);
+    try {
+      await api.post(`/api/admin/tenants/${tenantId}/sync-preview/apply`, {
+        template_id: selectedId,
+        valid_from: effectiveFrom,
+      });
+      onApplied();
+      onClose();
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, "שגיאה בהחלת הסנכרון"));
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">רענון מנוי מתבנית</h3>
+            <p className="mt-1 text-[11px] text-slate-500">המערכת תחשב פערים מול התבנית ותאפשר apply רק אחרי תצוגה מקדימה.</p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
+        </div>
+        <div className="grid gap-4 p-5 md:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">תבנית</label>
+              <select className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400" value={selectedId} onChange={(e) => setSelectedId(e.target.value)} disabled={loading}>
+                <option value="">{loading ? "טוען תבניות..." : "בחר תבנית"}</option>
+                {templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף מתאריך</label>
+              <input type="date" className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+            </div>
+            <button onClick={handlePreview} disabled={previewing || loading} className="w-full rounded-md border border-brand-300 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50">
+              {previewing ? "מחשב..." : "הצג השוואה"}
+            </button>
+            {preview && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2">
+                <div className="flex items-center justify-between"><span>חודשי נוכחי</span><span className="font-semibold">{fmtIls(preview.current_monthly_total_ils)}</span></div>
+                <div className="flex items-center justify-between"><span>חודשי מוצע</span><span className="font-semibold">{fmtIls(preview.proposed_monthly_total_ils)}</span></div>
+                <div className="flex items-center justify-between border-t border-slate-200 pt-2"><span>דלתא</span><span className="font-bold">{fmtIls(String(parseFloat(preview.proposed_monthly_total_ils) - parseFloat(preview.current_monthly_total_ils)))}</span></div>
+              </div>
+            )}
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800">פערי מודולים ומושבים</div>
+            <div className="max-h-[420px] overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2 text-right">מודול</th>
+                    <th className="px-3 py-2 text-right">פעולה</th>
+                    <th className="px-3 py-2 text-right">מושבים נוכחיים</th>
+                    <th className="px-3 py-2 text-right">מושבים מוצעים</th>
+                    <th className="px-3 py-2 text-right">חודשי נוכחי</th>
+                    <th className="px-3 py-2 text-right">חודשי מוצע</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(preview?.module_diffs ?? []).length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">{preview ? "אין פערים בין המנוי לתבנית" : "בחר תבנית והצג השוואה"}</td></tr>
+                  ) : (
+                    preview!.module_diffs.map((row) => (
+                      <tr key={row.module_slug} className="border-b border-slate-100">
+                        <td className="px-3 py-2 font-medium text-slate-800">{row.module_name}</td>
+                        <td className="px-3 py-2">{row.action === "add" ? "הוספה" : row.action === "remove" ? "הסרה" : "עדכון"}</td>
+                        <td className="px-3 py-2">{row.current_seats}</td>
+                        <td className="px-3 py-2">{row.proposed_seats}</td>
+                        <td className="px-3 py-2">{fmtIls(row.current_monthly_ils)}</td>
+                        <td className="px-3 py-2">{fmtIls(row.proposed_monthly_ils)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {error && <div className="px-5 pb-2 text-xs text-red-600">{error}</div>}
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
+          <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
+          <button onClick={handleApply} disabled={!preview || applying} className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
+            {applying ? "מחיל..." : "החל סנכרון"}
           </button>
         </div>
       </div>
@@ -1424,12 +2078,17 @@ function getRawFields(section: SectionKey, item: TenantIdentityOut | TenantConta
 export default function TenantDetailPage() {
   const router  = useRouter();
   const { id }  = useParams<{ id: string }>();
-  const [tenant,  setTenant]  = useState<TenantOut | null>(null);
-  const [history, setHistory] = useState<TenantHistory | null>(null);
-  const [billing, setBilling] = useState<TenantBillingSummary | null>(null);
+  const [tenant,      setTenant]      = useState<TenantOut | null>(null);
+  const [history,     setHistory]     = useState<TenantHistory | null>(null);
+  const [billing,     setBilling]     = useState<TenantBillingSummary | null>(null);
+  const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
+  const [seatChanges, setSeatChanges] = useState<SeatChangeLogItem[]>([]);
+  const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<TenantInvoiceItem | null>(null);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
+  const [showSyncTemplate, setShowSyncTemplate] = useState(false);
+  const [moduleModalState, setModuleModalState] = useState<{ initial?: TenantSubscriptionModuleOut | null } | null>(null);
   const [editState, setEditState] = useState<{
     section: SectionKey;
     data: Record<string, string>;
@@ -1439,22 +2098,25 @@ export default function TenantDetailPage() {
     initialMode?: EditMode;
   } | null>(null);
 
-  function loadData() {
+  const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([
       api.get<TenantOut>(`/api/admin/tenants/${id}`),
       api.get<TenantHistory>(`/api/admin/tenants/${id}/history`),
+      api.get<TemplateOption[]>("/api/admin/templates").catch(() => []),
       api.get<TenantBillingSummary>(`/api/admin/tenants/${id}/billing`).catch(() => null),
+      api.get<SeatChangeLogItem[]>(`/api/admin/tenants/${id}/seat-changes`).catch(() => []),
+      api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null),
     ])
-      .then(([t, h, b]) => { setTenant(t); setHistory(h); setBilling(b); })
+      .then(([t, h, templates, b, sc, settings]) => { setTenant(t); setHistory(h); setTemplateOptions(templates); setBilling(b); setSeatChanges(sc ?? []); setBillingSettings(settings); })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }
+  }, [id]);
 
   useEffect(() => {
     if (!isLoggedIn()) { router.replace("/login"); return; }
     loadData();
-  }, [id, router]);
+  }, [loadData, router]);
 
   function openEdit(section: SectionKey, index: number) {
     if (!history) return;
@@ -1484,6 +2146,8 @@ export default function TenantDetailPage() {
   }
 
   const statusVal = tenant?.status?.status ?? "trial";
+  const statusRows = history?.status ?? [];
+  const templateNameMap = Object.fromEntries(templateOptions.map((item) => [item.id, item.name]));
 
   // ── Billing child tabs ────────────────────────────────────────────────────
   const billingChargesTab: ChildTab = {
@@ -1523,6 +2187,7 @@ export default function TenantDetailPage() {
       { key: "due",     label: "לתשלום עד" },
       { key: "total",   label: "סה״כ" },
       { key: "status",  label: "סטטוס" },
+      { key: "pdf",     label: "" },
     ],
     rows: (billing?.invoices ?? []).map((inv) => {
       const stCfg = INVOICE_STATUS_CFG[inv.status] ?? INVOICE_STATUS_CFG.draft;
@@ -1533,6 +2198,32 @@ export default function TenantDetailPage() {
         due:    <span className={inv.status === "overdue" ? "text-red-600 font-medium" : ""}>{fmtDate(inv.due_date)}</span>,
         total:  <span className="tabular-nums font-semibold">{fmtIls(inv.total_ils)}</span>,
         status: <BillingStatusBadge cfg={stCfg} />,
+        pdf: (
+          <div className="flex items-center gap-2">
+            <a
+              href={`/api/admin/billing/invoices/${inv.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]
+                         text-slate-500 hover:text-brand-700 hover:bg-brand-50 transition-colors"
+              title="הורד PDF">
+              PDF
+            </a>
+            {billingSettings?.can_render_tax_invoice ? (
+              <a
+                href={`/api/admin/billing/invoices/${inv.id}/pdf?variant=tax`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]
+                           text-slate-500 hover:text-brand-700 hover:bg-brand-50 transition-colors"
+                title="הורד חשבונית מס">
+                מס
+              </a>
+            ) : null}
+          </div>
+        ),
       };
     }),
     onRowDoubleClick: (i) => {
@@ -1542,14 +2233,58 @@ export default function TenantDetailPage() {
     emptyMessage: "אין חשבוניות — ניתן ליצור מדף ניהול חיובים",
   };
 
+  const unbilledSeatChanges = seatChanges.filter((c) => !c.billed);
+  const seatChangesTab: ChildTab = {
+    id: "seat_changes",
+    label: unbilledSeatChanges.length > 0
+      ? `שינויי מושבים (${unbilledSeatChanges.length} ממתינים)`
+      : "שינויי מושבים",
+    columns: [
+      { key: "date",       label: "תאריך שינוי" },
+      { key: "module",     label: "מודול" },
+      { key: "change",     label: "שינוי" },
+      { key: "billed",     label: "חויב" },
+      { key: "period",     label: "תקופת חיוב" },
+    ],
+    rows: seatChanges.map((c) => ({
+      date:   fmtDate(c.effective_date),
+      module: c.module_slug,
+      change: (
+        <span className={`tabular-nums font-semibold ${c.new_seats > c.old_seats ? "text-blue-700" : "text-amber-700"}`}>
+          {c.old_seats} → {c.new_seats}
+          {c.new_seats > c.old_seats
+            ? <span className="mr-1 text-xs text-blue-500">(+{c.new_seats - c.old_seats})</span>
+            : <span className="mr-1 text-xs text-amber-500">({c.new_seats - c.old_seats})</span>}
+        </span>
+      ),
+      billed: c.billed
+        ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs font-medium">✓ חויב</span>
+        : <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs font-medium">ממתין לחיוב</span>,
+      period: c.billing_period ? periodShort(c.billing_period) : "—",
+    })),
+    toolbarNote: unbilledSeatChanges.length > 0
+      ? `⚠️ ${unbilledSeatChanges.length} שינויי מושבים ממתינים לחיוב פרו-ריטה — יחויבו בהרצת "יצירת חיובים" הבאה`
+      : undefined,
+    emptyMessage: "אין שינויי מושבים — השינויים נרשמים אוטומטית בעת עדכון מושבים למודול",
+  };
+
   const childTabs: ChildTab[] = history ? [
     { ...buildIdentityTab(history.identity,         (i) => openEdit("identity",     i)), onAddClick: () => openAddNew("identity") },
     { ...buildContactTab(history.contact,           (i) => openEdit("contact",      i)), onAddClick: () => openAddNew("contact") },
     { ...buildAddressTab(history.address,           (i) => openEdit("address",      i)), onAddClick: () => openAddNew("address") },
-    { ...buildSubscriptionTab(history.subscription, (i) => openEdit("subscription", i)), onAddClick: () => openAddNew("subscription") },
+    { ...buildSubscriptionTab(history.subscription, (i) => openEdit("subscription", i), templateNameMap), onAddClick: () => openAddNew("subscription") },
+    tenant ? buildSubscriptionModulesTab(
+      history.subscription_modules ?? [],
+      (row) => setModuleModalState({ initial: row }),
+      () => setModuleModalState({ initial: null }),
+      {
+        toolbarNote: "מודולים מנוהלים כעת היסטורית לפי תוקף, כולל פתיחה, עדכון, סגירה ומחיקה.",
+      },
+    ) : billingChargesTab,
     { ...buildStatusTab(history.status,             (i) => openEdit("status",       i)), onAddClick: () => openAddNew("status") },
     billingChargesTab,
     billingInvoicesTab,
+    seatChangesTab,
   ] : [];
 
   return (
@@ -1571,6 +2306,11 @@ export default function TenantDetailPage() {
               label: "החל תבנית",
               onClick: () => setShowApplyTemplate(true),
               icon: <FileText size={12} />,
+            },
+            {
+              label: "רענון מתבנית",
+              onClick: () => setShowSyncTemplate(true),
+              icon: <Send size={12} />,
             },
           ]}
           parentContent={tenant ? (
@@ -1597,6 +2337,7 @@ export default function TenantDetailPage() {
           initialValidFrom={editState.initialValidFrom}
           initialValidTo={editState.initialValidTo}
           allRows={editState.allRows}
+          statusRows={history?.status ?? []}
           tenantId={tenant.tenant_id}
           onClose={() => setEditState(null)}
           onSaved={loadData}
@@ -1615,9 +2356,34 @@ export default function TenantDetailPage() {
       {showApplyTemplate && tenant && (
         <ApplyTemplateModal
           tenantId={tenant.tenant_id}
+          statusRows={history?.status ?? []}
           onClose={() => setShowApplyTemplate(false)}
           onApplied={() => {
             setShowApplyTemplate(false);
+            loadData();
+          }}
+        />
+      )}
+
+      {showSyncTemplate && tenant && (
+        <SyncTemplateModal
+          tenantId={tenant.tenant_id}
+          statusRows={history?.status ?? []}
+          onClose={() => setShowSyncTemplate(false)}
+          onApplied={() => {
+            setShowSyncTemplate(false);
+            loadData();
+          }}
+        />
+      )}
+
+      {moduleModalState && tenant && (
+        <SubscriptionModuleModal
+          tenantId={tenant.tenant_id}
+          initial={moduleModalState.initial}
+          onClose={() => setModuleModalState(null)}
+          onSaved={() => {
+            setModuleModalState(null);
             loadData();
           }}
         />

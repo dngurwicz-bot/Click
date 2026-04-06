@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 
 from app.database import get_db
-from app.middleware.auth import require_admin, CurrentUser
+from app.middleware.auth import require_permission, CurrentUser
 from app.models.lookup import LookupList, LookupItem
 from app.schemas.lookup import (
     LookupListCreate, LookupListUpdate, LookupListOut, LookupListItem,
@@ -29,7 +29,7 @@ async def _get_list_or_404(db: AsyncSession, list_key: str) -> LookupList:
 @router.get("", response_model=list[LookupListItem])
 async def list_lookup_lists(
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "view")),
 ):
     result = await db.execute(select(LookupList).order_by(LookupList.name_he))
     lists = result.scalars().all()
@@ -59,7 +59,7 @@ async def list_lookup_lists(
 async def create_lookup_list(
     body: LookupListCreate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     existing = await db.execute(select(LookupList).where(LookupList.list_key == body.list_key))
     if existing.scalar_one_or_none():
@@ -79,7 +79,7 @@ async def create_lookup_list(
 async def get_lookup_list(
     list_key: str,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "view")),
 ):
     lst = await _get_list_or_404(db, list_key)
     items_result = await db.execute(
@@ -98,7 +98,7 @@ async def update_lookup_list(
     list_key: str,
     body: LookupListUpdate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     lst = await _get_list_or_404(db, list_key)
     if body.name_he is not None:     lst.name_he = body.name_he
@@ -128,7 +128,7 @@ async def create_lookup_item(
     list_key: str,
     body: LookupItemCreate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     lst = await _get_list_or_404(db, list_key)
     existing = await db.execute(
@@ -152,7 +152,7 @@ async def create_lookup_item(
 async def delete_lookup_list(
     list_key: str,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     lst = await _get_list_or_404(db, list_key)
     if lst.is_system:
@@ -170,7 +170,7 @@ async def delete_lookup_item(
     list_key: str,
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     lst = await _get_list_or_404(db, list_key)
     result = await db.execute(
@@ -196,7 +196,7 @@ async def update_lookup_item(
     item_id: uuid.UUID,
     body: LookupItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_admin),
+    _: CurrentUser = Depends(require_permission("lookups", "edit")),
 ):
     lst = await _get_list_or_404(db, list_key)
     result = await db.execute(

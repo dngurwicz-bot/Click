@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command ':*)",
+      "Bash(node_modules/.bin/next start:*)",
+      "Bash(curl -si http://localhost:3002/dashboard -m 10)",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 3002 | Where-Object State -eq '\\\\''Listen'\\\\'' | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }')",
+      "Bash(curl -si http://localhost:3000/dashboard -m 10)",
+      "Bash(node_modules/.bin/next build:*)",
+      "Bash(curl -s http://localhost:8000/api/health -m 5)",
+      "Bash(grep -n \"class Module\\\\|class ModulePrice\" c:/Click/backend/app/models/*.py)",
+      "Bash(grep -n \"include_router\" c:/Click/backend/app/*.py)",
+      "Bash(python -c \"from app.routers.billing import router; print\\('OK'\\)\")",
+      "Bash(python -c \"from app.main import app; routes = [r.path for r in app.routes if hasattr\\(r, 'path'\\)]; [print\\(r\\) for r in routes if 'billing' in r or 'seat' in r or 'pdf' in r]\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, 'c:/Click/backend'\\); from app.routers.billing import router; routes = [\\(r.methods, r.path\\) for r in router.routes if hasattr\\(r, 'path'\\)]; [print\\(m, p\\) for m,p in routes]\")",
+      "Bash(python -c \"import weasyprint; print\\('OK'\\)\")",
+      "Bash(python -c \"import jinja2; print\\('jinja2 OK'\\)\")",
+      "Bash(cmd /c \"cd c:\\\\Click\\\\frontend && npx tsc --noEmit 2>&1\")",
+      "Bash(cmd /c \"cd c:\\\\Click\\\\backend && alembic upgrade head 2>&1\")",
+      "Bash(cmd /c \"cd /d c:\\\\Click\\\\backend && alembic upgrade head\")",
+      "Bash(cmd /c \"cd /d c:\\\\Click\\\\backend && python -m alembic upgrade head\")",
+      "Bash(python -c ':*)"
+    ]
+  }
+}

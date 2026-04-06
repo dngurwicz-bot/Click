@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<title>חשבונית {{ invoice.invoice_number }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 15mm 15mm 20mm 15mm;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, "Helvetica Neue", sans-serif;
+    font-size: 10pt;
+    color: #1a1a1a;
+    direction: rtl;
+    line-height: 1.5;
+  }
+  /* ── Header ── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #1e40af;
+    padding-bottom: 8mm;
+    margin-bottom: 6mm;
+  }
+  .header-company { max-width: 55%; }
+  .header-invoice { text-align: left; min-width: 40%; }
+  .company-name {
+    font-size: 16pt;
+    font-weight: bold;
+    color: #1e40af;
+    margin-bottom: 2mm;
+  }
+  .company-detail { font-size: 8.5pt; color: #555; }
+  .invoice-title {
+    font-size: 20pt;
+    font-weight: bold;
+    color: #1e40af;
+    margin-bottom: 2mm;
+  }
+  .invoice-number { font-size: 11pt; font-weight: bold; }
+  .invoice-meta { font-size: 9pt; color: #444; margin-top: 1mm; }
+  .invoice-meta span { margin-left: 4mm; }
+  /* ── Parties ── */
+  .parties {
+    display: flex;
+    justify-content: space-between;
+    gap: 6mm;
+    margin-bottom: 6mm;
+  }
+  .party-box {
+    flex: 1;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 3mm 4mm;
+    background: #f9fafb;
+  }
+  .party-label {
+    font-size: 7.5pt;
+    font-weight: bold;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.5mm;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 1mm;
+  }
+  .party-name { font-size: 11pt; font-weight: bold; margin-bottom: 1mm; }
+  .party-detail { font-size: 8.5pt; color: #4b5563; }
+  /* ── Status badge ── */
+  .status-badge {
+    display: inline-block;
+    padding: 1mm 3mm;
+    border-radius: 3px;
+    font-size: 8.5pt;
+    font-weight: bold;
+    margin-bottom: 4mm;
+  }
+  .status-draft    { background: #f1f5f9; color: #475569; }
+  .status-sent     { background: #eff6ff; color: #1d4ed8; }
+  .status-paid     { background: #f0fdf4; color: #166534; }
+  .status-overdue  { background: #fef2f2; color: #991b1b; }
+  .status-cancelled{ background: #f1f5f9; color: #64748b; }
+  /* ── Table ── */
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 4mm;
+    font-size: 9.5pt;
+  }
+  .items-table thead tr {
+    background: #1e40af;
+    color: #fff;
+  }
+  .items-table thead th {
+    padding: 2.5mm 3mm;
+    text-align: right;
+    font-weight: bold;
+  }
+  .items-table thead th.num { text-align: center; }
+  .items-table thead th.amount { text-align: left; }
+  .items-table tbody tr { border-bottom: 1px solid #e5e7eb; }
+  .items-table tbody tr:nth-child(even) { background: #f8fafc; }
+  .items-table td {
+    padding: 2mm 3mm;
+    vertical-align: middle;
+  }
+  .items-table td.num   { text-align: center; color: #6b7280; }
+  .items-table td.price { text-align: center; }
+  .items-table td.amount{ text-align: left; font-weight: 500; }
+  /* ── Totals ── */
+  .totals-section {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6mm;
+  }
+  .totals-box { min-width: 75mm; }
+  .totals-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 1.5mm 0;
+    font-size: 9.5pt;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .totals-row.total-final {
+    border-top: 2px solid #1e40af;
+    border-bottom: none;
+    padding-top: 2mm;
+    font-size: 12pt;
+    font-weight: bold;
+    color: #1e40af;
+  }
+  .totals-row.discount { color: #059669; }
+  .totals-label { color: #6b7280; }
+  .totals-row.total-final .totals-label { color: #1e40af; }
+  /* ── Payment info ── */
+  .payment-info {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 4px;
+    padding: 2.5mm 4mm;
+    margin-bottom: 4mm;
+    font-size: 9pt;
+  }
+  .payment-info-label { font-weight: bold; color: #166534; margin-bottom: 1mm; }
+  /* ── Notes ── */
+  .notes-box {
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 2.5mm 4mm;
+    font-size: 8.5pt;
+    color: #555;
+    margin-bottom: 4mm;
+  }
+  .notes-label { font-weight: bold; margin-bottom: 1mm; }
+  /* ── Footer ── */
+  .footer {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 3mm;
+    font-size: 7.5pt;
+    color: #9ca3af;
+    text-align: center;
+  }
+  .currency::before { content: "₪"; }
+  /* ── Print bar (visible on screen, hidden when printing) ── */
+  .print-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #1e40af;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px;
+    font-size: 13px;
+    z-index: 999;
+  }
+  .print-bar button {
+    background: #fff;
+    color: #1e40af;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 20px;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .print-bar button:hover { background: #dbeafe; }
+  body { padding-top: 48px; }
+  @media print {
+    .print-bar { display: none !important; }
+    body { padding-top: 0; margin: 0; }
+    @page { size: A4; margin: 15mm; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Print bar ─────────────────────────────────────────── -->
+<div class="print-bar">
+  <span>חשבונית {{ invoice.invoice_number }} — {{ tenant_name }}</span>
+  <button onclick="window.print()">הדפס / שמור PDF ↓</button>
+</div>
+
+<!-- ── Header ────────────────────────────────────────────── -->
+<div class="header">
+  <div class="header-company">
+    <div class="company-name">{{ company.name_he }}</div>
+    {% if company.name_en %}<div class="company-detail">{{ company.name_en }}</div>{% endif %}
+    {% if company.tax_id %}<div class="company-detail">ח.פ: {{ company.tax_id }}</div>{% endif %}
+    {% if company.address %}<div class="company-detail">{{ company.address }}</div>{% endif %}
+    {% if company.phone %}<div class="company-detail">טלפון: {{ company.phone }}</div>{% endif %}
+    {% if company.email %}<div class="company-detail">{{ company.email }}</div>{% endif %}
+  </div>
+  <div class="header-invoice">
+    <div class="invoice-title">חשבונית מס</div>
+    <div class="invoice-number">{{ invoice.invoice_number }}</div>
+    <div class="invoice-meta">
+      <span>תאריך הנפקה: {{ invoice.issue_date | format_date }}</span><br/>
+      <span>לתשלום עד: {{ invoice.due_date | format_date }}</span><br/>
+      <span>תקופת חיוב: {{ invoice.billing_period | format_period }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Status ─────────────────────────────────────────────── -->
+<div class="status-badge status-{{ invoice.status }}">{{ status_label }}</div>
+
+<!-- ── Parties ───────────────────────────────────────────── -->
+<div class="parties">
+  <div class="party-box">
+    <div class="party-label">מנפיק</div>
+    <div class="party-name">{{ company.name_he }}</div>
+    {% if company.tax_id %}<div class="party-detail">ח.פ: {{ company.tax_id }}</div>{% endif %}
+    {% if company.address %}<div class="party-detail">{{ company.address }}</div>{% endif %}
+  </div>
+  <div class="party-box">
+    <div class="party-label">לקוח</div>
+    <div class="party-name">{{ tenant_name }}</div>
+    {% if tenant_tax_id %}<div class="party-detail">ח.פ / ע.מ: {{ tenant_tax_id }}</div>{% endif %}
+    {% if tenant_address %}<div class="party-detail">{{ tenant_address }}</div>{% endif %}
+  </div>
+</div>
+
+<!-- ── Line Items ─────────────────────────────────────────── -->
+<table class="items-table">
+  <thead>
+    <tr>
+      <th style="width:5%">#</th>
+      <th>תיאור</th>
+      <th class="num" style="width:12%">כמות</th>
+      <th class="num" style="width:15%">מחיר יחידה</th>
+      <th class="amount" style="width:15%">סכום</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+    <tr>
+      <td class="num">{{ loop.index }}</td>
+      <td>{{ line.description }}</td>
+      <td class="num">{{ line.quantity | format_qty }}</td>
+      <td class="num"><span class="currency"></span>{{ line.unit_price_ils | format_amount }}</td>
+      <td class="amount"><span class="currency"></span>{{ line.amount_ils | format_amount }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- ── Totals ─────────────────────────────────────────────── -->
+<div class="totals-section">
+  <div class="totals-box">
+    <div class="totals-row">
+      <span class="totals-label">סכום לפני מע"מ</span>
+      <span><span class="currency"></span>{{ invoice.subtotal_ils | format_amount }}</span>
+    </div>
+    {% if invoice.discount_ils and invoice.discount_ils != "0.00" %}
+    <div class="totals-row discount">
+      <span class="totals-label">הנחה</span>
+      <span>- <span class="currency"></span>{{ invoice.discount_ils | format_amount }}</span>
+    </div>
+    {% endif %}
+    <div class="totals-row">
+      <span class="totals-label">מע"מ {{ invoice.vat_pct }}%</span>
+      <span><span class="currency"></span>{{ invoice.vat_ils | format_amount }}</span>
+    </div>
+    <div class="totals-row total-final">
+      <span class="totals-label">סה"כ לתשלום</span>
+      <span><span class="currency"></span>{{ invoice.total_ils | format_amount }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Payment Info (if paid) ─────────────────────────────── -->
+{% if invoice.payment_date %}
+<div class="payment-info">
+  <div class="payment-info-label">✓ שולם</div>
+  <div>תאריך תשלום: {{ invoice.payment_date | format_date }}
+    {% if invoice.payment_ref %} | אסמכתא: {{ invoice.payment_ref }}{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Notes ─────────────────────────────────────────────── -->
+{% if invoice.notes %}
+<div class="notes-box">
+  <div class="notes-label">הערות</div>
+  {{ invoice.notes }}
+</div>
+{% endif %}
+
+<!-- ── Footer ─────────────────────────────────────────────── -->
+<div class="footer">
+  מסמך זה הופק אוטומטית על-ידי {{ company.name_he }} | {{ invoice.invoice_number }}
+</div>
+
+</body>
+</html>

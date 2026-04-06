@@ -5,6 +5,23 @@ from typing import Literal, Optional
 from pydantic import BaseModel, field_validator
 import re
 
+# ─── Seat Change Log ───────────────────────────────────────────────────────────
+
+class SeatChangeLogOut(BaseModel):
+    id: uuid.UUID
+    subscription_module_id: uuid.UUID
+    tenant_id: uuid.UUID
+    module_slug: str
+    old_seats: int
+    new_seats: int
+    effective_date: date
+    billed: bool
+    billing_period: Optional[str] = None
+    proration_charge_id: Optional[uuid.UUID] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
 # ─── Type Aliases ─────────────────────────────────────────────────────────────
 
 ChargeType   = Literal["base_fee", "per_seat", "setup_fee", "addon", "credit", "manual"]
@@ -130,9 +147,6 @@ class InvoiceCreate(BaseModel):
 class InvoiceUpdate(BaseModel):
     due_date: Optional[date] = None
     notes: Optional[str] = None
-    status: Optional[InvoiceStatus] = None
-    payment_date: Optional[date] = None
-    payment_ref: Optional[str] = None
 
 
 class MarkPaidRequest(BaseModel):
@@ -204,3 +218,34 @@ class TenantBillingSummary(BaseModel):
     pending_total_ils: Decimal
     invoiced_total_ils: Decimal
     paid_total_ils: Decimal
+
+
+class BillingSettingsBase(BaseModel):
+    issuer_name_he: str
+    issuer_name_en: Optional[str] = None
+    issuer_tax_id: Optional[str] = None
+    issuer_address: Optional[str] = None
+    issuer_phone: Optional[str] = None
+    issuer_email: Optional[str] = None
+    issuer_logo_url: Optional[str] = None
+    payment_instructions: Optional[str] = None
+    footer_text: Optional[str] = None
+
+
+class BillingSettingsUpdate(BillingSettingsBase):
+    pass
+
+
+class BillingSettingsOut(BillingSettingsBase):
+    id: Optional[uuid.UUID] = None
+    missing_tax_fields: list[str] = []
+    can_render_tax_invoice: bool = False
+    source: str = "database"
+    updated_at: Optional[datetime] = None
+
+
+class InvoicePdfVariantAvailability(BaseModel):
+    statement_url: str
+    tax_url: str
+    can_render_tax_invoice: bool
+    missing_tax_fields: list[str] = []

@@ -7,7 +7,7 @@ import { TopNav } from "@/components/layout/TopNav";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
 import {
   Plus,
-  Zap, FileText, X, AlertCircle, ChevronDown,
+  Zap, FileText, FileDown, X, AlertCircle, ChevronDown,
   CheckCircle2, Clock, Ban, Send, Wallet,
 } from "lucide-react";
 
@@ -71,6 +71,23 @@ interface TenantListItem {
   tenant_id: string;
   name_he: string;
   org_number: number;
+}
+
+interface BillingSettingsOut {
+  id?: string | null;
+  issuer_name_he: string;
+  issuer_name_en?: string | null;
+  issuer_tax_id?: string | null;
+  issuer_address?: string | null;
+  issuer_phone?: string | null;
+  issuer_email?: string | null;
+  issuer_logo_url?: string | null;
+  payment_instructions?: string | null;
+  footer_text?: string | null;
+  missing_tax_fields: string[];
+  can_render_tax_invoice: boolean;
+  source: string;
+  updated_at?: string | null;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -423,11 +440,73 @@ function NewInvoiceModal({
   );
 }
 
+function BillingSettingsPanel({
+  value,
+  onChange,
+  onSave,
+  saving,
+}: {
+  value: BillingSettingsOut | null;
+  onChange: (next: BillingSettingsOut) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  if (!value) return null;
+
+  function setField<K extends keyof BillingSettingsOut>(key: K, nextValue: BillingSettingsOut[K]) {
+    onChange({ ...(value as BillingSettingsOut), [key]: nextValue } as BillingSettingsOut);
+  }
+
+  const missingFields = value.missing_tax_fields ?? [];
+
+  return (
+    <div className="border-b border-slate-200 bg-white px-4 py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">פרטי מנפיק לחשבוניות</h3>
+          <p className="mt-1 text-xs text-slate-500">המידע הזה יודפס על ה־PDF ויקבע אם אפשר להפיק גם חשבונית מס.</p>
+        </div>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          {saving ? "שומר..." : "שמור פרטי מנפיק"}
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_he ?? ""} onChange={(e) => setField("issuer_name_he", e.target.value)} placeholder="שם מנפיק בעברית" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_en ?? ""} onChange={(e) => setField("issuer_name_en", e.target.value)} placeholder="שם מנפיק באנגלית" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_tax_id ?? ""} onChange={(e) => setField("issuer_tax_id", e.target.value)} placeholder="ח.פ / ע.מ" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-2" value={value.issuer_address ?? ""} onChange={(e) => setField("issuer_address", e.target.value)} placeholder="כתובת מנפיק" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_logo_url ?? ""} onChange={(e) => setField("issuer_logo_url", e.target.value)} placeholder="URL ללוגו (אופציונלי)" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_phone ?? ""} onChange={(e) => setField("issuer_phone", e.target.value)} placeholder="טלפון" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_email ?? ""} onChange={(e) => setField("issuer_email", e.target.value)} placeholder="אימייל" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.payment_instructions ?? ""} onChange={(e) => setField("payment_instructions", e.target.value)} placeholder="הוראות תשלום" />
+        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.footer_text ?? ""} onChange={(e) => setField("footer_text", e.target.value)} placeholder="טקסט footer למסמך" />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className={`rounded-full px-2.5 py-0.5 font-medium ${value.can_render_tax_invoice ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+          {value.can_render_tax_invoice ? "חשבונית מס זמינה" : "חשבונית מס חסומה"}
+        </span>
+        {value.source === "env" && (
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-slate-600">כרגע נטען מ־ENV עד לשמירה ראשונה</span>
+        )}
+        {!value.can_render_tax_invoice && missingFields.length > 0 && (
+          <span className="text-amber-700">חסרים: {missingFields.join(", ")}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Invoice Detail Modal ─────────────────────────────────────────────────────
 
 function InvoiceDetailModal({
-  invoice: initial, onClose, onUpdated,
-}: { invoice: InvoiceListItem; onClose: () => void; onUpdated: () => void }) {
+  invoice: initial, onClose, onUpdated, billingSettings,
+}: { invoice: InvoiceListItem; onClose: () => void; onUpdated: () => void; billingSettings: BillingSettingsOut | null }) {
   const [inv, setInv]             = useState<InvoiceOut | null>(null);
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
@@ -635,6 +714,32 @@ function InvoiceDetailModal({
                 <CheckCircle2 size={12} /> סמן כשולם
               </button>
             )}
+            <a
+              href={`/api/admin/billing/invoices/${inv.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-300
+                         bg-white text-slate-700 rounded-md hover:bg-slate-50 transition-colors">
+              <FileDown size={12} /> PDF חיוב
+            </a>
+            {billingSettings?.can_render_tax_invoice ? (
+              <a
+                href={`/api/admin/billing/invoices/${inv.id}/pdf?variant=tax`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-300
+                           bg-white text-slate-700 rounded-md hover:bg-slate-50 transition-colors">
+                <FileText size={12} /> חשבונית מס
+              </a>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-amber-200
+                           bg-amber-50 text-amber-700 rounded-md"
+                title={(billingSettings?.missing_tax_fields ?? []).join(", ")}
+              >
+                <Ban size={12} /> חסר מידע לחשבונית מס
+              </span>
+            )}
             <button onClick={onClose}
               className="px-4 py-1.5 text-xs border border-slate-300 bg-white text-slate-600 rounded-md hover:bg-slate-50">
               סגור
@@ -657,6 +762,8 @@ export default function BillingPage() {
   const [charges, setCharges]               = useState<BillingChargeOut[]>([]);
   const [invoices, setInvoices]             = useState<InvoiceListItem[]>([]);
   const [tenants, setTenants]               = useState<TenantListItem[]>([]);
+  const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [loading, setLoading]               = useState(true);
 
   // Filters
@@ -682,11 +789,13 @@ export default function BillingPage() {
       api.get<BillingChargeOut[]>(`/api/admin/billing/charges?${params}`),
       api.get<InvoiceListItem[]>(`/api/admin/billing/invoices?${params}`),
       api.get<{ tenant_id: string; org_number: number; name_he: string }[]>("/api/admin/tenants"),
+      api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null),
     ])
-      .then(([c, inv, t]) => {
+      .then(([c, inv, t, settings]) => {
         setCharges(c);
         setInvoices(inv);
         setTenants(t.map((x) => ({ tenant_id: x.tenant_id, name_he: x.name_he, org_number: x.org_number })));
+        setBillingSettings(settings);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -710,12 +819,42 @@ export default function BillingPage() {
   const invoicedTotal = invoices.filter((i) => i.status !== "cancelled").reduce((s, i) => s + parseFloat(i.total_ils), 0);
   const paidTotal     = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + parseFloat(i.total_ils), 0);
 
+  async function saveBillingSettings() {
+    if (!billingSettings) return;
+    setSettingsSaving(true);
+    try {
+      const saved = await api.put<BillingSettingsOut>("/api/admin/billing/settings", {
+        issuer_name_he: billingSettings.issuer_name_he,
+        issuer_name_en: billingSettings.issuer_name_en || null,
+        issuer_tax_id: billingSettings.issuer_tax_id || null,
+        issuer_address: billingSettings.issuer_address || null,
+        issuer_phone: billingSettings.issuer_phone || null,
+        issuer_email: billingSettings.issuer_email || null,
+        issuer_logo_url: billingSettings.issuer_logo_url || null,
+        payment_instructions: billingSettings.payment_instructions || null,
+        footer_text: billingSettings.footer_text || null,
+      });
+      setBillingSettings(saved);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav />
 
       <main className="flex-1 overflow-hidden flex flex-col">
         <AdminTitleBar title="ניהול חיובים וחשבוניות" onRefresh={loadData} />
+
+        <BillingSettingsPanel
+          value={billingSettings}
+          onChange={setBillingSettings}
+          onSave={saveBillingSettings}
+          saving={settingsSaving}
+        />
 
         {/* ── Stats Bar ──────────────────────────────────────────────── */}
         <div className="bg-white border-b border-slate-200 flex items-center gap-6 px-4 py-2 shrink-0">
@@ -887,7 +1026,7 @@ export default function BillingPage() {
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {["מס' חשבונית", "ארגון", "תקופה", "הנפקה", "לתשלום עד", "לפני מע\"מ", "מע\"מ", "סה\"כ", "סטטוס"].map((h) => (
+                  {["מס' חשבונית", "ארגון", "תקופה", "הנפקה", "לתשלום עד", "לפני מע\"מ", "מע\"מ", "סה\"כ", "סטטוס", "PDF"].map((h) => (
                     <th key={h} className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
                       {h}
                     </th>
@@ -896,7 +1035,7 @@ export default function BillingPage() {
               </thead>
               <tbody>
                 {filteredInvoices.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-16 text-slate-400">אין חשבוניות להצגה</td></tr>
+                  <tr><td colSpan={10} className="text-center py-16 text-slate-400">אין חשבוניות להצגה</td></tr>
                 ) : (
                   filteredInvoices.map((inv, i) => {
                     const st = INVOICE_STATUS[inv.status] ?? INVOICE_STATUS.draft;
@@ -915,6 +1054,30 @@ export default function BillingPage() {
                         <td className="px-4 py-2 border-b border-slate-100 text-slate-500 tabular-nums text-left">{fmt(inv.vat_ils)}</td>
                         <td className="px-4 py-2 border-b border-slate-100 font-bold text-slate-800 tabular-nums text-left">{fmt(inv.total_ils)}</td>
                         <td className="px-4 py-2 border-b border-slate-100"><StatusBadge cfg={st} /></td>
+                        <td className="px-4 py-2 border-b border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`/api/admin/billing/invoices/${inv.id}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[11px] text-brand-700 hover:underline"
+                            >
+                              PDF
+                            </a>
+                            {billingSettings?.can_render_tax_invoice ? (
+                              <a
+                                href={`/api/admin/billing/invoices/${inv.id}/pdf?variant=tax`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[11px] text-slate-600 hover:underline"
+                              >
+                                מס
+                              </a>
+                            ) : null}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })
@@ -952,6 +1115,7 @@ export default function BillingPage() {
       {selectedInvoice && (
         <InvoiceDetailModal
           invoice={selectedInvoice}
+          billingSettings={billingSettings}
           onClose={() => setSelectedInvoice(null)}
           onUpdated={() => {
             setSelectedInvoice(null);

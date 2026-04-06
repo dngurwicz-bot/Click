@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 
 from app.database import get_db
-from app.middleware.auth import require_super_admin, CurrentUser
+from app.middleware.auth import require_permission, CurrentUser
 from app.models.module import Module, ModulePrice
 from app.services.module_pricing_research import build_module_pricing_research
 from app.schemas.module import (
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/admin/modules", tags=["modules"])
 @router.get("", response_model=list[ModuleWithPrice])
 async def list_modules(
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "view")),
 ):
     result = await db.execute(select(Module).order_by(Module.sort_order))
     modules = result.scalars().all()
@@ -45,7 +45,7 @@ async def list_modules(
 async def create_module(
     body: ModuleCreate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "edit")),
 ):
     existing = await db.execute(select(Module).where(Module.slug == body.slug))
     if existing.scalar_one_or_none():
@@ -71,7 +71,7 @@ async def create_module(
 @router.get("/pricing-recommendations", response_model=ModulePricingResearchOut)
 async def get_module_pricing_recommendations(
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "view")),
 ):
     result = await db.execute(select(Module).order_by(Module.sort_order))
     modules = result.scalars().all()
@@ -94,7 +94,7 @@ async def update_module(
     slug: str,
     body: ModuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "edit")),
 ):
     result = await db.execute(select(Module).where(Module.slug == slug))
     module = result.scalar_one_or_none()
@@ -118,7 +118,7 @@ async def update_module(
 async def delete_module(
     slug: str,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "edit")),
 ):
     result = await db.execute(select(Module).where(Module.slug == slug))
     module = result.scalar_one_or_none()
@@ -135,7 +135,7 @@ async def delete_module(
 async def get_module(
     slug: str,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("modules", "view")),
 ):
     result = await db.execute(select(Module).where(Module.slug == slug))
     module = result.scalar_one_or_none()
@@ -160,7 +160,7 @@ async def update_module_price(
     slug: str,
     body: ModulePriceActionBody,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("modules", "edit")),
 ):
     """Temporal price management — 5 actions matching the Hilan/tenant pattern."""
     result = await db.execute(select(Module).where(Module.slug == slug))

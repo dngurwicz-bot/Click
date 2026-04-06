@@ -2,13 +2,27 @@
 Temporal data service.
 All mutable data is append-only: closing the current row and inserting a new one.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import uuid
 from typing import Any, Type
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, inspect as sa_inspect
 
 _UNSET = object()
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _with_update_audit(model: Type, values: dict[str, Any], actor_id: uuid.UUID | None) -> dict[str, Any]:
+    if actor_id is None:
+        return values
+    if hasattr(model, "updated_at"):
+        values["updated_at"] = _now_utc()
+    if hasattr(model, "updated_by"):
+        values["updated_by"] = actor_id
+    return values
 
 
 def _apply_extra_filters(stmt: Any, model: Type, extra_filters: dict[str, Any] | None) -> Any:
@@ -46,7 +60,7 @@ async def close_and_create(
         .where(model.valid_to.is_(None))       # type: ignore[attr-defined]
     )
     close_stmt = _apply_extra_filters(close_stmt, model, extra_filters)
-    await session.execute(close_stmt.values(valid_to=close_date))
+    await session.execute(close_stmt.values(**_with_update_audit(model, {"valid_to": close_date}, actor_id)))
 
     new_row = model(
         **new_data,
@@ -66,6 +80,7 @@ async def update_in_place(
     model: Type,
     tenant_id: uuid.UUID,
     new_data: dict[str, Any],
+    actor_id: uuid.UUID | None,
     new_valid_from: date | None = None,
     *,
     target_valid_from: date | None = None,
@@ -85,6 +100,7 @@ async def update_in_place(
         update_dict['valid_from'] = new_valid_from
     if new_valid_to is not _UNSET:
         update_dict['valid_to'] = new_valid_to
+    update_dict = _with_update_audit(model, update_dict, actor_id)
 
     stmt = update(model).where(model.tenant_id == tenant_id)  # type: ignore[attr-defined]
     if target_valid_from is not None:
@@ -205,21 +221,33 @@ async def kabiya(
             # Left half: trim original record
             await session.execute(
                 update(model).where(model.id == rec.id)   # type: ignore[attr-defined]
-                .values(valid_to=new_valid_from - timedelta(days=1))
+                .values(**_with_update_audit(
+                    model,
+                    {"valid_to": new_valid_from - timedelta(days=1)},
+                    actor_id,
+                ))
             )
 
         elif starts_before:
             # ── LEFT TRIM ──────────────────────────────────────────────────
             await session.execute(
                 update(model).where(model.id == rec.id)   # type: ignore[attr-defined]
-                .values(valid_to=new_valid_from - timedelta(days=1))
+                .values(**_with_update_audit(
+                    model,
+                    {"valid_to": new_valid_from - timedelta(days=1)},
+                    actor_id,
+                ))
             )
 
         elif ends_after:
             # ── RIGHT PUSH ─────────────────────────────────────────────────
             await session.execute(
                 update(model).where(model.id == rec.id)   # type: ignore[attr-defined]
-                .values(valid_from=new_valid_to + timedelta(days=1))  # type: ignore[operator]
+                .values(**_with_update_audit(
+                    model,
+                    {"valid_from": new_valid_to + timedelta(days=1)},  # type: ignore[operator]
+                    actor_id,
+                ))
             )
 
         else:
@@ -264,6 +292,7 @@ async def close_active_row(
     model: Type,
     tenant_id: uuid.UUID,
     end_date: date,
+    actor_id: uuid.UUID | None = None,
     extra_filters: dict[str, Any] | None = None,
 ) -> None:
     """
@@ -277,7 +306,7 @@ async def close_active_row(
         .where(model.valid_to.is_(None))        # type: ignore[attr-defined]
     )
     close_row_stmt = _apply_extra_filters(close_row_stmt, model, extra_filters)
-    await session.execute(close_row_stmt.values(valid_to=end_date))
+    await session.execute(close_row_stmt.values(**_with_update_audit(model, {"valid_to": end_date}, actor_id)))
 
 
 async def get_active(
@@ -285,12 +314,18 @@ async def get_active(
     model: Type,
     tenant_id: uuid.UUID,
     extra_filters: dict[str, Any] | None = None,
+    as_of: date | None = None,
 ) -> Any | None:
     """Return the currently active temporal row for a tenant."""
+    effective_on = as_of or date.today()
     stmt = (
         select(model)
         .where(model.tenant_id == tenant_id)  # type: ignore[attr-defined]
-        .where(model.valid_to.is_(None))       # type: ignore[attr-defined]
+        .where(model.valid_from <= effective_on)  # type: ignore[attr-defined]
+        .where(  # type: ignore[attr-defined]
+            (model.valid_to.is_(None)) | (model.valid_to >= effective_on)
+        )
+        .order_by(model.valid_from.desc())  # type: ignore[attr-defined]
     )
     stmt = _apply_extra_filters(stmt, model, extra_filters)
     result = await session.execute(stmt.limit(1))

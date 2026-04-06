@@ -85,3 +85,23 @@ class InvoiceLine(Base):
     unit_price_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     amount_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+
+
+class BillingSettings(Base):
+    """Singleton-like issuer profile used for invoice rendering."""
+    __tablename__ = "billing_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    issuer_name_he: Mapped[str] = mapped_column(String(255), nullable=False)
+    issuer_name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issuer_tax_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    issuer_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issuer_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    issuer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issuer_logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    footer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

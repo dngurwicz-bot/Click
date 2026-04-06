@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 
 from app.database import get_db
-from app.middleware.auth import require_super_admin, CurrentUser
+from app.middleware.auth import require_permission, CurrentUser
 from app.models.module import OrgTemplate, OrgTemplateModule, OrgTemplateDefault, Module, ModulePrice
 from app.schemas.template import (
     TemplateOut, TemplateCreate, TemplateActionBody,
@@ -31,6 +31,10 @@ async def _load_module_slugs(db: AsyncSession, template_id: uuid.UUID) -> list[s
         select(OrgTemplateModule.module_slug).where(OrgTemplateModule.template_id == template_id)
     )
     return [r[0] for r in res.all()]
+
+
+async def _load_effective_module_slugs(db: AsyncSession, template: OrgTemplate) -> list[str]:
+    return await _load_module_slugs(db, template.id)
 
 
 async def _save_module_slugs(db: AsyncSession, template_id: uuid.UUID, slugs: list[str]) -> None:
@@ -187,7 +191,7 @@ def _build_pricing_summary(
 
 async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> TemplateOut:
     out = TemplateOut.model_validate(template)
-    out.module_slugs = await _load_module_slugs(db, template.id)
+    out.module_slugs = await _load_effective_module_slugs(db, template)
     defaults = await _load_template_defaults(db, template.id)
     out.seat_count = _default_seat_count(defaults)
     out.discount_pct = _default_discount_pct(defaults)
@@ -207,7 +211,7 @@ async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> Templa
 @router.get("", response_model=list[TemplateOut])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("templates", "view")),
 ):
     """List all templates (active + history), ordered by valid_from DESC."""
     result = await db.execute(
@@ -221,13 +225,12 @@ async def list_templates(
 async def create_template(
     body: TemplateCreate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("templates", "edit")),
 ):
     """Create a new template record."""
     new_template = OrgTemplate(
         name=body.name,
         description=body.description,
-        default_package_slug=body.default_package_slug,
         default_billing_cycle=body.default_billing_cycle,
         trial_days=body.trial_days,
         is_active=body.is_active,
@@ -257,7 +260,7 @@ async def update_template(
     template_id: uuid.UUID,
     body: TemplateCreate,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("templates", "edit")),
 ):
     """Update template metadata (name, description, non-temporal fields)."""
     result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
@@ -267,7 +270,6 @@ async def update_template(
 
     template.name = body.name
     template.description = body.description
-    template.default_package_slug = body.default_package_slug
     template.default_billing_cycle = body.default_billing_cycle
     template.trial_days = body.trial_days
     template.is_active = body.is_active
@@ -297,7 +299,7 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("templates", "edit")),
 ):
     """Hard delete a template by id."""
     result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
@@ -319,7 +321,7 @@ async def delete_template(
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: CurrentUser = Depends(require_super_admin),
+    _: CurrentUser = Depends(require_permission("templates", "view")),
 ):
     """Get a single template with its full history (all rows sharing the same name)."""
     result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
@@ -341,7 +343,7 @@ async def template_record_action(
     template_id: uuid.UUID,
     body: TemplateActionBody,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_permission("templates", "edit")),
 ):
     """Temporal record actions: delete | close | update | add | set (kabiya)."""
 
@@ -422,7 +424,6 @@ async def template_record_action(
             return {
                 "name": body.name if body.name is not None else anchor.name,
                 "description": body.description if body.description is not None else anchor.description,
-                "default_package_slug": body.default_package_slug if body.default_package_slug is not None else anchor.default_package_slug,
                 "default_billing_cycle": body.default_billing_cycle if body.default_billing_cycle is not None else anchor.default_billing_cycle,
                 "trial_days": body.trial_days if body.trial_days is not None else anchor.trial_days,
                 "is_active": body.is_active if body.is_active is not None else anchor.is_active,
@@ -505,7 +506,6 @@ async def template_record_action(
         new_row = OrgTemplate(
             name=body.name,
             description=body.description,
-            default_package_slug=body.default_package_slug,
             default_billing_cycle=body.default_billing_cycle or "monthly",
             trial_days=body.trial_days if body.trial_days is not None else 30,
             is_active=body.is_active if body.is_active is not None else True,
@@ -549,7 +549,6 @@ async def template_record_action(
                 OrgTemplate.valid_to,
                 OrgTemplate.name,
                 OrgTemplate.description,
-                OrgTemplate.default_package_slug,
                 OrgTemplate.default_billing_cycle,
                 OrgTemplate.trial_days,
                 OrgTemplate.is_active,
@@ -583,7 +582,6 @@ async def template_record_action(
                 right_row = OrgTemplate(
                     name=row.name,
                     description=row.description,
-                    default_package_slug=row.default_package_slug,
                     default_billing_cycle=row.default_billing_cycle,
                     trial_days=row.trial_days,
                     is_active=row.is_active,
@@ -641,7 +639,6 @@ async def template_record_action(
         new_row = OrgTemplate(
             name=body.name if body.name is not None else anchor.name,
             description=body.description if body.description is not None else anchor.description,
-            default_package_slug=body.default_package_slug if body.default_package_slug is not None else anchor.default_package_slug,
             default_billing_cycle=body.default_billing_cycle if body.default_billing_cycle is not None else anchor.default_billing_cycle,
             trial_days=body.trial_days if body.trial_days is not None else anchor.trial_days,
             is_active=body.is_active if body.is_active is not None else anchor.is_active,
