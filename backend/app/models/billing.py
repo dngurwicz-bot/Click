@@ -87,6 +87,63 @@ class InvoiceLine(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
 
 
+class Quote(Base):
+    """Quote/proposal document — sent to prospects or existing tenants."""
+    __tablename__ = "quotes"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft','sent','accepted','declined','expired')",
+            name="ck_quote_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    quote_number: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)  # assigned on send
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=True)
+    prospect_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    prospect_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    valid_until: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
+    vat_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("17.00"))
+    subtotal_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    discount_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    vat_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    total_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    converted_invoice_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class QuoteLine(Base):
+    """A line item inside a Quote."""
+    __tablename__ = "quote_lines"
+    __table_args__ = (
+        CheckConstraint(
+            "charge_type IN ('base_fee','per_seat','setup_fee','addon','manual')",
+            name="ck_quote_line_charge_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    quote_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=Decimal("1"))
+    unit_price_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    amount_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
+    amount_after_discount_ils: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    module_slug: Mapped[str | None] = mapped_column(String, ForeignKey("modules.slug"), nullable=True)
+    charge_type: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+
+
 class BillingSettings(Base):
     """Singleton-like issuer profile used for invoice rendering."""
     __tablename__ = "billing_settings"

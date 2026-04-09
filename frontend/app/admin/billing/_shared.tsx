@@ -1,22 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { isLoggedIn, api } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { HebrewMonthPicker } from "@/components/ui/HebrewMonthPicker";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
-  Plus,
-  Zap, FileText, FileDown, X, AlertCircle, ChevronDown,
-  CheckCircle2, Clock, Ban, Send, Wallet, BarChart3,
-  Quote, Trash2, TrendingUp,
+  Plus, Zap, FileText, FileDown, X, AlertCircle,
+  CheckCircle2, Ban, Send, Wallet, Quote, Trash2, TrendingUp,
 } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-interface BillingChargeOut {
+export interface BillingChargeOut {
   id: string;
   tenant_id: string;
   tenant_name?: string;
@@ -36,7 +31,7 @@ interface BillingChargeOut {
   created_at: string;
 }
 
-interface InvoiceListItem {
+export interface InvoiceListItem {
   id: string;
   invoice_number: string;
   tenant_id: string;
@@ -52,7 +47,7 @@ interface InvoiceListItem {
   payment_date?: string;
 }
 
-interface InvoiceLine {
+export interface InvoiceLine {
   id: string;
   invoice_id: string;
   charge_id?: string;
@@ -63,20 +58,20 @@ interface InvoiceLine {
   sort_order: number;
 }
 
-interface InvoiceOut extends InvoiceListItem {
+export interface InvoiceOut extends InvoiceListItem {
   vat_pct: string;
   notes?: string;
   payment_ref?: string;
   lines: InvoiceLine[];
 }
 
-interface TenantListItem {
+export interface TenantListItem {
   tenant_id: string;
   name_he: string;
   org_number: number;
 }
 
-interface QuoteLineOut {
+export interface QuoteLineOut {
   id: string;
   quote_id: string;
   description: string;
@@ -91,7 +86,7 @@ interface QuoteLineOut {
   sort_order: number;
 }
 
-interface QuoteListItem {
+export interface QuoteListItem {
   id: string;
   quote_number?: string;
   tenant_id?: string;
@@ -108,7 +103,7 @@ interface QuoteListItem {
   updated_at: string;
 }
 
-interface QuoteOut extends QuoteListItem {
+export interface QuoteOut extends QuoteListItem {
   discount_pct: string;
   vat_pct: string;
   subtotal_ils: string;
@@ -117,13 +112,13 @@ interface QuoteOut extends QuoteListItem {
   lines: QuoteLineOut[];
 }
 
-interface ModuleMinimal {
+export interface ModuleMinimal {
   slug: string;
   name: string;
   current_price?: { base_price_ils: string; per_seat_ils: string; included_seats: number; setup_fee_ils: string };
 }
 
-interface BillingSettingsOut {
+export interface BillingSettingsOut {
   id?: string | null;
   issuer_name_he: string;
   issuer_name_en?: string | null;
@@ -142,19 +137,19 @@ interface BillingSettingsOut {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const CHARGE_TYPE_LABELS: Record<string, string> = {
+export const CHARGE_TYPE_LABELS: Record<string, string> = {
   base_fee: "דמי מנוי", per_seat: "לפי מושב",
   setup_fee: "דמי הקמה", addon: "תוספת",
   credit: "זיכוי", manual: "ידני",
 };
 
-const CHARGE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
+export const CHARGE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
   pending:   { label: "ממתין",  cls: "bg-amber-50 text-amber-700",   dot: "bg-amber-400" },
   invoiced:  { label: "חויב",   cls: "bg-blue-50 text-blue-700",     dot: "bg-blue-500" },
   cancelled: { label: "מבוטל",  cls: "bg-slate-100 text-slate-500",  dot: "bg-slate-400" },
 };
 
-const INVOICE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
+export const INVOICE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
   draft:     { label: "טיוטה",  cls: "bg-slate-100 text-slate-600",  dot: "bg-slate-400" },
   sent:      { label: "נשלח",   cls: "bg-blue-50 text-blue-700",     dot: "bg-blue-500" },
   paid:      { label: "שולם",   cls: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
@@ -162,7 +157,7 @@ const INVOICE_STATUS: Record<string, { label: string; cls: string; dot: string }
   cancelled: { label: "מבוטל",  cls: "bg-slate-100 text-slate-500",  dot: "bg-slate-400" },
 };
 
-const QUOTE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
+export const QUOTE_STATUS: Record<string, { label: string; cls: string; dot: string }> = {
   draft:    { label: "טיוטה",   cls: "bg-slate-100 text-slate-600",    dot: "bg-slate-400" },
   sent:     { label: "נשלח",    cls: "bg-blue-50 text-blue-700",       dot: "bg-blue-500" },
   accepted: { label: "אושר",    cls: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
@@ -177,18 +172,23 @@ const ILS_MONTHS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (v: string | number) =>
+export const fmt = (v: string | number) =>
   `₪${parseFloat(String(v)).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDate = (d?: string | null) =>
+export const fmtDate = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString("he-IL") : "—";
 
-function periodLabel(p: string) {
+export function periodLabel(p: string) {
   const [y, m] = p.split("-");
   return `${ILS_MONTHS[parseInt(m)]} ${y}`;
 }
 
-function StatusBadge({ cfg }: { cfg: { label: string; cls: string; dot: string } }) {
+export function currentPeriod() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function StatusBadge({ cfg }: { cfg: { label: string; cls: string; dot: string } }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${cfg.cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
@@ -197,14 +197,49 @@ function StatusBadge({ cfg }: { cfg: { label: string; cls: string; dot: string }
   );
 }
 
-function currentPeriod() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+export async function openInvoicePdf(invoiceId: string, variant: "statement" | "tax") {
+  const tab = window.open("", "_blank");
+  if (!tab) return;
+  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
+  const token = match ? decodeURIComponent(match[1]) : "";
+  const url = `/api/admin/billing/invoices/${invoiceId}/pdf${variant === "tax" ? "?variant=tax" : ""}`;
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) { tab.close(); return; }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  tab.document.write(
+    `<!DOCTYPE html><html><head><title>PDF</title></head>` +
+    `<body style="margin:0;height:100vh">` +
+    `<embed src="${objectUrl}" type="application/pdf" width="100%" height="100%"/>` +
+    `</body></html>`
+  );
+  tab.document.close();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+}
+
+export async function openQuotePdf(quoteId: string) {
+  const tab = window.open("", "_blank");
+  if (!tab) return;
+  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
+  const token = match ? decodeURIComponent(match[1]) : "";
+  const url = `/api/admin/billing/quotes/${quoteId}/pdf`;
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) { tab.close(); return; }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  tab.document.write(
+    `<!DOCTYPE html><html><head><title>הצעת מחיר</title></head>` +
+    `<body style="margin:0;height:100vh">` +
+    `<embed src="${objectUrl}" type="application/pdf" width="100%" height="100%"/>` +
+    `</body></html>`
+  );
+  tab.document.close();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
 }
 
 // ─── Generate Charges Modal ───────────────────────────────────────────────────
 
-function GenerateChargesModal({
+export function GenerateChargesModal({
   onClose, onDone,
 }: { onClose: () => void; onDone: (result: { created: number; skipped: number; tenants_processed: number }) => void }) {
   const [period, setPeriod] = useState(currentPeriod());
@@ -243,7 +278,6 @@ function GenerateChargesModal({
             המערכת תייצר חיובי דמי מנוי עבור כל הארגונים הפעילים/ניסיון לתקופה הנבחרת,
             בהתאם לחבילה ולמחירון הנוכחי. הפעולה בטוחה — חיובים קיימים לא יכפלו.
           </p>
-
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">תקופת חיוב</label>
             <HebrewMonthPicker
@@ -253,7 +287,6 @@ function GenerateChargesModal({
                          focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right"
             />
           </div>
-
           {error && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
               <AlertCircle size={13} /> {error}
@@ -281,7 +314,7 @@ function GenerateChargesModal({
 
 // ─── New Invoice Modal ────────────────────────────────────────────────────────
 
-function NewInvoiceModal({
+export function NewInvoiceModal({
   tenants, onClose, onSaved,
 }: { tenants: TenantListItem[]; onClose: () => void; onSaved: () => void }) {
   const [tenantId, setTenantId] = useState("");
@@ -350,9 +383,7 @@ function NewInvoiceModal({
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
-
         <div className="px-5 py-4 overflow-auto space-y-4 flex-1">
-          {/* Row 1: Tenant + Period */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">ארגון <span className="text-red-400">*</span></label>
@@ -372,8 +403,6 @@ function NewInvoiceModal({
                            focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right bg-white" />
             </div>
           </div>
-
-          {/* Row 2: Dates + VAT */}
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">תאריך הנפקה</label>
@@ -395,8 +424,6 @@ function NewInvoiceModal({
                            focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right" />
             </div>
           </div>
-
-          {/* Charges selection */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-2">
               חיובים ממתינים לתקופה {period ? `(${periodLabel(period)})` : ""}
@@ -447,16 +474,12 @@ function NewInvoiceModal({
               </div>
             )}
           </div>
-
-          {/* Notes */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">הערות (אופציונלי)</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
               className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md
                          focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 resize-none text-right" />
           </div>
-
-          {/* Totals */}
           {selectedCharges.length > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-md px-4 py-3 space-y-1 text-xs">
               <div className="flex justify-between text-slate-600">
@@ -473,14 +496,12 @@ function NewInvoiceModal({
               </div>
             </div>
           )}
-
           {error && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
               <AlertCircle size={13} /> {error}
             </div>
           )}
         </div>
-
         <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
           <button onClick={handleCreate} disabled={saving || selected.size === 0}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-brand-600 hover:bg-brand-700
@@ -497,11 +518,10 @@ function NewInvoiceModal({
   );
 }
 
-function BillingSettingsPanel({
-  value,
-  onChange,
-  onSave,
-  saving,
+// ─── Billing Settings Panel ───────────────────────────────────────────────────
+
+export function BillingSettingsPanel({
+  value, onChange, onSave, saving,
 }: {
   value: BillingSettingsOut | null;
   onChange: (next: BillingSettingsOut) => void;
@@ -531,7 +551,6 @@ function BillingSettingsPanel({
           {saving ? "שומר..." : "שמור פרטי מנפיק"}
         </button>
       </div>
-
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_he ?? ""} onChange={(e) => setField("issuer_name_he", e.target.value)} placeholder="שם מנפיק בעברית" />
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_en ?? ""} onChange={(e) => setField("issuer_name_en", e.target.value)} placeholder="שם מנפיק באנגלית" />
@@ -543,7 +562,6 @@ function BillingSettingsPanel({
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.payment_instructions ?? ""} onChange={(e) => setField("payment_instructions", e.target.value)} placeholder="הוראות תשלום" />
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.footer_text ?? ""} onChange={(e) => setField("footer_text", e.target.value)} placeholder="טקסט footer למסמך" />
       </div>
-
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
         <span className={`rounded-full px-2.5 py-0.5 font-medium ${value.can_render_tax_invoice ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
           {value.can_render_tax_invoice ? "חשבונית מס זמינה" : "חשבונית מס חסומה"}
@@ -561,7 +579,7 @@ function BillingSettingsPanel({
 
 // ─── Invoice Detail Modal ─────────────────────────────────────────────────────
 
-function InvoiceDetailModal({
+export function InvoiceDetailModal({
   invoice: initial, onClose, onUpdated, billingSettings,
 }: { invoice: InvoiceListItem; onClose: () => void; onUpdated: () => void; billingSettings: BillingSettingsOut | null }) {
   const [inv, setInv]             = useState<InvoiceOut | null>(null);
@@ -608,7 +626,6 @@ function InvoiceDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-lg shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-slate-800">{initial.invoice_number}</span>
@@ -616,14 +633,12 @@ function InvoiceDetailModal({
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
         </div>
-
         {loading ? (
           <div className="flex items-center justify-center h-48">
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : inv ? (
           <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
-            {/* Meta info */}
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div className="space-y-0.5">
                 <p className="text-slate-400">ארגון</p>
@@ -656,8 +671,6 @@ function InvoiceDetailModal({
                 </div>
               )}
             </div>
-
-            {/* Lines table */}
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1.5">פירוט חיובים</p>
               <div className="border border-slate-200 rounded-md overflow-hidden">
@@ -683,8 +696,6 @@ function InvoiceDetailModal({
                 </table>
               </div>
             </div>
-
-            {/* Totals */}
             <div className="bg-slate-50 border border-slate-200 rounded-md px-4 py-3 space-y-1 text-xs max-w-xs mr-auto">
               <div className="flex justify-between text-slate-600">
                 <span className="tabular-nums">{fmt(inv.subtotal_ils)}</span>
@@ -705,15 +716,11 @@ function InvoiceDetailModal({
                 <span>סה&quot;כ לתשלום</span>
               </div>
             </div>
-
-            {/* Notes */}
             {inv.notes && (
               <div className="text-xs text-slate-500 bg-amber-50 border border-amber-100 rounded px-3 py-2">
                 <span className="font-medium text-amber-700">הערות: </span>{inv.notes}
               </div>
             )}
-
-            {/* Mark paid form */}
             {showPaidForm && (
               <div className="border border-emerald-200 bg-emerald-50 rounded-md px-4 py-3 space-y-3">
                 <p className="text-xs font-semibold text-emerald-800">פרטי תשלום</p>
@@ -745,7 +752,6 @@ function InvoiceDetailModal({
                 </div>
               </div>
             )}
-
             {error && (
               <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
                 <AlertCircle size={13} /> {error}
@@ -753,8 +759,6 @@ function InvoiceDetailModal({
             )}
           </div>
         ) : null}
-
-        {/* Footer actions */}
         {inv && (
           <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
             {inv.status === "draft" && (
@@ -804,28 +808,6 @@ function InvoiceDetailModal({
   );
 }
 
-// ─── Quote Helpers ────────────────────────────────────────────────────────────
-
-async function openQuotePdf(quoteId: string) {
-  const tab = window.open("", "_blank");
-  if (!tab) return;
-  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
-  const token = match ? decodeURIComponent(match[1]) : "";
-  const url = `/api/admin/billing/quotes/${quoteId}/pdf`;
-  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (!res.ok) { tab.close(); return; }
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  tab.document.write(
-    `<!DOCTYPE html><html><head><title>הצעת מחיר</title></head>` +
-    `<body style="margin:0;height:100vh">` +
-    `<embed src="${objectUrl}" type="application/pdf" width="100%" height="100%"/>` +
-    `</body></html>`
-  );
-  tab.document.close();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-}
-
 // ─── Quote Builder Modal ──────────────────────────────────────────────────────
 
 interface LocalLine {
@@ -839,7 +821,7 @@ interface LocalLine {
   notes: string;
 }
 
-function QuoteBuilderModal({
+export function QuoteBuilderModal({
   tenants, onClose, onSaved,
 }: { tenants: TenantListItem[]; onClose: () => void; onSaved: () => void }) {
   const [title, setTitle]             = useState("");
@@ -878,7 +860,6 @@ function QuoteBuilderModal({
     setLines((prev) => prev.map((l) => {
       if (l._key !== key) return l;
       const updated = { ...l, [field]: value };
-      // Auto-fill description and price when module changes
       if (field === "module_slug" && value) {
         const mod = modules.find((m) => m.slug === value);
         if (mod) {
@@ -892,11 +873,9 @@ function QuoteBuilderModal({
     }));
   }
 
-  // Live totals
   const subtotal = lines.reduce((s, l) => {
     const amount = parseFloat(l.quantity || "0") * parseFloat(l.unit_price_ils || "0");
-    const afterDiscount = amount * (1 - parseFloat(l.discount_pct || "0") / 100);
-    return s + afterDiscount;
+    return s + amount * (1 - parseFloat(l.discount_pct || "0") / 100);
   }, 0);
   const vat   = subtotal * parseFloat(vatPct || "0") / 100;
   const total = subtotal + vat;
@@ -944,9 +923,7 @@ function QuoteBuilderModal({
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
-
         <div className="px-5 py-4 overflow-auto space-y-4 flex-1">
-          {/* Title + Validity */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">כותרת ההצעה <span className="text-red-400">*</span></label>
@@ -960,8 +937,6 @@ function QuoteBuilderModal({
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right bg-white" />
             </div>
           </div>
-
-          {/* Recipient */}
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-2">נמען</label>
             <div className="flex gap-3 mb-2 text-xs">
@@ -991,8 +966,6 @@ function QuoteBuilderModal({
               </div>
             )}
           </div>
-
-          {/* VAT + global discount */}
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">מע&quot;מ %</label>
@@ -1013,8 +986,6 @@ function QuoteBuilderModal({
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right" />
             </div>
           </div>
-
-          {/* Lines table */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-slate-700">שורות ההצעה</label>
@@ -1099,8 +1070,6 @@ function QuoteBuilderModal({
               </div>
             )}
           </div>
-
-          {/* Totals */}
           {lines.length > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-md px-4 py-3 space-y-1 text-xs max-w-xs mr-auto">
               <div className="flex justify-between text-slate-600">
@@ -1117,14 +1086,12 @@ function QuoteBuilderModal({
               </div>
             </div>
           )}
-
           {error && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
               <AlertCircle size={13} /> {error}
             </div>
           )}
         </div>
-
         <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
           <button onClick={handleSave} disabled={saving}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-brand-600 hover:bg-brand-700
@@ -1143,7 +1110,7 @@ function QuoteBuilderModal({
 
 // ─── Quote Detail Modal ───────────────────────────────────────────────────────
 
-function QuoteDetailModal({
+export function QuoteDetailModal({
   quoteId, onClose, onUpdated,
 }: { quoteId: string; onClose: () => void; onUpdated: () => void }) {
   const [quote, setQuote] = useState<QuoteOut | null>(null);
@@ -1191,21 +1158,17 @@ function QuoteDetailModal({
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-lg shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-800">
-              {quote?.quote_number ?? "הצעת מחיר"}
-            </span>
+            <span className="text-sm font-bold text-slate-800">{quote?.quote_number ?? "הצעת מחיר"}</span>
             <StatusBadge cfg={statusCfg} />
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
         </div>
-
         {loading ? (
           <div className="flex items-center justify-center h-48">
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : quote ? (
           <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
-            {/* Meta */}
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div className="col-span-2 space-y-0.5">
                 <p className="text-slate-400">כותרת</p>
@@ -1217,9 +1180,7 @@ function QuoteDetailModal({
               </div>
               <div className="space-y-0.5">
                 <p className="text-slate-400">לקוח</p>
-                <p className="font-medium text-slate-800">
-                  {quote.tenant_name ?? quote.prospect_name ?? "—"}
-                </p>
+                <p className="font-medium text-slate-800">{quote.tenant_name ?? quote.prospect_name ?? "—"}</p>
               </div>
               {quote.prospect_email && (
                 <div className="space-y-0.5">
@@ -1234,8 +1195,6 @@ function QuoteDetailModal({
                 </div>
               )}
             </div>
-
-            {/* Lines */}
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1.5">פירוט שורות</p>
               <div className="border border-slate-200 rounded-md overflow-hidden">
@@ -1265,8 +1224,6 @@ function QuoteDetailModal({
                 </table>
               </div>
             </div>
-
-            {/* Totals */}
             <div className="bg-slate-50 border border-slate-200 rounded-md px-4 py-3 space-y-1 text-xs max-w-xs mr-auto">
               <div className="flex justify-between text-slate-600">
                 <span className="tabular-nums">{fmt(quote.subtotal_ils)}</span>
@@ -1287,13 +1244,11 @@ function QuoteDetailModal({
                 <span>סה&quot;כ הצעה</span>
               </div>
             </div>
-
             {quote.converted_invoice_id && (
               <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
                 ✓ הצעה הומרה לחשבונית
               </div>
             )}
-
             {error && (
               <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
                 <AlertCircle size={13} /> {error}
@@ -1301,8 +1256,6 @@ function QuoteDetailModal({
             )}
           </div>
         ) : null}
-
-        {/* Footer actions */}
         {quote && (
           <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
             {quote.status === "draft" && (
@@ -1341,632 +1294,6 @@ function QuoteDetailModal({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-async function openInvoicePdf(invoiceId: string, variant: "statement" | "tax") {
-  // Open tab immediately (in the click handler) to avoid popup blocker
-  const tab = window.open("", "_blank");
-  if (!tab) return;
-  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
-  const token = match ? decodeURIComponent(match[1]) : "";
-  const url = `/api/admin/billing/invoices/${invoiceId}/pdf${variant === "tax" ? "?variant=tax" : ""}`;
-  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("PDF fetch failed", res.status, body, "token found:", !!token);
-    tab.close();
-    return;
-  }
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  tab.document.write(
-    `<!DOCTYPE html><html><head><title>PDF</title></head>` +
-    `<body style="margin:0;height:100vh">` +
-    `<embed src="${objectUrl}" type="application/pdf" width="100%" height="100%"/>` +
-    `</body></html>`
-  );
-  tab.document.close();
-  setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-}
-
-type MainTab = "overview" | "quotes" | "charges" | "invoices" | "settings";
-
-const VALID_TABS: MainTab[] = ["overview", "quotes", "charges", "invoices", "settings"];
-
-export default function BillingPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const [activeTab, setActiveTab]           = useState<MainTab>(() => {
-    const t = searchParams.get("tab");
-    return (VALID_TABS.includes(t as MainTab) ? t : "overview") as MainTab;
-  });
-  const [charges, setCharges]               = useState<BillingChargeOut[]>([]);
-  const [invoices, setInvoices]             = useState<InvoiceListItem[]>([]);
-  const [quotes, setQuotes]                 = useState<QuoteListItem[]>([]);
-  const [tenants, setTenants]               = useState<TenantListItem[]>([]);
-  const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [loading, setLoading]               = useState(true);
-
-  // Filters (charges + invoices)
-  const [filterPeriod, setFilterPeriod]     = useState(currentPeriod());
-  const [filterTenantId, setFilterTenantId] = useState("");
-  const [filterStatus, setFilterStatus]     = useState("");
-  const [search, setSearch]                 = useState("");
-  // Filters (quotes)
-  const [quoteFilterStatus, setQuoteFilterStatus] = useState("");
-  const [quoteSearch, setQuoteSearch]             = useState("");
-
-  // Modals
-  const [showGenerate, setShowGenerate]     = useState(false);
-  const [showNewInvoice, setShowNewInvoice] = useState(false);
-  const [showNewQuote, setShowNewQuote]     = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceListItem | null>(null);
-  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
-  const [generateResult, setGenerateResult] = useState<{ created: number; skipped: number; tenants_processed: number } | null>(null);
-
-  const loadData = useCallback(() => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (filterPeriod) params.set("billing_period", filterPeriod);
-    if (filterTenantId) params.set("tenant_id", filterTenantId);
-    if (filterStatus) params.set("status", filterStatus);
-
-    const quoteParams = new URLSearchParams();
-    if (quoteFilterStatus) quoteParams.set("status", quoteFilterStatus);
-    if (quoteSearch) quoteParams.set("search", quoteSearch);
-
-    Promise.all([
-      api.get<BillingChargeOut[]>(`/api/admin/billing/charges?${params}`),
-      api.get<InvoiceListItem[]>(`/api/admin/billing/invoices?${params}`),
-      api.get<QuoteListItem[]>(`/api/admin/billing/quotes?${quoteParams}`).catch(() => [] as QuoteListItem[]),
-      api.get<{ tenant_id: string; org_number: number; name_he: string }[]>("/api/admin/tenants"),
-      api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null),
-    ])
-      .then(([c, inv, q, t, settings]) => {
-        setCharges(c);
-        setInvoices(inv);
-        setQuotes(q);
-        setTenants(t.map((x) => ({ tenant_id: x.tenant_id, name_he: x.name_he, org_number: x.org_number })));
-        setBillingSettings(settings);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [filterPeriod, filterTenantId, filterStatus, quoteFilterStatus, quoteSearch]);
-
-  useEffect(() => {
-    if (!isLoggedIn()) { router.replace("/login"); return; }
-    loadData();
-  }, [loadData, router]);
-
-  // Sync URL → tab when navigating via the submenu
-  useEffect(() => {
-    const t = searchParams.get("tab");
-    if (t && VALID_TABS.includes(t as MainTab)) {
-      setActiveTab(t as MainTab);
-    }
-  }, [searchParams]);
-
-  // Client-side search filter
-  const filteredCharges = charges.filter((c) =>
-    !search || c.tenant_name?.includes(search) || c.description.includes(search) || c.module_name?.includes(search)
-  );
-  const filteredInvoices = invoices.filter((inv) =>
-    !search || inv.tenant_name?.includes(search) || inv.invoice_number.includes(search)
-  );
-
-  // Summary stats
-  const pendingTotal  = charges.filter((c) => c.status === "pending").reduce((s, c) => s + parseFloat(c.amount_after_discount_ils), 0);
-  const invoicedTotal = invoices.filter((i) => i.status !== "cancelled").reduce((s, i) => s + parseFloat(i.total_ils), 0);
-  const paidTotal     = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + parseFloat(i.total_ils), 0);
-  const overdueTotal  = invoices.filter((i) => i.status === "overdue").reduce((s, i) => s + parseFloat(i.total_ils), 0);
-  const overdueCount  = invoices.filter((i) => i.status === "overdue").length;
-  const pendingCount  = charges.filter((c) => c.status === "pending").length;
-  const openQuotesCount = quotes.filter((q) => q.status === "draft" || q.status === "sent").length;
-
-  async function saveBillingSettings() {
-    if (!billingSettings) return;
-    setSettingsSaving(true);
-    try {
-      const saved = await api.put<BillingSettingsOut>("/api/admin/billing/settings", {
-        issuer_name_he: billingSettings.issuer_name_he,
-        issuer_name_en: billingSettings.issuer_name_en || null,
-        issuer_tax_id: billingSettings.issuer_tax_id || null,
-        issuer_address: billingSettings.issuer_address || null,
-        issuer_phone: billingSettings.issuer_phone || null,
-        issuer_email: billingSettings.issuer_email || null,
-        issuer_logo_url: billingSettings.issuer_logo_url || null,
-        payment_instructions: billingSettings.payment_instructions || null,
-        footer_text: billingSettings.footer_text || null,
-      });
-      setBillingSettings(saved);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSettingsSaving(false);
-    }
-  }
-
-  const TAB_DEFS: { id: MainTab; label: string; icon: React.ReactNode }[] = [
-    { id: "overview",  label: "סקירה",           icon: <BarChart3 size={12} /> },
-    { id: "quotes",    label: "הצעות מחיר",       icon: <Quote size={12} /> },
-    { id: "charges",   label: "חיובים",           icon: <Wallet size={12} /> },
-    { id: "invoices",  label: "חשבוניות",         icon: <FileText size={12} /> },
-    { id: "settings",  label: "הגדרות מנפיק",     icon: <Ban size={12} /> },
-  ];
-
-  return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
-
-      <main className="flex-1 overflow-hidden flex flex-col">
-        <AdminTitleBar title="מערכת חיובים" onRefresh={loadData} />
-
-        {/* ── Tab Bar ────────────────────────────────────────────────── */}
-        <div className="bg-white border-b border-slate-200 flex items-end px-3 shrink-0 gap-0.5">
-          {TAB_DEFS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setFilterStatus(""); setSearch(""); router.replace(`/admin/billing?tab=${tab.id}`, { scroll: false }); }}
-              className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5
-                ${activeTab === tab.id
-                  ? "border-brand-500 text-brand-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                }`}
-            >
-              {tab.icon} {tab.label}
-              {tab.id === "quotes" && openQuotesCount > 0 && (
-                <span className="ml-1 bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
-                  {openQuotesCount}
-                </span>
-              )}
-              {tab.id === "invoices" && overdueCount > 0 && (
-                <span className="ml-1 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
-                  {overdueCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Overview Tab ───────────────────────────────────────────── */}
-        {activeTab === "overview" && (
-          <div className="flex-1 overflow-auto bg-slate-50 p-4 space-y-4">
-            {/* Period selector */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-700">סקירה לתקופה</h2>
-              <HebrewMonthPicker
-                value={filterPeriod}
-                onChange={setFilterPeriod}
-                className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-36"
-              />
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-4 gap-3">
-              {[
-                { label: "ממתין לחיוב", amount: pendingTotal, count: pendingCount, color: "amber", icon: <Clock size={16} className="text-amber-500" />, onClick: () => { setActiveTab("charges"); setFilterStatus("pending"); } },
-                { label: "חויב תקופה", amount: invoicedTotal, count: invoices.filter((i) => i.status !== "cancelled").length, color: "blue", icon: <Send size={16} className="text-blue-500" />, onClick: () => { setActiveTab("invoices"); setFilterStatus(""); } },
-                { label: "שולם", amount: paidTotal, count: invoices.filter((i) => i.status === "paid").length, color: "emerald", icon: <CheckCircle2 size={16} className="text-emerald-500" />, onClick: () => { setActiveTab("invoices"); setFilterStatus("paid"); } },
-                { label: "בפיגור", amount: overdueTotal, count: overdueCount, color: "red", icon: <AlertCircle size={16} className="text-red-500" />, onClick: () => { setActiveTab("invoices"); setFilterStatus("overdue"); } },
-              ].map((kpi) => (
-                <button
-                  key={kpi.label}
-                  onClick={kpi.onClick}
-                  className={`bg-white rounded-xl border ${kpi.color === "red" && kpi.count > 0 ? "border-red-200" : "border-slate-200"} px-4 py-3 text-right shadow-sm hover:shadow-md transition-all hover:border-brand-200`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    {kpi.icon}
-                    {kpi.count > 0 && (
-                      <span className={`text-[11px] font-bold rounded-full px-2 py-0.5
-                        ${kpi.color === "amber" ? "bg-amber-100 text-amber-700" :
-                          kpi.color === "blue" ? "bg-blue-100 text-blue-700" :
-                          kpi.color === "emerald" ? "bg-emerald-100 text-emerald-700" :
-                          "bg-red-100 text-red-700"}`}>
-                        {kpi.count}
-                      </span>
-                    )}
-                  </div>
-                  <div className={`text-lg font-bold tabular-nums
-                    ${kpi.color === "amber" ? "text-amber-700" :
-                      kpi.color === "blue" ? "text-blue-700" :
-                      kpi.color === "emerald" ? "text-emerald-700" :
-                      kpi.count > 0 ? "text-red-700" : "text-slate-600"}`}>
-                    {fmt(kpi.amount)}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">{kpi.label}</div>
-                </button>
-              ))}
-            </div>
-
-            {/* Billing Cycle Checklist */}
-            <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-slate-700">מחזור חיוב — {periodLabel(filterPeriod)}</h3>
-                <button
-                  onClick={() => setShowGenerate(true)}
-                  className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm">
-                  <Zap size={11} /> ייצר חיובים לתקופה
-                </button>
-              </div>
-              <div className="space-y-2">
-                {[
-                  { done: pendingTotal > 0 || invoicedTotal > 0, label: "חיובים נוצרו", sub: `${charges.filter((c) => c.status !== "cancelled").length} חיובים פעילים` },
-                  { done: invoicedTotal > 0, label: "חשבוניות הוצאו", sub: `${invoices.filter((i) => i.status !== "cancelled" && i.status !== "draft").length} חשבוניות נשלחו` },
-                  { done: paidTotal > 0, label: "תשלומים התקבלו", sub: `${invoices.filter((i) => i.status === "paid").length} חשבוניות שולמו` },
-                ].map((step) => (
-                  <div key={step.label} className="flex items-center gap-3">
-                    <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold
-                      ${step.done ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-400"}`}>
-                      {step.done ? "✓" : "·"}
-                    </span>
-                    <div>
-                      <span className={`text-xs font-medium ${step.done ? "text-slate-700" : "text-slate-400"}`}>{step.label}</span>
-                      <span className="text-[11px] text-slate-400 mr-2">{step.sub}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Open quotes summary */}
-            {openQuotesCount > 0 && (
-              <div className="bg-white rounded-xl border border-blue-200 px-4 py-3 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Quote size={14} className="text-blue-500" />
-                    <span className="text-xs font-semibold text-slate-700">{openQuotesCount} הצעות מחיר פתוחות</span>
-                    <span className="text-xs text-slate-500">
-                      (סה&quot;כ: {fmt(quotes.filter((q) => q.status === "draft" || q.status === "sent").reduce((s, q) => s + parseFloat(q.total_ils), 0))})
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab("quotes")}
-                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-                    לניהול הצעות ←
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {generateResult && (
-              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-700">
-                <CheckCircle2 size={14} />
-                <span>נוצרו <strong>{generateResult.created}</strong> חיובים חדשים ({generateResult.skipped} קיימים, {generateResult.tenants_processed} ארגונים)</span>
-                <button onClick={() => setGenerateResult(null)} className="mr-auto text-emerald-500 hover:text-emerald-700"><X size={12} /></button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Quotes Tab ─────────────────────────────────────────────── */}
-        {activeTab === "quotes" && (
-          <>
-            <AdminActionBar
-              start={
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setShowNewQuote(true)}
-                    className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm">
-                    <Plus size={12} /> הצעת מחיר חדשה
-                  </button>
-                  <AdminSearchField value={quoteSearch} onChange={setQuoteSearch} widthClass="w-44" />
-                </div>
-              }
-              center={
-                <select value={quoteFilterStatus} onChange={(e) => setQuoteFilterStatus(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-28">
-                  <option value="">כל הסטטוסים</option>
-                  <option value="draft">טיוטה</option>
-                  <option value="sent">נשלח</option>
-                  <option value="accepted">אושר</option>
-                  <option value="declined">נדחה</option>
-                  <option value="expired">פג תוקף</option>
-                </select>
-              }
-              end={!loading ? <AdminCountLabel>{quotes.length} הצעות</AdminCountLabel> : undefined}
-            />
-            <div className="flex-1 overflow-auto bg-white min-h-0">
-              {loading ? (
-                <div className="flex items-center justify-center h-48">
-                  <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : (
-                <table className="w-full text-xs border-collapse">
-                  <thead className="sticky top-0 z-10">
-                    <tr>
-                      {["מס׳ הצעה", "כותרת", "לקוח / פרוספקט", "תוקף עד", "סה״כ", "סטטוס", "PDF"].map((h) => (
-                        <th key={h} className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {quotes.length === 0 ? (
-                      <tr><td colSpan={7} className="text-center py-16 text-slate-400">אין הצעות מחיר</td></tr>
-                    ) : quotes.map((q, i) => {
-                      const st = QUOTE_STATUS[q.status] ?? QUOTE_STATUS.draft;
-                      return (
-                        <tr key={q.id}
-                          className={`cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
-                          onClick={() => setSelectedQuoteId(q.id)}>
-                          <td className="px-4 py-2 border-b border-slate-100 font-bold text-brand-700">
-                            {q.quote_number ?? <span className="text-slate-400 font-normal">טיוטה</span>}
-                          </td>
-                          <td className="px-4 py-2 border-b border-slate-100 font-medium text-slate-800 max-w-[200px] truncate" title={q.title}>{q.title}</td>
-                          <td className="px-4 py-2 border-b border-slate-100 text-slate-600">
-                            {q.tenant_name ?? q.prospect_name ?? "—"}
-                          </td>
-                          <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmtDate(q.valid_until)}</td>
-                          <td className="px-4 py-2 border-b border-slate-100 font-bold text-slate-800 tabular-nums text-left">{fmt(q.total_ils)}</td>
-                          <td className="px-4 py-2 border-b border-slate-100"><StatusBadge cfg={st} /></td>
-                          <td className="px-4 py-2 border-b border-slate-100">
-                            <button onClick={(e) => { e.stopPropagation(); openQuotePdf(q.id); }}
-                              className="text-[11px] text-brand-700 hover:underline">PDF</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            <AdminStatusBar total={quotes.length} label="הצעות מחיר" />
-          </>
-        )}
-
-        {/* ── Action Bar (Charges + Invoices) ────────────────────────── */}
-        {(activeTab === "charges" || activeTab === "invoices") && (
-          <>
-            <AdminActionBar
-              start={
-                <div className="flex items-center gap-2">
-                  {activeTab === "charges" && (
-                    <button onClick={() => setShowGenerate(true)}
-                      className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm">
-                      <Zap size={12} /> ייצר חיובים
-                    </button>
-                  )}
-                  {activeTab === "invoices" && (
-                    <button onClick={() => setShowNewInvoice(true)}
-                      className="flex items-center gap-1.5 border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors">
-                      <Plus size={12} /> חשבונית חדשה
-                    </button>
-                  )}
-                  <AdminSearchField value={search} onChange={setSearch} widthClass="w-44" />
-                </div>
-              }
-              center={
-                <div className="flex items-center gap-2">
-                  <HebrewMonthPicker
-                    value={filterPeriod}
-                    onChange={setFilterPeriod}
-                    className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-36"
-                  />
-                  <select value={filterTenantId} onChange={(e) => setFilterTenantId(e.target.value)}
-                    className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-40">
-                    <option value="">כל הארגונים</option>
-                    {tenants.map((t) => (
-                      <option key={t.tenant_id} value={t.tenant_id}>{t.name_he}</option>
-              ))}
-            </select>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md
-                         focus:outline-none focus:border-brand-400 text-right w-28"
-            >
-              <option value="">כל הסטטוסים</option>
-              {activeTab === "charges" ? (
-                <>
-                  <option value="pending">ממתין</option>
-                  <option value="invoiced">חויב</option>
-                  <option value="cancelled">מבוטל</option>
-                </>
-              ) : (
-                <>
-                  <option value="draft">טיוטה</option>
-                  <option value="sent">נשלח</option>
-                  <option value="paid">שולם</option>
-                  <option value="overdue">בפיגור</option>
-                  <option value="cancelled">מבוטל</option>
-                </>
-              )}
-            </select>
-            </div>
-          }
-          end={!loading ? <AdminCountLabel>{activeTab === "charges" ? filteredCharges.length : filteredInvoices.length} פריטים</AdminCountLabel> : undefined}
-            />
-
-            {/* ── Table Area ─────────────────────────────────────────── */}
-            <div className="flex-1 overflow-auto bg-white min-h-0">
-          {loading ? (
-            <div className="flex items-center justify-center h-48">
-              <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : activeTab === "charges" ? (
-
-            // ── Charges Table ────────────────────────────────────────
-            <table className="w-full text-xs border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  {["ארגון", "תקופה", "מודול", "סוג", "תיאור", "מחיר יח׳", "סכום", "הנחה%", "לחיוב", "סטטוס"].map((h) => (
-                    <th key={h} className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCharges.length === 0 ? (
-                  <tr><td colSpan={10} className="text-center py-16 text-slate-400">אין חיובים להצגה</td></tr>
-                ) : (
-                  filteredCharges.map((c, i) => {
-                    const st = CHARGE_STATUS[c.status] ?? CHARGE_STATUS.pending;
-                    return (
-                      <tr key={c.id}
-                        className={`transition-colors ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}>
-                        <td className="px-4 py-2 border-b border-slate-100 font-medium text-slate-800">{c.tenant_name ?? "—"}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{periodLabel(c.billing_period)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600">{c.module_name ?? c.module_slug ?? "—"}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-500">{CHARGE_TYPE_LABELS[c.charge_type] ?? c.charge_type}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-700 max-w-[200px] truncate" title={c.description}>{c.description}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 tabular-nums text-left">{fmt(c.unit_price_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 tabular-nums text-left">{fmt(c.amount_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-500 tabular-nums">
-                          {parseFloat(c.discount_pct) > 0 ? `${c.discount_pct}%` : "—"}
-                        </td>
-                        <td className="px-4 py-2 border-b border-slate-100 font-semibold text-slate-800 tabular-nums text-left">{fmt(c.amount_after_discount_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100"><StatusBadge cfg={st} /></td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-
-          ) : (
-
-            // ── Invoices Table ───────────────────────────────────────
-            <table className="w-full text-xs border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  {["מס' חשבונית", "ארגון", "תקופה", "הנפקה", "לתשלום עד", "לפני מע\"מ", "מע\"מ", "סה\"כ", "סטטוס", "PDF"].map((h) => (
-                    <th key={h} className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInvoices.length === 0 ? (
-                  <tr><td colSpan={10} className="text-center py-16 text-slate-400">אין חשבוניות להצגה</td></tr>
-                ) : (
-                  filteredInvoices.map((inv, i) => {
-                    const st = INVOICE_STATUS[inv.status] ?? INVOICE_STATUS.draft;
-                    return (
-                      <tr key={inv.id}
-                        className={`cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
-                        onDoubleClick={() => setSelectedInvoice(inv)}>
-                        <td className="px-4 py-2 border-b border-slate-100 font-bold text-brand-700">{inv.invoice_number}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 font-medium text-slate-800">{inv.tenant_name ?? "—"}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{periodLabel(inv.billing_period)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmtDate(inv.issue_date)}</td>
-                        <td className={`px-4 py-2 border-b border-slate-100 whitespace-nowrap ${inv.status === "overdue" ? "text-red-600 font-medium" : "text-slate-600"}`}>
-                          {fmtDate(inv.due_date)}
-                        </td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-600 tabular-nums text-left">{fmt(inv.subtotal_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 text-slate-500 tabular-nums text-left">{fmt(inv.vat_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100 font-bold text-slate-800 tabular-nums text-left">{fmt(inv.total_ils)}</td>
-                        <td className="px-4 py-2 border-b border-slate-100"><StatusBadge cfg={st} /></td>
-                        <td className="px-4 py-2 border-b border-slate-100">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openInvoicePdf(inv.id, "statement"); }}
-                              className="text-[11px] text-brand-700 hover:underline"
-                            >
-                              PDF
-                            </button>
-                            {billingSettings?.can_render_tax_invoice ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openInvoicePdf(inv.id, "tax"); }}
-                                className="text-[11px] text-slate-600 hover:underline"
-                              >
-                                מס
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-            <AdminStatusBar
-              total={activeTab === "charges" ? filteredCharges.length : filteredInvoices.length}
-              label={activeTab === "charges" ? "חיובים" : "חשבוניות"}
-            />
-          </>
-        )}
-
-        {/* ── Settings Tab ───────────────────────────────────────────── */}
-        {activeTab === "settings" && (
-          <div className="flex-1 overflow-auto p-4">
-            <BillingSettingsPanel
-              value={billingSettings}
-              onChange={setBillingSettings}
-              onSave={saveBillingSettings}
-              saving={settingsSaving}
-            />
-          </div>
-        )}
-      </main>
-
-      {/* ── Modals ─────────────────────────────────────────────────── */}
-      {showGenerate && (
-        <GenerateChargesModal
-          onClose={() => setShowGenerate(false)}
-          onDone={(result) => {
-            setShowGenerate(false);
-            setGenerateResult(result);
-            loadData();
-          }}
-        />
-      )}
-
-      {showNewQuote && (
-        <QuoteBuilderModal
-          tenants={tenants}
-          onClose={() => setShowNewQuote(false)}
-          onSaved={() => {
-            setShowNewQuote(false);
-            setActiveTab("quotes");
-            loadData();
-          }}
-        />
-      )}
-
-      {showNewInvoice && (
-        <NewInvoiceModal
-          tenants={tenants}
-          onClose={() => setShowNewInvoice(false)}
-          onSaved={() => {
-            setShowNewInvoice(false);
-            setActiveTab("invoices");
-            loadData();
-          }}
-        />
-      )}
-
-      {selectedInvoice && (
-        <InvoiceDetailModal
-          invoice={selectedInvoice}
-          billingSettings={billingSettings}
-          onClose={() => setSelectedInvoice(null)}
-          onUpdated={() => {
-            setSelectedInvoice(null);
-            loadData();
-          }}
-        />
-      )}
-
-      {selectedQuoteId && (
-        <QuoteDetailModal
-          quoteId={selectedQuoteId}
-          onClose={() => setSelectedQuoteId(null)}
-          onUpdated={() => {
-            setSelectedQuoteId(null);
-            loadData();
-          }}
-        />
-      )}
     </div>
   );
 }

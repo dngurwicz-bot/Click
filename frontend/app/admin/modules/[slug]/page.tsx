@@ -6,9 +6,56 @@ import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
 import { CardPage } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
-import { X } from "lucide-react";
+import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { X, ChevronDown, ChevronUp } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface MarketPriceAnchor {
+  vendor: string;
+  product: string;
+  price_display: string;
+  normalized_monthly_ils: string;
+  basis: string;
+  source_url: string;
+}
+
+interface PricingRecommendation {
+  module_slug: string;
+  module_name: string;
+  market_category: string;
+  benchmark_team_size: number;
+  benchmark_window_ils: string;
+  action: string;
+  rationale: string;
+  current_price?: {
+    base_price_ils: string;
+    per_seat_ils: string;
+    included_seats: number;
+    setup_fee_ils: string;
+    valid_from: string;
+  };
+  recommended_price: {
+    base_price_ils: string;
+    per_seat_ils: string;
+    included_seats: number;
+    setup_fee_ils: string;
+  };
+  current_monthly_at_benchmark_ils: string;
+  recommended_monthly_at_benchmark_ils: string;
+  monthly_delta_ils: string;
+  setup_delta_ils: string;
+  anchors: MarketPriceAnchor[];
+}
+
+interface PricingResearchPayload {
+  as_of: string;
+  exchange_rate_usd_ils: string;
+  exchange_rate_eur_ils: string;
+  positioning: string;
+  methodology: string;
+  modules: PricingRecommendation[];
+}
 
 interface ModulePriceOut {
   id: string;
@@ -402,9 +449,9 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף עד (אחרון)
                 </label>
-                <input
-                  type="date" value={validTo}
-                  onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker
+                  value={validTo}
+                  onChange={setValidTo}
                   className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`}
                 />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
@@ -454,9 +501,9 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף מתאריך
                 </label>
-                <input
-                  type="date" value={validFrom}
-                  onChange={(e) => setValidFrom(e.target.value)}
+                <HebrewDatePicker
+                  value={validFrom}
+                  onChange={setValidFrom}
                   className={`${dateCls}
                     ${mode === "add" || mode === "set"
                       ? "border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
@@ -469,9 +516,9 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                 <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
                   תוקף עד (אופציונלי)
                 </label>
-                <input
-                  type="date" value={validTo}
-                  onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker
+                  value={validTo}
+                  onChange={setValidTo}
                   className={`${dateCls}
                     ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "border-slate-300 focus:border-blue-400"}`}
                 />
@@ -620,16 +667,25 @@ export default function ModuleDetailPage() {
   const params = useParams();
   const slug   = params.slug as string;
 
-  const [data,       setData]       = useState<ModuleWithHistory | null>(null);
-  const [loading,    setLoading]    = useState(true);
-  const [editModal,  setEditModal]  = useState(false);
-  const [priceModal, setPriceModal] = useState(false);
-  const [editRow,    setEditRow]    = useState<ModulePriceOut | undefined>(undefined);
+  const [data,          setData]          = useState<ModuleWithHistory | null>(null);
+  const [benchmark,     setBenchmark]     = useState<PricingRecommendation | null>(null);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [editModal,     setEditModal]     = useState(false);
+  const [priceModal,    setPriceModal]    = useState(false);
+  const [editRow,       setEditRow]       = useState<ModulePriceOut | undefined>(undefined);
 
   const loadData = useCallback(() => {
     setLoading(true);
-    api.get<ModuleWithHistory>(`/api/admin/modules/${slug}`)
-      .then(setData)
+    Promise.all([
+      api.get<ModuleWithHistory>(`/api/admin/modules/${slug}`),
+      api.get<PricingResearchPayload>("/api/admin/modules/pricing-recommendations"),
+    ])
+      .then(([moduleData, researchData]) => {
+        setData(moduleData);
+        const rec = researchData.modules.find((m) => m.module_slug === slug) ?? null;
+        setBenchmark(rec);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [slug]);
@@ -665,22 +721,132 @@ export default function ModuleDetailPage() {
 
   // ── Parent content ───────────────────────────────────────────────────────────
   const parentContent = (
-    <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-2">
-      <FormField label="שם המודול"    value={data.name}                          readOnly />
-      <FormField label="מזהה (slug)"  value={data.slug}                          readOnly />
-      <FormField label="תיאור"        value={data.description ?? "—"}            readOnly />
-      <FormField
-        label="סטטוס"
-        type="select"
-        value={data.is_active ? "active" : "inactive"}
-        options={[{ value: "active", label: "פעיל" }, { value: "inactive", label: "לא פעיל" }]}
-        readOnly
-      />
-      <FormField label="חובה"         value={data.is_required ? "כן" : "לא"}    readOnly />
-      <FormField label="סדר תצוגה"   value={String(data.sort_order)}            readOnly />
-      {data.icon      && <FormField label="אייקון"  value={data.icon}      readOnly />}
-      {data.color_hex && <FormField label="צבע"     value={data.color_hex} readOnly />}
-    </div>
+    <>
+      <div className="px-4 py-3 grid grid-cols-2 gap-x-6 gap-y-2">
+        <FormField label="שם המודול"    value={data.name}                          readOnly />
+        <FormField label="מזהה (slug)"  value={data.slug}                          readOnly />
+        <FormField label="תיאור"        value={data.description ?? "—"}            readOnly />
+        <FormField
+          label="סטטוס"
+          type="select"
+          value={data.is_active ? "active" : "inactive"}
+          options={[{ value: "active", label: "פעיל" }, { value: "inactive", label: "לא פעיל" }]}
+          readOnly
+        />
+        <FormField label="חובה"         value={data.is_required ? "כן" : "לא"}    readOnly />
+        <FormField label="סדר תצוגה"   value={String(data.sort_order)}            readOnly />
+        {data.icon      && <FormField label="אייקון"  value={data.icon}      readOnly />}
+        {data.color_hex && <FormField label="צבע"     value={data.color_hex} readOnly />}
+      </div>
+
+      {/* ── Benchmark Card ───────────────────────────────────────── */}
+      {benchmark && (
+        <div className="mx-4 mb-3 rounded-xl border border-indigo-200 bg-indigo-50/40 overflow-hidden">
+          {/* Header — always visible */}
+          <button
+            type="button"
+            onClick={() => setBenchmarkOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-right hover:bg-indigo-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-indigo-800">סקר שוק ו-Benchmark</span>
+              <span className="text-[11px] text-indigo-600 bg-indigo-100 rounded-full px-2 py-0.5">
+                {benchmark.market_category}
+              </span>
+              <span className="text-[11px] text-slate-600">
+                עוגן: {benchmark.benchmark_window_ils} ל-{benchmark.benchmark_team_size} משתמשים
+              </span>
+              <span className="inline-flex rounded-full bg-brand-50 text-brand-700 px-2 py-0.5 text-[11px] font-medium">
+                {benchmark.action}
+              </span>
+            </div>
+            {benchmarkOpen
+              ? <ChevronUp size={14} className="text-indigo-500 shrink-0" />
+              : <ChevronDown size={14} className="text-indigo-500 shrink-0" />
+            }
+          </button>
+
+          {/* Expanded detail */}
+          {benchmarkOpen && (
+            <div className="px-4 pb-4 space-y-3" dir="rtl">
+              {/* Rationale */}
+              <p className="text-xs text-slate-600 leading-5">{benchmark.rationale}</p>
+
+              {/* Price comparison */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
+                  <div className="text-slate-500 text-[11px] mb-1">נוכחי ל-{benchmark.benchmark_team_size} משתמשים</div>
+                  <div className="font-bold text-slate-800 text-sm">{fmt(benchmark.current_monthly_at_benchmark_ils)}/חודש</div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    בסיס {fmt(benchmark.current_price?.base_price_ils)} | מושב {fmt(benchmark.current_price?.per_seat_ils)} | כלול {benchmark.current_price?.included_seats ?? 0}
+                  </div>
+                  <div className="text-[11px] text-slate-400">הקמה {fmt(benchmark.current_price?.setup_fee_ils)}</div>
+                </div>
+                <div className="bg-white rounded-lg border border-brand-200 px-3 py-2">
+                  <div className="text-brand-600 text-[11px] mb-1">מומלץ ל-{benchmark.benchmark_team_size} משתמשים</div>
+                  <div className="font-bold text-brand-800 text-sm">{fmt(benchmark.recommended_monthly_at_benchmark_ils)}/חודש</div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    בסיס {fmt(benchmark.recommended_price.base_price_ils)} | מושב {fmt(benchmark.recommended_price.per_seat_ils)} | כלול {benchmark.recommended_price.included_seats}
+                  </div>
+                  <div className="text-[11px] text-slate-400">הקמה {fmt(benchmark.recommended_price.setup_fee_ils)}</div>
+                </div>
+              </div>
+
+              {/* Delta */}
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-slate-500">שינוי חודשי:</span>
+                <span className={`font-semibold ${parseFloat(benchmark.monthly_delta_ils) > 0 ? "text-amber-700" : parseFloat(benchmark.monthly_delta_ils) < 0 ? "text-emerald-700" : "text-slate-600"}`}>
+                  {parseFloat(benchmark.monthly_delta_ils) > 0 ? "+" : ""}{fmt(benchmark.monthly_delta_ils)}
+                </span>
+                <span className="text-slate-400 mx-1">|</span>
+                <span className="text-slate-500">שינוי הקמה:</span>
+                <span className={`font-semibold ${parseFloat(benchmark.setup_delta_ils) > 0 ? "text-amber-700" : parseFloat(benchmark.setup_delta_ils) < 0 ? "text-emerald-700" : "text-slate-600"}`}>
+                  {parseFloat(benchmark.setup_delta_ils) > 0 ? "+" : ""}{fmt(benchmark.setup_delta_ils)}
+                </span>
+              </div>
+
+              {/* Anchors table */}
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500 mb-1">מקורות השוואה</div>
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-100 text-slate-500">
+                      <tr>
+                        <th className="text-right px-3 py-1.5 font-semibold">ספק / מוצר</th>
+                        <th className="text-right px-3 py-1.5 font-semibold">מחיר</th>
+                        <th className="text-right px-3 py-1.5 font-semibold">נורמלי (₪/חודש)</th>
+                        <th className="text-right px-3 py-1.5 font-semibold">בסיס</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {benchmark.anchors.map((anchor, i) => (
+                        <tr key={`${anchor.vendor}-${anchor.product}`} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="px-3 py-1.5 border-t border-slate-100">
+                            <a
+                              href={anchor.source_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-brand-700 hover:text-brand-800 underline underline-offset-1"
+                            >
+                              {anchor.vendor} / {anchor.product}
+                            </a>
+                          </td>
+                          <td className="px-3 py-1.5 border-t border-slate-100 text-slate-600">{anchor.price_display}</td>
+                          <td className="px-3 py-1.5 border-t border-slate-100 text-slate-700">
+                            {anchor.normalized_monthly_ils !== "0.00" ? fmt(anchor.normalized_monthly_ils) : "לא שקוף"}
+                          </td>
+                          <td className="px-3 py-1.5 border-t border-slate-100 text-slate-500">{anchor.basis}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 
   // ── Price history rows ───────────────────────────────────────────────────────

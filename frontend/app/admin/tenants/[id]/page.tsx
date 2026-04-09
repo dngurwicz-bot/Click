@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { TopNav } from "@/components/layout/TopNav";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
+import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import { X, Camera, Building2, AlertCircle, CheckCircle2, Send, FileText } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -603,9 +604,9 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף עד (אחרון)
                 </label>
-                <input
-                  type="date" value={validTo}
-                  onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker
+                  value={validTo}
+                  onChange={setValidTo}
                   className="border border-orange-400 bg-orange-50 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-orange-600 font-semibold"
                 />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
@@ -683,9 +684,9 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                 <span className="text-red-500 ml-0.5">*</span>
                 {mode === "set" ? "תוקף מתאריך" : "תוקף מתאריך"}
               </label>
-              <input
-                type="date" value={validFrom}
-                onChange={(e) => setValidFrom(e.target.value)}
+              <HebrewDatePicker
+                value={validFrom}
+                onChange={setValidFrom}
                 className={`border rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400
                   ${mode === "add" ? "border-amber-400 bg-amber-50 font-semibold"
                   : mode === "set" ? "border-amber-400 bg-amber-50 font-semibold"
@@ -699,9 +700,9 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
               <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
                 תוקף עד (אופציונלי)
               </label>
-              <input
-                type="date" value={validTo}
-                onChange={(e) => setValidTo(e.target.value)}
+              <HebrewDatePicker
+                value={validTo}
+                onChange={setValidTo}
                 className={`border rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400
                   ${mode === "set" ? "border-amber-300 bg-amber-50" : "border-slate-300"}`}
               />
@@ -1273,6 +1274,8 @@ function buildSubscriptionModulesTab(
       { key: "module_slug", label: "מודול" },
       { key: "source_type", label: "מקור" },
       { key: "status", label: "סטטוס" },
+      { key: "valid_from", label: "מתאריך", required: true },
+      { key: "valid_to",   label: "בתוקף עד" },
       { key: "seats", label: "מושבים למודול" },
       { key: "pricing_mode", label: "תמחור" },
       { key: "base_price", label: "בסיס" },
@@ -1288,6 +1291,8 @@ function buildSubscriptionModulesTab(
       module_slug: row.module_slug,
       source_type: row.source_type === "template" ? "תבנית" : "ידני",
       status: row.status === "active" ? "פעיל" : "הוסר",
+      valid_from: fmtDate(row.valid_from),
+      valid_to:   row.valid_to ? fmtDate(row.valid_to) : "—",
       seats: row.seats,
       pricing_mode: row.pricing_mode === "override" ? "Override" : "מחירון",
       base_price: row.pricing_mode === "override" ? (row.override_base_price_ils ? fmtIls(row.override_base_price_ils) : "—") : "קטלוג",
@@ -1437,11 +1442,10 @@ function ApplyTemplateModal({
 
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף מתאריך</label>
-              <input
-                type="date"
+              <HebrewDatePicker
                 value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400"
+                onChange={setEffectiveFrom}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400 bg-white"
               />
             </div>
 
@@ -1702,11 +1706,11 @@ function SubscriptionModuleModal({
           )}
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">מתאריך</label>
-            <input className={inputCls} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} disabled={saving} />
+            <HebrewDatePicker value={validFrom} onChange={setValidFrom} disabled={saving} className={`${inputCls} bg-white`} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">עד תאריך</label>
-            <input className={inputCls} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} disabled={saving} />
+            <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={`${inputCls} bg-white`} />
           </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs font-semibold text-slate-600">הערות</label>
@@ -1722,7 +1726,7 @@ function SubscriptionModuleModal({
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף עד</label>
-                <input className={inputCls} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} disabled={saving} />
+                <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={`${inputCls} bg-white`} />
               </div>
             </>
           )}
@@ -1854,7 +1858,7 @@ function SyncTemplateModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף מתאריך</label>
-              <input type="date" className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+              <HebrewDatePicker value={effectiveFrom} onChange={setEffectiveFrom} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:border-brand-400" />
             </div>
             <button onClick={handlePreview} disabled={previewing || loading} className="w-full rounded-md border border-brand-300 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50">
               {previewing ? "מחשב..." : "הצג השוואה"}
@@ -2011,8 +2015,8 @@ function InvoiceViewModal({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">תאריך תשלום</label>
-                    <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:border-brand-400 text-right" />
+                    <HebrewDatePicker value={payDate} onChange={setPayDate}
+                      className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:border-brand-400 bg-white text-right" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">אסמכתא</label>

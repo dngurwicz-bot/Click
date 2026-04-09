@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
-import { AdminActionBar, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
 import {
   createDefaultTemporalFilterState,
@@ -341,6 +341,12 @@ export function CardPage({
           </>
         )}
       </div>
+
+      {/* Priority-style bottom status bar */}
+      <AdminStatusBar
+        total={visibleRows.length}
+        label={currentChildTab?.label ?? title}
+      />
     </div>
   );
 }

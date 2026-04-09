@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { Plus } from "lucide-react";
 
 interface TenantListItem {
@@ -134,6 +134,10 @@ export default function TenantsPage() {
           )}
         </div>
 
+        {/* ── Status bar ── */}
+        {!loading && (
+          <AdminStatusBar total={filtered.length} label="ארגונים" />
+        )}
       </main>
     </div>
   );

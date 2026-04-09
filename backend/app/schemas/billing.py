@@ -249,3 +249,122 @@ class InvoicePdfVariantAvailability(BaseModel):
     tax_url: str
     can_render_tax_invoice: bool
     missing_tax_fields: list[str] = []
+
+
+# ─── Quote ────────────────────────────────────────────────────────────────────
+
+QuoteStatus = Literal["draft", "sent", "accepted", "declined", "expired"]
+
+QUOTE_STATUS_LABELS: dict[str, str] = {
+    "draft":    "טיוטה",
+    "sent":     "נשלח",
+    "accepted": "אושר",
+    "declined": "נדחה",
+    "expired":  "פג תוקף",
+}
+
+
+class QuoteLineCreate(BaseModel):
+    description: str
+    quantity: Decimal = Decimal("1")
+    unit_price_ils: Decimal
+    discount_pct: Decimal = Decimal("0")
+    module_slug: Optional[str] = None
+    charge_type: ChargeType = "manual"
+    notes: Optional[str] = None
+    sort_order: int = 10
+
+
+class QuoteLineUpdate(BaseModel):
+    description: Optional[str] = None
+    quantity: Optional[Decimal] = None
+    unit_price_ils: Optional[Decimal] = None
+    discount_pct: Optional[Decimal] = None
+    module_slug: Optional[str] = None
+    charge_type: Optional[ChargeType] = None
+    notes: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class QuoteLineOut(BaseModel):
+    id: uuid.UUID
+    quote_id: uuid.UUID
+    description: str
+    quantity: Decimal
+    unit_price_ils: Decimal
+    amount_ils: Decimal
+    discount_pct: Decimal
+    amount_after_discount_ils: Decimal
+    module_slug: Optional[str] = None
+    charge_type: str
+    notes: Optional[str] = None
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteCreate(BaseModel):
+    title: str
+    valid_until: date
+    tenant_id: Optional[uuid.UUID] = None
+    prospect_name: Optional[str] = None
+    prospect_email: Optional[str] = None
+    notes: Optional[str] = None
+    discount_pct: Decimal = Decimal("0")
+    vat_pct: Decimal = Decimal("17.00")
+    lines: list[QuoteLineCreate] = []
+
+
+class QuoteUpdate(BaseModel):
+    title: Optional[str] = None
+    valid_until: Optional[date] = None
+    tenant_id: Optional[uuid.UUID] = None
+    prospect_name: Optional[str] = None
+    prospect_email: Optional[str] = None
+    notes: Optional[str] = None
+    discount_pct: Optional[Decimal] = None
+    vat_pct: Optional[Decimal] = None
+
+
+class QuoteOut(BaseModel):
+    id: uuid.UUID
+    quote_number: Optional[str] = None
+    tenant_id: Optional[uuid.UUID] = None
+    prospect_name: Optional[str] = None
+    prospect_email: Optional[str] = None
+    title: str
+    valid_until: date
+    status: str
+    notes: Optional[str] = None
+    discount_pct: Decimal
+    vat_pct: Decimal
+    subtotal_ils: Decimal
+    discount_ils: Decimal
+    vat_ils: Decimal
+    total_ils: Decimal
+    converted_invoice_id: Optional[uuid.UUID] = None
+    created_at: datetime
+    updated_at: datetime
+    lines: list[QuoteLineOut] = []
+    # Enriched
+    tenant_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class QuoteListItem(BaseModel):
+    id: uuid.UUID
+    quote_number: Optional[str] = None
+    tenant_id: Optional[uuid.UUID] = None
+    tenant_name: Optional[str] = None
+    prospect_name: Optional[str] = None
+    prospect_email: Optional[str] = None
+    title: str
+    valid_until: date
+    status: str
+    total_ils: Decimal
+    converted_invoice_id: Optional[uuid.UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

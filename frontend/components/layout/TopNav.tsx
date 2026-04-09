@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Ban,
+  BarChart3,
   Bell,
   Building2,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
   FileText,
   Home,
@@ -14,10 +17,12 @@ import {
   LogOut,
   Menu,
   Package,
+  Quote,
   Receipt,
   Search,
   Settings,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -58,6 +63,14 @@ const RESOURCE_FOR_LINK: Record<string, string> = {
   "/admin/audit": "audit",
 };
 
+const BILLING_SUB_ITEMS: { tab: string; label: string; icon: LucideIcon }[] = [
+  { tab: "overview",  label: "סקירה",          icon: BarChart3  },
+  { tab: "quotes",    label: "הצעות מחיר",      icon: Quote      },
+  { tab: "charges",   label: "חיובים",           icon: Wallet     },
+  { tab: "invoices",  label: "חשבוניות",         icon: FileText   },
+  { tab: "settings",  label: "הגדרות מנפיק",     icon: Ban        },
+];
+
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
 
 function UserAvatar({ name }: { name: string }) {
@@ -70,7 +83,7 @@ function UserAvatar({ name }: { name: string }) {
 
   return (
     <div
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white select-none"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white select-none"
       style={{ background: "linear-gradient(135deg, #00A896 0%, #008a7b 100%)" }}
     >
       {initials}
@@ -84,6 +97,7 @@ export function TopNav() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -131,6 +145,7 @@ export function TopNav() {
 
   useEffect(() => {
     setAdminOpen(false);
+    setBillingOpen(false);
     setUserOpen(false);
     setMobileOpen(false);
   }, [pathname]);
@@ -169,133 +184,143 @@ export function TopNav() {
   );
 
   return (
-    <header ref={rootRef} className="sticky top-0 z-40 border-b border-slate-200 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
-      <div className="bg-navy-500">
-        <div className="flex h-[52px] items-center gap-3 px-3 sm:px-5">
+    <header
+      ref={rootRef}
+      className="sticky top-0 z-40 bg-white border-b border-slate-200"
+      style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.04)" }}
+    >
+      {/* ── Single unified bar ── */}
+      <div className="flex h-[52px] items-center gap-0 px-0">
+
+        {/* Logo zone */}
+        <div className="flex h-full shrink-0 items-center border-l border-slate-100 px-4">
+          <Logo href="/dashboard" size="sm" variant="dark" />
+        </div>
+
+        {/* Mobile hamburger */}
+        <button
+          type="button"
+          onClick={() => setMobileOpen((v) => !v)}
+          className="mr-1 inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 md:hidden"
+          aria-label="פתח תפריט"
+        >
+          {mobileOpen ? <X size={16} /> : <Menu size={16} />}
+        </button>
+
+        {/* ── Desktop nav tabs ── */}
+        <nav className="hidden h-full min-w-0 flex-1 items-center overflow-x-auto md:flex" style={{ scrollbarWidth: "none" }}>
+          <PriorityTab href="/dashboard" label="ראשי" active={pathname === "/dashboard"} />
+          {moduleItems.map((item) => (
+            <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} />
+          ))}
+        </nav>
+
+        {/* Right-side actions */}
+        <div className="flex h-full shrink-0 items-center gap-1 px-3">
+
+          {/* Search */}
           <button
             type="button"
-            onClick={() => setMobileOpen((value) => !value)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-white transition hover:bg-white/10 md:hidden"
-            aria-label="פתח תפריט"
+            className="hidden h-8 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 text-right text-xs text-slate-400 transition hover:border-slate-300 hover:bg-white md:flex"
+            style={{ minWidth: 200 }}
           >
-            {mobileOpen ? <X size={17} /> : <Menu size={17} />}
+            <Search size={12} className="shrink-0" />
+            <span>חיפוש...</span>
           </button>
 
-          <div className="shrink-0">
-            <Logo href="/dashboard" size="sm" variant="light" />
-          </div>
+          {/* Mobile search */}
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 md:hidden"
+          >
+            <Search size={15} />
+          </button>
 
-          <div className="hidden flex-1 justify-center md:flex">
-            <button
-              type="button"
-              className="flex h-9 w-full max-w-[430px] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-right transition hover:bg-white/10"
-            >
-              <Search size={14} className="shrink-0 text-navy-300" />
-              <span className="truncate text-sm text-navy-100">חיפוש לקוחות, מסמכים ומודולים</span>
-            </button>
-          </div>
+          {/* Bell */}
+          <button
+            type="button"
+            className="relative inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100"
+            title="התראות"
+          >
+            <Bell size={15} />
+            <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand-500" />
+          </button>
 
-          <div className="mr-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-navy-200 transition hover:bg-white/10 hover:text-white md:hidden"
-              title="חיפוש"
-            >
-              <Search size={16} />
-            </button>
-
-            <button
-              type="button"
-              className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 text-navy-200 transition hover:bg-white/10 hover:text-white"
-              title="התראות"
-            >
-              <Bell size={15} />
-              <span className="absolute left-[10px] top-[9px] h-2 w-2 rounded-full bg-brand-400" />
-            </button>
-
-            {user && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setUserOpen((value) => !value)}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1.5 transition hover:bg-white/10"
-                >
-                  <UserAvatar name={user.full_name} />
-                  <div className="hidden text-right sm:block">
-                    <div className="max-w-[120px] truncate text-sm font-medium text-white">{user.full_name}</div>
-                  </div>
-                  <ChevronDown size={13} className={`text-navy-300 transition-transform ${userOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {userOpen && (
-                  <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-60 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_44px_-24px_rgba(15,23,42,0.4)]">
-                    <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                      <div className="text-sm font-semibold text-slate-900">{user.full_name}</div>
-                      <div className="mt-1 truncate text-xs text-slate-500">{user.email}</div>
-                    </div>
-                    <div className="p-2">
-                      <button
-                        type="button"
-                        onClick={handleLogout}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
-                      >
-                        <LogOut size={14} />
-                        יציאה מהמערכת
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="hidden bg-white md:block">
-        <div className="flex h-[46px] items-center gap-3 px-4 lg:px-5">
-          <div className="flex shrink-0 items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            <Settings size={12} className="text-brand-600" />
-            workspace
-          </div>
-
-          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-            <DesktopLink href="/dashboard" label="ראשי" icon={Home} active={pathname === "/dashboard"} />
-            {moduleItems.map((item) => (
-              <DesktopLink
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={item.active}
-              />
-            ))}
-          </nav>
-
+          {/* Admin dropdown */}
           {isAdmin && adminItems.length > 0 && (
-            <div className="relative shrink-0">
+            <div className="relative hidden md:block">
               <button
                 type="button"
-                onClick={() => setAdminOpen((value) => !value)}
-                className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition ${
+                onClick={() => setAdminOpen((v) => !v)}
+                className={`flex h-8 items-center gap-1 rounded px-2.5 text-xs font-medium transition ${
                   adminOpen || pathname?.startsWith("/admin/")
-                    ? "border-brand-100 bg-brand-50 text-brand-700"
-                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    ? "bg-brand-50 text-brand-700"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                 }`}
               >
-                <Settings size={14} />
+                <Settings size={13} />
                 ניהול
-                <ChevronDown size={13} className={`transition-transform ${adminOpen ? "rotate-180" : ""}`} />
+                <ChevronDown size={11} className={`transition-transform ${adminOpen ? "rotate-180" : ""}`} />
               </button>
 
               {adminOpen && (
-                <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_44px_-24px_rgba(15,23,42,0.35)]">
-                  <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                <div className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+                  <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                     ניהול מערכת
                   </div>
-                  <div className="p-2">
-                    {adminItems.map((item) => (
-                      <CompactMenuLink key={item.href} item={item} />
-                    ))}
+                  <div className="py-1">
+                    {adminItems.map((item) =>
+                      item.href === "/admin/billing" ? (
+                        <BillingMenuGroup
+                          key={item.href}
+                          item={item}
+                          open={billingOpen}
+                          onToggle={() => setBillingOpen((v) => !v)}
+                          pathname={pathname}
+                        />
+                      ) : (
+                        <AdminMenuLink key={item.href} item={item} />
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="mx-1 h-5 w-px bg-slate-200" />
+
+          {/* User */}
+          {user && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setUserOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs transition hover:bg-slate-100"
+              >
+                <UserAvatar name={user.full_name} />
+                <span className="hidden max-w-[100px] truncate font-medium text-slate-700 sm:block">
+                  {user.full_name}
+                </span>
+                <ChevronDown size={11} className={`text-slate-400 transition-transform ${userOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {userOpen && (
+                <div className="absolute left-0 top-[calc(100%+4px)] z-50 w-52 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+                  <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
+                    <div className="text-xs font-semibold text-slate-800">{user.full_name}</div>
+                    <div className="mt-0.5 truncate text-[11px] text-slate-400">{user.email}</div>
+                  </div>
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                    >
+                      <LogOut size={13} />
+                      יציאה מהמערכת
+                    </button>
                   </div>
                 </div>
               )}
@@ -304,45 +329,53 @@ export function TopNav() {
         </div>
       </div>
 
+      {/* ── Mobile drawer ── */}
       {mobileOpen && (
         <div className="md:hidden">
           <button
             type="button"
-            className="fixed inset-0 top-[52px] z-40 bg-slate-950/35"
+            className="fixed inset-0 top-[52px] z-40 bg-slate-900/20"
             aria-label="סגור תפריט"
             onClick={() => setMobileOpen(false)}
           />
 
-          <div className="fixed right-0 top-[52px] z-50 h-[calc(100vh-52px)] w-full max-w-sm overflow-y-auto border-l border-slate-200 bg-white shadow-[0_18px_50px_-18px_rgba(15,23,42,0.3)]">
-            <div className="border-b border-slate-200 px-4 py-4">
-              <div className="text-lg font-bold text-navy-700">ניווט מהיר</div>
-              <div className="mt-1 text-sm text-slate-500">כל האזורים הראשיים זמינים ישירות גם במובייל.</div>
+          <div className="fixed right-0 top-[52px] z-50 h-[calc(100vh-52px)] w-full max-w-xs overflow-y-auto border-l border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-700">ניווט</div>
             </div>
 
-            <div className="space-y-5 p-4">
+            <div className="space-y-4 p-4">
               <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">ראשי</div>
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ראשי</div>
                 <MobileLink href="/dashboard" label="ראשי" icon={Home} active={pathname === "/dashboard"} />
               </div>
 
-              <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">מודולים</div>
-                <div className="space-y-1.5">
-                  {moduleItems.length > 0 ? (
-                    moduleItems.map((item) => <MobileLink key={item.href} {...item} />)
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-400">
-                      אין כרגע מודולים פעילים להצגה.
-                    </div>
-                  )}
+              {moduleItems.length > 0 && (
+                <div>
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">מודולים</div>
+                  <div className="space-y-0.5">
+                    {moduleItems.map((item) => <MobileLink key={item.href} {...item} />)}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {isAdmin && adminItems.length > 0 && (
                 <div>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">ניהול</div>
-                  <div className="space-y-1.5">
-                    {adminItems.map((item) => <MobileLink key={item.href} {...item} />)}
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ניהול</div>
+                  <div className="space-y-0.5">
+                    {adminItems.map((item) =>
+                      item.href === "/admin/billing" ? (
+                        <MobileBillingGroup
+                          key={item.href}
+                          item={item}
+                          open={billingOpen}
+                          onToggle={() => setBillingOpen((v) => !v)}
+                          pathname={pathname}
+                        />
+                      ) : (
+                        <MobileLink key={item.href} {...item} />
+                      )
+                    )}
                   </div>
                 </div>
               )}
@@ -354,44 +387,36 @@ export function TopNav() {
   );
 }
 
-function DesktopLink({
-  href,
-  label,
-  icon: Icon,
-  active,
-}: {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
-}) {
+/** Priority-style flat tab with bottom-border active indicator */
+function PriorityTab({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
     <Link
       href={href}
-      className={`group flex h-9 items-center gap-1.5 rounded-xl border px-3 text-sm whitespace-nowrap transition ${
+      className={`relative flex h-full items-center whitespace-nowrap px-4 text-sm transition-colors ${
         active
-          ? "border-brand-100 bg-brand-50 text-brand-700"
-          : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+          ? "text-brand-600 font-medium"
+          : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
       }`}
     >
-      <Icon size={14} className={active ? "text-brand-600" : "text-slate-400 group-hover:text-slate-600"} />
-      <span className="font-medium">{label}</span>
+      {label}
+      {active && (
+        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />
+      )}
     </Link>
   );
 }
 
-function CompactMenuLink({ item }: { item: NavItem }) {
+function AdminMenuLink({ item }: { item: NavItem }) {
   const Icon = item.icon;
-
   return (
     <Link
       href={item.href}
-      className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition ${
+      className={`flex items-center gap-2 px-3 py-2 text-xs transition ${
         item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
       }`}
     >
-      <Icon size={14} className={item.active ? "text-brand-600" : "text-slate-400"} />
-      <span className="font-medium">{item.label}</span>
+      <Icon size={13} className={item.active ? "text-brand-500" : "text-slate-400"} />
+      {item.label}
     </Link>
   );
 }
@@ -410,14 +435,108 @@ function MobileLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm transition ${
+      className={`flex items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
         active
-          ? "border-brand-100 bg-brand-50 text-brand-700"
-          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          ? "bg-brand-50 text-brand-700 font-medium"
+          : "text-slate-700 hover:bg-slate-50"
       }`}
     >
-      <Icon size={15} className={active ? "text-brand-600" : "text-slate-400"} />
-      <span className="font-medium">{label}</span>
+      <Icon size={14} className={active ? "text-brand-500" : "text-slate-400"} />
+      {label}
     </Link>
+  );
+}
+
+function BillingMenuGroup({
+  item,
+  open,
+  onToggle,
+  pathname,
+}: {
+  item: NavItem;
+  open: boolean;
+  onToggle: () => void;
+  pathname: string | null;
+}) {
+  const Icon = item.icon;
+  const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+          isBillingActive ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={13} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">{item.label}</span>
+        <ChevronRight size={11} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-r-2 border-brand-200 mr-3 pr-0">
+          {BILLING_SUB_ITEMS.map(({ tab, label, icon: SubIcon }) => {
+            const subActive = isBillingActive && pathname === "/admin/billing";
+            const href = `/admin/billing?tab=${tab}`;
+            return (
+              <Link
+                key={tab}
+                href={href}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs transition pr-3 ${
+                  subActive ? "text-slate-700 hover:bg-slate-50" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <SubIcon size={12} className="text-slate-400 shrink-0" />
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MobileBillingGroup({
+  item,
+  open,
+  onToggle,
+  pathname,
+}: {
+  item: NavItem;
+  open: boolean;
+  onToggle: () => void;
+  pathname: string | null;
+}) {
+  const Icon = item.icon;
+  const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
+          isBillingActive ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={14} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">{item.label}</span>
+        <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-r-2 border-brand-200 mr-4 mt-0.5 space-y-0.5">
+          {BILLING_SUB_ITEMS.map(({ tab, label, icon: SubIcon }) => (
+            <Link
+              key={tab}
+              href={`/admin/billing?tab=${tab}`}
+              className="flex items-center gap-2 rounded px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+            >
+              <SubIcon size={13} className="text-slate-400 shrink-0" />
+              {label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

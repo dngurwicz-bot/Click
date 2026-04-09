@@ -114,7 +114,21 @@
       "Bash(cmd.exe /c 'dir C:\\\\Click /b /s')",
       "Bash(pip show:*)",
       "Bash(wc -l /c/Click/backend/app/models/*.py)",
-      "Bash(grep -h \"^@router\\\\|^async def\\\\|^def \" /c/Click/backend/app/routers/*.py)"
+      "Bash(grep -h \"^@router\\\\|^async def\\\\|^def \" /c/Click/backend/app/routers/*.py)",
+      "Bash(cmd /c \"curl -s http://localhost:8000/api/health\")",
+      "Bash(cmd /c \"taskkill /IM python.exe /F 2>nul & taskkill /IM python3.exe /F 2>nul & echo done\")",
+      "Bash(kill -9 45908)",
+      "Bash(kill -9 7372)",
+      "Bash(fuser 8000/tcp)",
+      "Bash(jobs -l)",
+      "Bash(cat /proc/*/cmdline)",
+      "Bash(taskkill //PID 6544 //F)",
+      "Bash(taskkill //PID 40992 //F)",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\diegog\\AppData\\Local\\Temp"
     ]
   }
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 
 interface AuditLogItem {
   id: string;
@@ -161,6 +161,8 @@ export default function AuditPage() {
             </table>
           )}
         </div>
+
+        {!loading && <AdminStatusBar total={rows.length} label="רשומות Audit" />}
       </main>
     </div>
   );

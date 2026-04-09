@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
+import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
   createDefaultTemporalFilterState,
   getTemporalFilterError,
@@ -176,7 +177,7 @@ interface TemplateModalProps {
 
 function TemplateModal({ templates, editRow, onClose, onSaved, modules }: TemplateModalProps) {
   const today        = new Date().toISOString().slice(0, 10);
-  const hasActiveRow = templates.some((r) => !r.valid_to);
+  const hasActiveRow = editRow ? templates.some((r) => !r.valid_to) : false;
   const activeRow    = templates.find((r) => !r.valid_to);
 
   const [mode,         setMode]         = useState<TemplateMode>(editRow ? "update" : "add");
@@ -378,7 +379,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף עד (אחרון)
                 </label>
-                <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker value={validTo} onChange={setValidTo}
                   className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
               </div>
@@ -645,7 +646,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף מתאריך
                 </label>
-                <input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)}
+                <HebrewDatePicker value={validFrom} onChange={setValidFrom}
                   className={`${dateCls}
                     ${mode === "add" || mode === "set"
                       ? "border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
@@ -655,7 +656,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
               </div>
               <div className="flex items-center gap-3">
                 <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוקף עד (אופציונלי)</label>
-                <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker value={validTo} onChange={setValidTo}
                   className={`${dateCls}
                     ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "border-slate-300 focus:border-blue-400"}`} />
                 {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
@@ -978,6 +979,7 @@ export default function AdminTemplatesPage() {
           )}
         </div>
 
+        {!loading && <AdminStatusBar total={visibleTemplates.length} label="תבניות" />}
       </main>
 
       {/* Modal */}

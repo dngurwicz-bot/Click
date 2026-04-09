@@ -39,7 +39,7 @@ async def list_lookup_lists(
         count_result = await db.execute(
             select(func.count()).select_from(LookupItem)
             .where(LookupItem.list_id == lst.id)
-            .where(LookupItem.is_active == True)
+            .where(LookupItem.is_active == True)  # noqa: E712
         )
         item_count = count_result.scalar_one()
         items.append(LookupListItem(

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, HelpCircle, Printer, RefreshCw, Search } from "lucide-react";
+import { ChevronLeft, HelpCircle, Printer, RefreshCw, Search } from "lucide-react";
 
+/** Priority-style screen title bar */
 export function AdminTitleBar({
   title,
   backHref,
@@ -17,20 +18,18 @@ export function AdminTitleBar({
   utilitySlot?: React.ReactNode;
 }) {
   return (
-    <div
-      className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-      style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}
-    >
+    <div className="flex h-[var(--priority-title-bar-h,44px)] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
+      {/* Left: utility icons */}
       <div className="flex items-center gap-0.5">
         <button
           title="עזרה"
-          className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
         >
           <HelpCircle size={13} />
         </button>
         <button
           title="הדפסה"
-          className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
         >
           <Printer size={13} />
         </button>
@@ -38,34 +37,34 @@ export function AdminTitleBar({
           title="רענן"
           onClick={onRefresh}
           disabled={!onRefresh}
-          className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-60"
+          className="flex h-7 w-7 items-center justify-center rounded text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
         >
           <RefreshCw size={13} />
         </button>
         {utilitySlot}
       </div>
 
-      <div className="flex items-center gap-2">
+      {/* Right: breadcrumb + title */}
+      <div className="flex items-center gap-1.5 text-right">
         {backHref && (
           <>
             <Link
               href={backHref}
-              className="text-xs text-slate-400 hover:text-brand-600 transition-colors flex items-center gap-1"
+              className="flex items-center gap-0.5 text-xs text-slate-400 transition hover:text-brand-600"
             >
-              <ChevronRight size={12} />
+              <ChevronLeft size={12} />
               {backLabel ?? "חזרה"}
             </Link>
-            <span className="text-slate-300 text-xs">/</span>
+            <span className="text-slate-300 text-xs">›</span>
           </>
         )}
-        <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>
-          {title}
-        </h1>
+        <h1 className="text-sm font-semibold text-slate-800">{title}</h1>
       </div>
     </div>
   );
 }
 
+/** Priority-style action/filter bar */
 export function AdminActionBar({
   start,
   center,
@@ -76,7 +75,7 @@ export function AdminActionBar({
   end?: React.ReactNode;
 }) {
   return (
-    <div className="bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0 gap-4">
+    <div className="flex h-[var(--priority-action-bar-h,40px)] shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-4 gap-3">
       <div className="flex items-center gap-2 min-w-0">{start}</div>
       <div className="flex items-center gap-2 min-w-0">{center}</div>
       <div className="flex items-center gap-2 min-w-0">{end}</div>
@@ -84,11 +83,12 @@ export function AdminActionBar({
   );
 }
 
+/** Priority-style search field */
 export function AdminSearchField({
   value,
   onChange,
   placeholder = "חיפוש...",
-  widthClass = "w-48",
+  widthClass = "w-44",
 }: {
   value: string;
   onChange: (nextValue: string) => void;
@@ -102,19 +102,21 @@ export function AdminSearchField({
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={`pr-8 pl-3 py-1.5 text-xs border border-slate-300 bg-white rounded-md
-          focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100
+        onChange={(e) => onChange(e.target.value)}
+        className={`pr-8 pl-3 py-1 text-xs border border-slate-300 bg-white rounded
+          focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100
           text-right transition-colors ${widthClass}`}
       />
     </div>
   );
 }
 
+/** Compact record count label */
 export function AdminCountLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs text-slate-400 font-medium">{children}</div>;
+  return <span className="text-xs text-slate-400 font-medium">{children}</span>;
 }
 
+/** Priority-style section card */
 export function AdminSectionCard({
   title,
   children,
@@ -123,8 +125,8 @@ export function AdminSectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+    <div className="bg-white rounded border border-slate-200 overflow-hidden">
+      <div className="px-4 py-2 border-b border-slate-100 bg-slate-50">
         <h2 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">{title}</h2>
       </div>
       <div className="p-4">{children}</div>
@@ -132,6 +134,34 @@ export function AdminSectionCard({
   );
 }
 
+/** Bottom status bar — Priority ERP style */
+export function AdminStatusBar({
+  total,
+  label,
+  current,
+}: {
+  total: number;
+  label: string;
+  current?: number;
+}) {
+  return (
+    <div className="flex h-[var(--priority-status-bar-h,28px)] shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4">
+      <div className="text-[11px] text-slate-400">CLICK Admin</div>
+      <div className="flex items-center gap-3 text-[11px] text-slate-500">
+        {current !== undefined && (
+          <span>
+            {current} / {total}
+          </span>
+        )}
+        <span>{total} רשומות</span>
+        <span className="text-slate-300">|</span>
+        <span className="text-slate-400">{label}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Grandchild page layout wrapper */
 export function AdminGrandchildLayout({
   title,
   backHref,

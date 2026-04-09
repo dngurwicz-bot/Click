@@ -374,7 +374,7 @@ async def template_record_action(
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        return await _build_template_out(db, anchor)
+        return {"ok": True}
 
     # ── Action: close — set valid_to on this row ─────────────────────────────
     if action == "close":

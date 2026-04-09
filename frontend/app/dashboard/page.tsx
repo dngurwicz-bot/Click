@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api, canEdit, canView, type UserInfo } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
+import { AdminTitleBar } from "@/components/layout/AdminShell";
 import {
   Building2, Package, Users, Activity,
-  TrendingUp, ChevronLeft, Clock, HelpCircle, RefreshCw,
+  TrendingUp, ChevronLeft, Clock,
 } from "lucide-react";
 
 interface Stats {
@@ -158,27 +159,14 @@ export default function DashboardPage() {
     <div className="min-h-screen flex flex-col bg-slate-50">
       <TopNav />
 
-      {/* ── Title Bar ───────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-200 flex items-center justify-between px-3 py-1.5 shrink-0"
-           style={{ boxShadow: "0 1px 0 0 #e2e8f0" }}>
-        <div className="flex items-center gap-0.5">
-          <button title="עזרה"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-            <HelpCircle size={13} />
-          </button>
-          <button title="רענן"
-            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-            onClick={loadStats}>
-            <RefreshCw size={13} />
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-slate-400">{today}</span>
-          <h1 className="text-sm font-semibold tracking-wide" style={{ color: "#1c2831" }}>
-            שלום, {user.full_name.split(" ")[0]}
-          </h1>
-        </div>
-      </div>
+      {/* ── Title Bar ── */}
+      <AdminTitleBar
+        title={`שלום, ${user.full_name.split(" ")[0]}`}
+        onRefresh={loadStats}
+        utilitySlot={
+          <span className="mr-2 text-[10px] text-slate-400">{today}</span>
+        }
+      />
 
       {/* ── Main ── */}
       <main className="flex-1 overflow-auto">

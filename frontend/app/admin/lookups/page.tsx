@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
 interface LookupListItem {
@@ -157,6 +157,7 @@ export default function LookupsPage() {
           )}
         </div>
 
+        {!loading && <AdminStatusBar total={filtered.length} label="רשימות" />}
       </main>
     </div>
   );

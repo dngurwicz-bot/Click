@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
   createDefaultTemporalFilterState,
   formatMonthDisplay,
@@ -44,12 +45,11 @@ function MonthField({
           placeholder="MM/YYYY"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className={`rounded-md border bg-white px-3 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 ${
+          className={`w-24 rounded-md border bg-white px-3 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 ${
             error ? "border-red-300 focus:border-red-400" : "border-slate-300 focus:border-brand-400"
           }`}
           dir="ltr"
         />
-        <span className="hidden text-[10px] text-slate-400 sm:inline">02/2026</span>
       </div>
     </div>
   );
@@ -94,10 +94,18 @@ export function TemporalFilterBar({
     onChange({ ...filter, mode });
   }
 
-  function updateMonthDraft(field: "fromMonth" | "toMonth", nextValue: string) {
-    setMonthDrafts((prev) => ({ ...prev, [field]: nextValue }));
+  function normalizeMonthDraft(value: string): string {
+    if (/^\d{6}$/.test(value)) {
+      return `${value.slice(0, 2)}/${value.slice(2)}`;
+    }
+    return value;
+  }
 
-    const parsed = parseMonthInput(nextValue);
+  function updateMonthDraft(field: "fromMonth" | "toMonth", nextValue: string) {
+    const formatted = normalizeMonthDraft(nextValue);
+    setMonthDrafts((prev) => ({ ...prev, [field]: formatted }));
+
+    const parsed = parseMonthInput(formatted);
     if (parsed.error) return;
 
     onChange({
@@ -158,21 +166,19 @@ export function TemporalFilterBar({
             <div className="text-xs font-semibold text-slate-700 whitespace-nowrap">סינון לפי תאריכים</div>
             <div className="flex items-center gap-2">
               <label className="text-xs text-slate-500 whitespace-nowrap" htmlFor={`${idPrefix}-from-date`}>מתאריך</label>
-              <input
+              <HebrewDatePicker
                 id={`${idPrefix}-from-date`}
-                type="date"
                 value={filter.fromDate}
-                onChange={(e) => onChange({ ...filter, fromDate: e.target.value })}
+                onChange={(v) => onChange({ ...filter, fromDate: v })}
                 className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
               />
             </div>
             <div className="flex items-center gap-2">
               <label className="text-xs text-slate-500 whitespace-nowrap" htmlFor={`${idPrefix}-to-date`}>עד תאריך</label>
-              <input
+              <HebrewDatePicker
                 id={`${idPrefix}-to-date`}
-                type="date"
                 value={filter.toDate}
-                onChange={(e) => onChange({ ...filter, toDate: e.target.value })}
+                onChange={(v) => onChange({ ...filter, toDate: v })}
                 className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
               />
             </div>

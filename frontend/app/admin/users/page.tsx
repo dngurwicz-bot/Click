@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
+import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
   UserCheck, UserX,
   UserPlus, Pencil, Trash2, X, Eye, EyeOff, ShieldCheck,
@@ -455,7 +456,7 @@ function UserModal({
                   <span className="text-red-500 ml-0.5">*</span>
                   תוקף עד (אחרון)
                 </label>
-                <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)}
+                <HebrewDatePicker value={validTo} onChange={setValidTo}
                   className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
                 <span className="text-xs text-orange-700">יום אחרון שהמשתמש בתוקף</span>
               </div>
@@ -566,12 +567,12 @@ function UserModal({
                     <span className="text-red-500 ml-0.5">*</span>
                     תוקף מתאריך
                   </label>
-                  <input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)}
+                  <HebrewDatePicker value={validFrom} onChange={setValidFrom}
                     className={`${dateCls} border-slate-300 focus:border-blue-400`} />
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוקף עד (אופציונלי)</label>
-                  <input type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)}
+                  <HebrewDatePicker value={validTo} onChange={setValidTo}
                     className={`${dateCls} border-slate-300 focus:border-blue-400`} />
                   {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
                   {validTo && <span className="text-xs text-blue-600 cursor-pointer hover:underline" onClick={() => setValidTo("")}>✕ נקה</span>}
@@ -903,6 +904,7 @@ export default function AdminUsersPage() {
           )}
         </div>
 
+        {!loading && <AdminStatusBar total={filtered.length} label="משתמשים" />}
       </main>
 
       {/* Modals */}

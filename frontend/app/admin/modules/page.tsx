@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { TopNav } from "@/components/layout/TopNav";
-import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminTitleBar } from "@/components/layout/AdminShell";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 
 interface ModuleListItem {
   id: string;
@@ -20,82 +20,22 @@ interface ModuleListItem {
   };
 }
 
-interface MarketPriceAnchor {
-  vendor: string;
-  product: string;
-  price_display: string;
-  normalized_monthly_ils: string;
-  basis: string;
-  source_url: string;
-}
-
-interface RecommendedModulePrice {
-  base_price_ils: string;
-  per_seat_ils: string;
-  included_seats: number;
-  setup_fee_ils: string;
-}
-
-interface PricingRecommendation {
-  module_slug: string;
-  module_name: string;
-  market_category: string;
-  benchmark_team_size: number;
-  benchmark_window_ils: string;
-  action: string;
-  rationale: string;
-  current_price?: {
-    base_price_ils: string;
-    per_seat_ils: string;
-    included_seats: number;
-    setup_fee_ils: string;
-    valid_from: string;
-  };
-  recommended_price: RecommendedModulePrice;
-  current_monthly_at_benchmark_ils: string;
-  recommended_monthly_at_benchmark_ils: string;
-  monthly_delta_ils: string;
-  setup_delta_ils: string;
-  anchors: MarketPriceAnchor[];
-}
-
-interface PricingResearchPayload {
-  as_of: string;
-  exchange_rate_usd_ils: string;
-  exchange_rate_eur_ils: string;
-  positioning: string;
-  methodology: string;
-  modules: PricingRecommendation[];
-}
-
 function fmt(val?: string) {
   if (!val) return "—";
   return `₪${parseFloat(val).toLocaleString("he-IL", { minimumFractionDigits: 2 })}`;
 }
 
-function fmtDelta(val?: string) {
-  if (!val) return "₪0.00";
-  const amount = parseFloat(val);
-  const prefix = amount > 0 ? "+" : "";
-  return `${prefix}₪${amount.toLocaleString("he-IL", { minimumFractionDigits: 2 })}`;
-}
-
 export default function ModulesPage() {
   const router = useRouter();
   const [modules, setModules] = useState<ModuleListItem[]>([]);
-  const [research, setResearch] = useState<PricingResearchPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
   function loadModules() {
     setLoading(true);
-    Promise.all([
-      api.get<ModuleListItem[]>("/api/admin/modules"),
-      api.get<PricingResearchPayload>("/api/admin/modules/pricing-recommendations"),
-    ])
-      .then(([moduleData, researchData]) => {
+    api.get<ModuleListItem[]>("/api/admin/modules")
+      .then((moduleData) => {
         setModules([...moduleData].sort((a, b) => a.sort_order - b.sort_order));
-        setResearch(researchData);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -109,9 +49,6 @@ export default function ModulesPage() {
   const filtered = modules.filter((m) =>
     m.name.includes(search) || m.slug.includes(search)
   );
-  const filteredRecommendations = (research?.modules ?? []).filter((m) =>
-    m.module_name.includes(search) || m.module_slug.includes(search)
-  );
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -124,116 +61,6 @@ export default function ModulesPage() {
           start={<AdminSearchField value={search} onChange={setSearch} />}
           end={!loading ? <AdminCountLabel>{filtered.length} מודולים</AdminCountLabel> : undefined}
         />
-
-        {research && (
-          <section className="bg-slate-50 border-b border-slate-200 px-3 py-3 shrink-0">
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-4">
-                <div className="text-right">
-                  <h2 className="text-sm font-semibold text-slate-800">סקר שוק והמלצות תמחור</h2>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {research.positioning} | שערי המרה ל-{new Date(research.as_of).toLocaleDateString("he-IL")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">USD/ILS {research.exchange_rate_usd_ils}</span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">EUR/ILS {research.exchange_rate_eur_ils}</span>
-                </div>
-              </div>
-
-              <div className="px-4 py-3 text-xs text-slate-600 border-b border-slate-100 bg-slate-50/60">
-                {research.methodology}
-              </div>
-
-              <div className="overflow-auto">
-                <table className="w-full min-w-[1080px] text-xs border-collapse">
-                  <thead className="bg-slate-100 text-slate-600">
-                    <tr>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">מודול</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">קטגוריית שוק</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">עוגן שוק</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">נוכחי ל-10 משתמשים</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">מומלץ ל-10 משתמשים</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">מבנה מומלץ</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">דלתא</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">פעולה</th>
-                      <th className="text-right px-4 py-2.5 font-semibold border-b border-slate-200">מקורות</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRecommendations.map((row, index) => (
-                      <tr key={row.module_slug} className={index % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
-                        <td className="align-top px-4 py-3 border-b border-slate-100">
-                          <div className="font-semibold text-slate-800">{row.module_name}</div>
-                          <div className="font-mono text-[11px] text-slate-400 mt-1">{row.module_slug}</div>
-                          <div className="text-[11px] text-slate-500 mt-2 leading-5 max-w-[230px]">{row.rationale}</div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-slate-600 max-w-[180px]">{row.market_category}</td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-slate-600">
-                          <div className="font-medium text-slate-700">{row.benchmark_window_ils}</div>
-                          <div className="text-[11px] text-slate-400 mt-1">benchmark של {row.benchmark_team_size} משתמשים</div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-slate-700">
-                          <div className="font-semibold">{fmt(row.current_monthly_at_benchmark_ils)}</div>
-                          <div className="text-[11px] text-slate-500 mt-1">
-                            בסיס {fmt(row.current_price?.base_price_ils)} | מושב {fmt(row.current_price?.per_seat_ils)}
-                          </div>
-                          <div className="text-[11px] text-slate-400 mt-1">
-                            כלול {row.current_price?.included_seats ?? 0} | הקמה {fmt(row.current_price?.setup_fee_ils)}
-                          </div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-slate-800">
-                          <div className="font-semibold">{fmt(row.recommended_monthly_at_benchmark_ils)}</div>
-                          <div className="text-[11px] text-slate-500 mt-1">
-                            הקמה {fmt(row.recommended_price.setup_fee_ils)}
-                          </div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-slate-600">
-                          <div>בסיס {fmt(row.recommended_price.base_price_ils)}</div>
-                          <div className="mt-1">למושב {fmt(row.recommended_price.per_seat_ils)}</div>
-                          <div className="mt-1">כולל {row.recommended_price.included_seats}</div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100">
-                          <div className={`font-semibold ${parseFloat(row.monthly_delta_ils) > 0 ? "text-amber-700" : parseFloat(row.monthly_delta_ils) < 0 ? "text-emerald-700" : "text-slate-600"}`}>
-                            {fmtDelta(row.monthly_delta_ils)}
-                          </div>
-                          <div className={`text-[11px] mt-1 ${parseFloat(row.setup_delta_ils) > 0 ? "text-amber-700" : parseFloat(row.setup_delta_ils) < 0 ? "text-emerald-700" : "text-slate-500"}`}>
-                            הקמה {fmtDelta(row.setup_delta_ils)}
-                          </div>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100">
-                          <span className="inline-flex rounded-full bg-brand-50 text-brand-700 px-2.5 py-1 font-medium">
-                            {row.action}
-                          </span>
-                        </td>
-                        <td className="align-top px-4 py-3 border-b border-slate-100 text-[11px] text-slate-500">
-                          <div className="space-y-2 min-w-[180px]">
-                            {row.anchors.map((anchor) => (
-                              <div key={`${row.module_slug}-${anchor.vendor}-${anchor.product}`}>
-                                <a
-                                  href={anchor.source_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="font-medium text-brand-700 hover:text-brand-800 underline underline-offset-2"
-                                >
-                                  {anchor.vendor} / {anchor.product}
-                                </a>
-                                <div className="mt-0.5">{anchor.price_display}</div>
-                                <div className="text-slate-400 mt-0.5">
-                                  {anchor.normalized_monthly_ils !== "0.00" ? fmt(anchor.normalized_monthly_ils) : "מחיר לא שקוף"} | {anchor.basis}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* ── Table ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-auto bg-white min-h-0">
@@ -296,6 +123,7 @@ export default function ModulesPage() {
           )}
         </div>
 
+        {!loading && <AdminStatusBar total={filtered.length} label="מודולים" />}
       </main>
     </div>
   );

@@ -1,5 +1,5 @@
 """
-Billing router — charges & invoices management.
+Billing router — charges, invoices, quotes management.
 
 Endpoints:
   POST /api/admin/billing/charges/generate   — auto-generate charges for a period
@@ -19,6 +19,19 @@ Endpoints:
 
   GET  /api/admin/billing/invoices/{id}/pdf           — download PDF
 
+  GET  /api/admin/billing/quotes             — list quotes (filterable)
+  POST /api/admin/billing/quotes             — create quote
+  GET  /api/admin/billing/quotes/{id}        — get quote + lines
+  PUT  /api/admin/billing/quotes/{id}        — update quote header
+  POST /api/admin/billing/quotes/{id}/lines  — add line to quote
+  PUT  /api/admin/billing/quotes/{id}/lines/{line_id}    — update line
+  DELETE /api/admin/billing/quotes/{id}/lines/{line_id}  — remove line
+  POST /api/admin/billing/quotes/{id}/send              — draft → sent
+  POST /api/admin/billing/quotes/{id}/accept            — sent → accepted
+  POST /api/admin/billing/quotes/{id}/decline           — sent → declined
+  POST /api/admin/billing/quotes/{id}/convert-to-invoice — accepted → invoice
+  GET  /api/admin/billing/quotes/{id}/pdf               — download PDF
+
   GET  /api/admin/tenants/{tenant_id}/billing         — tenant billing summary
   GET  /api/admin/tenants/{tenant_id}/seat-changes    — seat change history
 """
@@ -36,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.middleware.auth import require_permission, CurrentUser
-from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine
+from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine, Quote, QuoteLine
 from app.models.module import Module, ModulePrice
 from app.models.seat_change_log import SeatChangeLog
 from app.models.tenant import Tenant, TenantAddress, TenantIdentity, TenantSubscription, TenantStatus
@@ -46,8 +59,10 @@ from app.schemas.billing import (
     GenerateChargesRequest, GenerateChargesResult,
     InvoiceCreate, InvoiceListItem, InvoiceOut, InvoiceUpdate,
     MarkPaidRequest, SeatChangeLogOut, TenantBillingSummary,
+    QuoteCreate, QuoteUpdate, QuoteOut, QuoteListItem,
+    QuoteLineCreate, QuoteLineUpdate, QuoteLineOut,
 )
-from app.services.invoice_pdf import TaxInvoiceValidationError, render_invoice_pdf
+from app.services.invoice_pdf import TaxInvoiceValidationError, render_invoice_pdf, render_quote_pdf
 from app.services.subscription_modules import get_effective_module_prices, get_effective_subscription_module, load_subscription_modules
 from app.services.temporal import get_active
 
@@ -1039,6 +1054,10 @@ async def download_invoice_pdf(
                 "missing_fields": exc.missing_fields,
             },
         ) from exc
+    except Exception as exc:
+        import traceback, logging
+        logging.getLogger(__name__).error("PDF render error: %s", traceback.format_exc())
+        raise HTTPException(500, detail={"error": str(exc), "code": "PDF_ERROR"}) from exc
 
     filename_suffix = "tax" if variant == "tax" else "statement"
     return Response(
@@ -1148,4 +1167,504 @@ async def get_tenant_billing(
         pending_total_ils=pending_total,
         invoiced_total_ils=invoiced_total,
         paid_total_ils=paid_total,
+    )
+
+
+# ─── Quote Helpers ─────────────────────────────────────────────────────────────
+
+def _calc_line_amounts(qty: Decimal, unit_price: Decimal, discount_pct: Decimal) -> tuple[Decimal, Decimal]:
+    """Return (amount_ils, amount_after_discount_ils)."""
+    amount = _round2(qty * unit_price)
+    after_discount = _round2(amount * (1 - discount_pct / 100))
+    return amount, after_discount
+
+
+async def _recalc_quote_totals(db: AsyncSession, quote: Quote) -> None:
+    """Recalculate and save quote totals from its lines."""
+    lines_result = await db.execute(
+        sa.select(QuoteLine).where(QuoteLine.quote_id == quote.id)
+    )
+    lines = lines_result.scalars().all()
+    subtotal = _round2(_sum_decimal(ln.amount_after_discount_ils for ln in lines))
+    discount = _round2(_sum_decimal(
+        _to_decimal(ln.amount_ils) - _to_decimal(ln.amount_after_discount_ils) for ln in lines
+    ))
+    vat = _round2(subtotal * _to_decimal(quote.vat_pct) / 100)
+    total = _round2(subtotal + vat)
+    await db.execute(
+        sa.update(Quote).where(Quote.id == quote.id).values(
+            subtotal_ils=subtotal,
+            discount_ils=discount,
+            vat_ils=vat,
+            total_ils=total,
+        ).execution_options(synchronize_session=False)
+    )
+    quote.subtotal_ils = subtotal
+    quote.discount_ils = discount
+    quote.vat_ils = vat
+    quote.total_ils = total
+
+
+async def _build_quote_out(db: AsyncSession, quote: Quote) -> QuoteOut:
+    lines_result = await db.execute(
+        sa.select(QuoteLine)
+        .where(QuoteLine.quote_id == quote.id)
+        .order_by(QuoteLine.sort_order, QuoteLine.id)
+    )
+    lines = lines_result.scalars().all()
+    out = QuoteOut.model_validate(quote)
+    out.lines = [QuoteLineOut.model_validate(ln) for ln in lines]
+    if quote.tenant_id:
+        out.tenant_name = await _tenant_name(db, quote.tenant_id)
+    return out
+
+
+async def _get_quote_or_404(db: AsyncSession, quote_id: uuid.UUID) -> Quote:
+    result = await db.execute(sa.select(Quote).where(Quote.id == quote_id))
+    quote = result.scalar_one_or_none()
+    if not quote:
+        raise HTTPException(404, detail={"error": "Quote not found", "code": "NOT_FOUND"})
+    return quote
+
+
+# ─── Quotes CRUD ───────────────────────────────────────────────────────────────
+
+@router.get("/api/admin/billing/quotes", response_model=list[QuoteListItem])
+async def list_quotes(
+    tenant_id: Optional[uuid.UUID] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    q = sa.select(Quote).order_by(Quote.created_at.desc())
+    if tenant_id:
+        q = q.where(Quote.tenant_id == tenant_id)
+    if status:
+        q = q.where(Quote.status == status)
+    if search:
+        q = q.where(
+            sa.or_(
+                Quote.title.ilike(f"%{search}%"),
+                Quote.prospect_name.ilike(f"%{search}%"),
+                Quote.quote_number.ilike(f"%{search}%"),
+            )
+        )
+    result = await db.execute(q)
+    quotes = result.scalars().all()
+    out = []
+    for quote in quotes:
+        item = QuoteListItem.model_validate(quote)
+        if quote.tenant_id:
+            item.tenant_name = await _tenant_name(db, quote.tenant_id)
+        out.append(item)
+    return out
+
+
+@router.post("/api/admin/billing/quotes", response_model=QuoteOut, status_code=201)
+async def create_quote(
+    body: QuoteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = Quote(
+        tenant_id=body.tenant_id,
+        prospect_name=body.prospect_name,
+        prospect_email=body.prospect_email,
+        title=body.title,
+        valid_until=body.valid_until,
+        status="draft",
+        notes=body.notes,
+        discount_pct=body.discount_pct,
+        vat_pct=body.vat_pct,
+        created_by=current_user.id,
+    )
+    db.add(quote)
+    await db.flush()
+
+    for i, line_data in enumerate(body.lines):
+        amount, after_discount = _calc_line_amounts(
+            line_data.quantity, line_data.unit_price_ils, line_data.discount_pct
+        )
+        line = QuoteLine(
+            quote_id=quote.id,
+            description=line_data.description,
+            quantity=line_data.quantity,
+            unit_price_ils=line_data.unit_price_ils,
+            amount_ils=amount,
+            discount_pct=line_data.discount_pct,
+            amount_after_discount_ils=after_discount,
+            module_slug=line_data.module_slug,
+            charge_type=line_data.charge_type,
+            notes=line_data.notes,
+            sort_order=line_data.sort_order if line_data.sort_order else (i + 1) * 10,
+        )
+        db.add(line)
+
+    await db.flush()
+    await _recalc_quote_totals(db, quote)
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.get("/api/admin/billing/quotes/{quote_id}", response_model=QuoteOut)
+async def get_quote(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    return await _build_quote_out(db, quote)
+
+
+@router.put("/api/admin/billing/quotes/{quote_id}", response_model=QuoteOut)
+async def update_quote(
+    quote_id: uuid.UUID,
+    body: QuoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status not in ("draft",):
+        raise HTTPException(409, detail={"error": "Only draft quotes can be edited", "code": "INVALID_STATUS"})
+
+    updates: dict = {}
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.valid_until is not None:
+        updates["valid_until"] = body.valid_until
+    if body.tenant_id is not None:
+        updates["tenant_id"] = body.tenant_id
+    if body.prospect_name is not None:
+        updates["prospect_name"] = body.prospect_name
+    if body.prospect_email is not None:
+        updates["prospect_email"] = body.prospect_email
+    if body.notes is not None:
+        updates["notes"] = body.notes
+    if body.discount_pct is not None:
+        updates["discount_pct"] = body.discount_pct
+    if body.vat_pct is not None:
+        updates["vat_pct"] = body.vat_pct
+
+    if updates:
+        await db.execute(
+            sa.update(Quote).where(Quote.id == quote_id).values(**updates)
+            .execution_options(synchronize_session=False)
+        )
+        await db.flush()
+        await db.refresh(quote)
+
+    await _recalc_quote_totals(db, quote)
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+# ─── Quote Lines ───────────────────────────────────────────────────────────────
+
+@router.post("/api/admin/billing/quotes/{quote_id}/lines", response_model=QuoteOut, status_code=201)
+async def add_quote_line(
+    quote_id: uuid.UUID,
+    body: QuoteLineCreate,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status not in ("draft",):
+        raise HTTPException(409, detail={"error": "Only draft quotes can be modified", "code": "INVALID_STATUS"})
+
+    amount, after_discount = _calc_line_amounts(body.quantity, body.unit_price_ils, body.discount_pct)
+    line = QuoteLine(
+        quote_id=quote.id,
+        description=body.description,
+        quantity=body.quantity,
+        unit_price_ils=body.unit_price_ils,
+        amount_ils=amount,
+        discount_pct=body.discount_pct,
+        amount_after_discount_ils=after_discount,
+        module_slug=body.module_slug,
+        charge_type=body.charge_type,
+        notes=body.notes,
+        sort_order=body.sort_order,
+    )
+    db.add(line)
+    await db.flush()
+    await _recalc_quote_totals(db, quote)
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.put("/api/admin/billing/quotes/{quote_id}/lines/{line_id}", response_model=QuoteOut)
+async def update_quote_line(
+    quote_id: uuid.UUID,
+    line_id: uuid.UUID,
+    body: QuoteLineUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status not in ("draft",):
+        raise HTTPException(409, detail={"error": "Only draft quotes can be modified", "code": "INVALID_STATUS"})
+
+    result = await db.execute(
+        sa.select(QuoteLine).where(QuoteLine.id == line_id, QuoteLine.quote_id == quote_id)
+    )
+    line = result.scalar_one_or_none()
+    if not line:
+        raise HTTPException(404, detail={"error": "Line not found", "code": "NOT_FOUND"})
+
+    if body.description is not None:
+        line.description = body.description
+    if body.quantity is not None:
+        line.quantity = body.quantity
+    if body.unit_price_ils is not None:
+        line.unit_price_ils = body.unit_price_ils
+    if body.discount_pct is not None:
+        line.discount_pct = body.discount_pct
+    if body.module_slug is not None:
+        line.module_slug = body.module_slug
+    if body.charge_type is not None:
+        line.charge_type = body.charge_type
+    if body.notes is not None:
+        line.notes = body.notes
+    if body.sort_order is not None:
+        line.sort_order = body.sort_order
+
+    amount, after_discount = _calc_line_amounts(line.quantity, line.unit_price_ils, line.discount_pct)
+    line.amount_ils = amount
+    line.amount_after_discount_ils = after_discount
+
+    await db.flush()
+    await _recalc_quote_totals(db, quote)
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.delete("/api/admin/billing/quotes/{quote_id}/lines/{line_id}", response_model=QuoteOut)
+async def delete_quote_line(
+    quote_id: uuid.UUID,
+    line_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status not in ("draft",):
+        raise HTTPException(409, detail={"error": "Only draft quotes can be modified", "code": "INVALID_STATUS"})
+
+    await db.execute(
+        sa.delete(QuoteLine).where(QuoteLine.id == line_id, QuoteLine.quote_id == quote_id)
+    )
+    await db.flush()
+    await _recalc_quote_totals(db, quote)
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+# ─── Quote Lifecycle ───────────────────────────────────────────────────────────
+
+@router.post("/api/admin/billing/quotes/{quote_id}/send", response_model=QuoteOut)
+async def send_quote(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status != "draft":
+        raise HTTPException(409, detail={"error": "Only draft quotes can be sent", "code": "INVALID_STATUS"})
+
+    seq_result = await db.execute(sa.text("SELECT nextval('quote_number_seq')"))
+    seq_num = seq_result.scalar_one()
+    year = datetime.now(UTC).year
+    quote_number = f"QUO-{year}-{seq_num:04d}"
+
+    await db.execute(
+        sa.update(Quote).where(Quote.id == quote_id)
+        .values(status="sent", quote_number=quote_number)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.post("/api/admin/billing/quotes/{quote_id}/accept", response_model=QuoteOut)
+async def accept_quote(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status != "sent":
+        raise HTTPException(409, detail={"error": "Only sent quotes can be accepted", "code": "INVALID_STATUS"})
+    await db.execute(
+        sa.update(Quote).where(Quote.id == quote_id).values(status="accepted")
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.post("/api/admin/billing/quotes/{quote_id}/decline", response_model=QuoteOut)
+async def decline_quote(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status != "sent":
+        raise HTTPException(409, detail={"error": "Only sent quotes can be declined", "code": "INVALID_STATUS"})
+    await db.execute(
+        sa.update(Quote).where(Quote.id == quote_id).values(status="declined")
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(quote)
+    return await _build_quote_out(db, quote)
+
+
+@router.post("/api/admin/billing/quotes/{quote_id}/convert-to-invoice", response_model=InvoiceOut, status_code=201)
+async def convert_quote_to_invoice(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("billing", "edit")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    if quote.status != "accepted":
+        raise HTTPException(409, detail={"error": "Only accepted quotes can be converted", "code": "INVALID_STATUS"})
+    if not quote.tenant_id:
+        raise HTTPException(422, detail={"error": "Quote must be linked to a tenant to convert to invoice", "code": "NO_TENANT"})
+    if quote.converted_invoice_id:
+        raise HTTPException(409, detail={"error": "Quote already converted", "code": "ALREADY_CONVERTED"})
+
+    lines_result = await db.execute(
+        sa.select(QuoteLine).where(QuoteLine.quote_id == quote.id).order_by(QuoteLine.sort_order)
+    )
+    lines = lines_result.scalars().all()
+    if not lines:
+        raise HTTPException(422, detail={"error": "Quote has no lines", "code": "NO_LINES"})
+
+    today = date.today()
+    billing_period = f"{today.year}-{today.month:02d}"
+
+    created_charges: list[BillingCharge] = []
+    for line in lines:
+        charge = BillingCharge(
+            tenant_id=quote.tenant_id,
+            billing_period=billing_period,
+            charge_type=line.charge_type,
+            module_slug=line.module_slug,
+            description=line.description,
+            quantity=line.quantity,
+            unit_price_ils=line.unit_price_ils,
+            amount_ils=line.amount_ils,
+            discount_pct=line.discount_pct,
+            amount_after_discount_ils=line.amount_after_discount_ils,
+            status="pending",
+            notes=line.notes,
+            created_by=current_user.id,
+        )
+        db.add(charge)
+        created_charges.append(charge)
+
+    await db.flush()
+
+    subtotal = _round2(_sum_decimal(c.amount_after_discount_ils for c in created_charges))
+    discount = _round2(_sum_decimal(
+        _to_decimal(c.amount_ils) - _to_decimal(c.amount_after_discount_ils) for c in created_charges
+    ))
+    vat = _round2(subtotal * _to_decimal(quote.vat_pct) / 100)
+    total = _round2(subtotal + vat)
+
+    seq_result = await db.execute(sa.text("SELECT nextval('invoice_number_seq')"))
+    seq_num = seq_result.scalar_one()
+    invoice_number = f"INV-{today.year}-{seq_num:04d}"
+
+    due_date = today + timedelta(days=30)
+    invoice = Invoice(
+        invoice_number=invoice_number,
+        tenant_id=quote.tenant_id,
+        billing_period=billing_period,
+        issue_date=today,
+        due_date=due_date,
+        subtotal_ils=subtotal,
+        discount_ils=discount,
+        vat_pct=quote.vat_pct,
+        vat_ils=vat,
+        total_ils=total,
+        status="draft",
+        notes=f"המרה מהצעת מחיר {quote.quote_number or str(quote.id)[:8]}",
+        created_by=current_user.id,
+    )
+    db.add(invoice)
+    await db.flush()
+
+    for sort_order, charge in enumerate(created_charges, start=1):
+        line_item = InvoiceLine(
+            invoice_id=invoice.id,
+            charge_id=charge.id,
+            description=charge.description,
+            quantity=charge.quantity,
+            unit_price_ils=charge.unit_price_ils,
+            amount_ils=charge.amount_after_discount_ils,
+            sort_order=sort_order * 10,
+        )
+        db.add(line_item)
+        charge.status = "invoiced"
+        charge.invoice_id = invoice.id
+
+    await db.execute(
+        sa.update(Quote).where(Quote.id == quote_id)
+        .values(converted_invoice_id=invoice.id)
+        .execution_options(synchronize_session=False)
+    )
+
+    await db.commit()
+    await db.refresh(invoice)
+    return await _build_invoice_out(db, invoice)
+
+
+# ─── Quote PDF ─────────────────────────────────────────────────────────────────
+
+@router.get("/api/admin/billing/quotes/{quote_id}/pdf")
+async def download_quote_pdf(
+    quote_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("billing", "view")),
+):
+    quote = await _get_quote_or_404(db, quote_id)
+    lines_result = await db.execute(
+        sa.select(QuoteLine).where(QuoteLine.quote_id == quote.id).order_by(QuoteLine.sort_order)
+    )
+    lines = lines_result.scalars().all()
+
+    _, issuer_payload, _ = await _get_billing_settings_payload(db)
+
+    if quote.tenant_id:
+        recipient_name = await _tenant_name(db, quote.tenant_id)
+    elif quote.prospect_name:
+        recipient_name = quote.prospect_name
+    else:
+        recipient_name = "לקוח פוטנציאלי"
+
+    try:
+        pdf_bytes = render_quote_pdf(
+            quote=quote,
+            lines=lines,
+            recipient_name=recipient_name,
+            recipient_email=quote.prospect_email,
+            issuer=issuer_payload,
+        )
+    except Exception as exc:
+        raise HTTPException(500, detail={"error": str(exc), "code": "PDF_ERROR"})
+
+    filename = f"quote-{quote.quote_number or str(quote.id)[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
