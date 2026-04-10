@@ -13,6 +13,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { Clock3, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { TopNav } from "./TopNav";
+import { AIAssistant } from "../ai/AIAssistant";
 
 export interface ScreenDescriptor {
   pathname: string;
@@ -379,7 +380,7 @@ function WorkspaceShellInner({
   }, []);
 
   useEffect(() => {
-    setCachedChildren((prev) => (prev[pathname] ? prev : { ...prev, [pathname]: children }));
+    setCachedChildren((prev) => ({ ...prev, [pathname]: children }));
   }, [children, pathname]);
 
   useEffect(() => {
@@ -535,20 +536,29 @@ function WorkspaceShellInner({
         />
 
         <div className="flex min-h-0 flex-1">
-          <div className="relative min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1 overflow-hidden">
             {openScreens.map((screen) => {
               const node = cachedChildren[screen.pathname] ?? (screen.pathname === pathname ? children : null);
-              if (!node) return null;
-
-              const isVisible = screen.pathname === pathname;
+              const isVisible = screen.pathname === activePathname;
 
               return (
                 <div
                   key={screen.pathname}
-                  className={`${isVisible ? "flex" : "hidden"} h-full min-h-0 flex-col`}
+                  className={`absolute inset-0 flex flex-col bg-slate-50 transition-opacity duration-200 ${
+                    isVisible ? "z-10 opacity-100" : "z-0 opacity-0 pointer-events-none"
+                  }`}
+                  style={{
+                    visibility: isVisible ? "visible" : "hidden",
+                    // Adding a slight delay to visibility hidden so the fade out completes
+                    transition: "opacity 200ms ease, visibility 200ms ease"
+                  }}
                   aria-hidden={!isVisible}
                 >
-                  {node}
+                  {node || (
+                    <div className="flex flex-1 items-center justify-center">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -574,6 +584,8 @@ function WorkspaceShellInner({
           onClose={() => setIsRecentDrawerOpen(false)}
         />
       )}
+      
+      <AIAssistant />
     </WorkspaceContext.Provider>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api, canEdit, canView, type UserInfo } from "@/lib/api";
 import { AdminTitleBar } from "@/components/layout/AdminShell";
+import { useWorkspace } from "@/components/layout/WorkspaceShell";
 import {
   Building2, Package, Users, Activity,
   TrendingUp, ChevronLeft, Clock,
@@ -69,11 +70,18 @@ function QuickAction({
   icon: React.ElementType;
   desc: string;
 }) {
+  const router = useRouter();
+  const workspace = useWorkspace();
+
   return (
-    <a
-      href={href}
-      className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-slate-200
-                 bg-white hover:border-brand-200 hover:bg-brand-50/50 transition-all duration-150 group"
+    <button
+      type="button"
+      onClick={() => {
+        if (workspace) workspace.navigateTo(href);
+        else router.push(href);
+      }}
+      className="flex w-full items-center justify-between px-3 py-2.5 rounded-lg border border-slate-200
+                 bg-white hover:border-brand-200 hover:bg-brand-50/50 transition-all duration-150 group text-right"
     >
       <div className="flex items-center gap-2.5">
         <div className="p-1.5 rounded-md bg-slate-100 group-hover:bg-brand-100 transition-colors shrink-0">
@@ -87,7 +95,7 @@ function QuickAction({
         </div>
       </div>
       <ChevronLeft size={13} className="text-slate-300 group-hover:text-brand-400 transition-colors shrink-0" />
-    </a>
+    </button>
   );
 }
 

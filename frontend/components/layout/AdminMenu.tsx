@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Building2, Package, Users, FileText, ClipboardList, List, Receipt } from "lucide-react";
+import { useWorkspace } from "./WorkspaceShell";
 
 const ADMIN_LINKS = [
   { href: "/admin/tenants",   label: "ניהול ארגונים",         icon: Building2 },
@@ -17,6 +18,8 @@ const ADMIN_LINKS = [
 export function AdminMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const workspace = useWorkspace();
 
   useEffect(() => {
     function handleOutside(e: MouseEvent) {
@@ -51,16 +54,20 @@ export function AdminMenu() {
         >
           <div className="py-1">
             {ADMIN_LINKS.map(({ href, label, icon: Icon }) => (
-              <Link
+              <button
                 key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  if (workspace) workspace.navigateTo(href);
+                  else router.push(href);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-slate-700
                            hover:bg-brand-50 hover:text-brand-700 transition-colors duration-100"
               >
                 <Icon size={15} className="shrink-0 text-slate-400" />
                 {label}
-              </Link>
+              </button>
             ))}
           </div>
         </div>

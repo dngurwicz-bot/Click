@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit
+from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit, ai
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.billing                # noqa: F401 – ensure billing models are registered
 import app.models.billing_engine         # noqa: F401 – ensure billing engine models are registered
@@ -40,6 +40,7 @@ app.include_router(templates.router)
 app.include_router(billing.router)
 app.include_router(billing_engine.router)
 app.include_router(audit.router)
+app.include_router(ai.router)
 
 
 @app.get("/api/health")
@@ -47,8 +48,11 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
+import logging
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logging.exception("Unhandled error occurred:")
     return JSONResponse(
         status_code=500,
         content={"error": "Internal server error", "code": "INTERNAL_ERROR"},

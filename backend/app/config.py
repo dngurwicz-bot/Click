@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     APP_PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # AI
+    GEMINI_API_KEY: str = ""
+
     # Company / Issuer details (printed on invoice PDFs)
     COMPANY_NAME_HE: str = "חברת CLICK בע\"מ"
     COMPANY_NAME_EN: str = "CLICK Ltd."

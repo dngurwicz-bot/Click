@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, HelpCircle, Printer, RefreshCw, Search } from "lucide-react";
 import { useWorkspace } from "./WorkspaceShell";
 
@@ -21,7 +21,9 @@ export function AdminTitleBar({
   utilitySlot?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const registerScreen = useWorkspace()?.registerScreen;
+  const router = useRouter();
+  const workspace = useWorkspace();
+  const registerScreen = workspace?.registerScreen;
 
   useEffect(() => {
     if (!pathname || !registerScreen) return;
@@ -59,13 +61,17 @@ export function AdminTitleBar({
       <div className="flex items-center gap-1.5 text-right">
         {backHref && (
           <>
-            <Link
-              href={backHref}
+            <button
+              type="button"
+              onClick={() => {
+                if (workspace) workspace.navigateTo(backHref);
+                else router.push(backHref);
+              }}
               className="flex items-center gap-0.5 text-xs text-slate-400 transition hover:text-brand-600"
             >
               <ChevronLeft size={12} />
               {backLabel ?? "חזרה"}
-            </Link>
+            </button>
             <span className="text-slate-300 text-xs">›</span>
           </>
         )}
