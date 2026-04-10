@@ -4,9 +4,10 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, audit
+from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.billing                # noqa: F401 – ensure billing models are registered
+import app.models.billing_engine         # noqa: F401 – ensure billing engine models are registered
 
 settings = get_settings()
 
@@ -37,6 +38,7 @@ app.include_router(admin_users.router)
 app.include_router(lookups.router)
 app.include_router(templates.router)
 app.include_router(billing.router)
+app.include_router(billing_engine.router)
 app.include_router(audit.router)
 
 
