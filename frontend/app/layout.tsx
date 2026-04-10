@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { FieldHelpPopup } from "@/components/ui/FieldHelpPopup";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 
 export const metadata: Metadata = {
   title: "CLICK — מערכת ניהול משאבי אנוש",
@@ -15,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="he" dir="rtl">
       <body className="min-h-screen bg-slate-50 antialiased">
-        {children}
+        <WorkspaceShell>{children}</WorkspaceShell>
         <FieldHelpPopup />
       </body>
     </html>

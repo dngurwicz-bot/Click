@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { TopNav } from "@/components/layout/TopNav";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
@@ -2292,8 +2291,7 @@ export default function TenantDetailPage() {
   ] : [];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-100">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-gray-100">
       <main className="flex-1 overflow-hidden">
         <CardPage
           title="כרטיס ארגון"

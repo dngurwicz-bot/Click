@@ -137,6 +137,10 @@ export async function login(email: string, password: string): Promise<LoginRespo
 export function logout() {
   removeCookie("click_token");
   localStorage.removeItem("click_user");
+  localStorage.removeItem("click_open_screens");
+  localStorage.removeItem("click_recent_screens");
+  localStorage.removeItem("click_active_screen");
+  localStorage.removeItem("click_recent_panel_open");
 }
 
 export function getStoredUser(): UserInfo | null {

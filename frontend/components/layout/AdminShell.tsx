@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ChevronLeft, HelpCircle, Printer, RefreshCw, Search } from "lucide-react";
+import { useWorkspace } from "./WorkspaceShell";
 
 /** Priority-style screen title bar */
 export function AdminTitleBar({
@@ -17,6 +20,14 @@ export function AdminTitleBar({
   onRefresh?: () => void;
   utilitySlot?: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const registerScreen = useWorkspace()?.registerScreen;
+
+  useEffect(() => {
+    if (!pathname || !registerScreen) return;
+    registerScreen(title, pathname);
+  }, [pathname, title, registerScreen]);
+
   return (
     <div className="flex h-[var(--priority-title-bar-h,44px)] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
       {/* Left: utility icons */}

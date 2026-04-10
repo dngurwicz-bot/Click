@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api, canEdit, canView, type UserInfo } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { AdminTitleBar } from "@/components/layout/AdminShell";
 import {
   Building2, Package, Users, Activity,
@@ -143,8 +142,7 @@ export default function DashboardPage() {
   // Show spinner while loading user from localStorage (avoids blank page)
   if (!user && loading) {
     return (
-      <div className="min-h-screen flex flex-col bg-slate-50">
-        <TopNav />
+      <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
         <main className="flex-1 flex items-center justify-center">
           <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </main>
@@ -156,8 +154,7 @@ export default function DashboardPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 
       {/* ── Title Bar ── */}
       <AdminTitleBar

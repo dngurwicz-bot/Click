@@ -3,7 +3,6 @@
 import { useState, FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
 import Link from "next/link";
 
@@ -47,8 +46,7 @@ export default function NewLookupListPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
       <AdminGrandchildLayout
         title="רשימה חדשה"
         backHref="/admin/lookups"

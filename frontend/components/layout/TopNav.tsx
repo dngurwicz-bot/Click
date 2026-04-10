@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Ban,
@@ -28,6 +27,7 @@ import {
 } from "lucide-react";
 import { api, canView, getStoredUser, logout, type UserInfo } from "@/lib/api";
 import { Logo } from "./Logo";
+import { useWorkspace } from "./WorkspaceShell";
 
 interface Module {
   slug: string;
@@ -63,12 +63,12 @@ const RESOURCE_FOR_LINK: Record<string, string> = {
   "/admin/audit": "audit",
 };
 
-const BILLING_SUB_ITEMS: { tab: string; label: string; icon: LucideIcon }[] = [
-  { tab: "overview",  label: "סקירה",          icon: BarChart3  },
-  { tab: "quotes",    label: "הצעות מחיר",      icon: Quote      },
-  { tab: "charges",   label: "חיובים",           icon: Wallet     },
-  { tab: "invoices",  label: "חשבוניות",         icon: FileText   },
-  { tab: "settings",  label: "הגדרות מנפיק",     icon: Ban        },
+const BILLING_SUB_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/admin/billing/overview", label: "סקירה", icon: BarChart3 },
+  { href: "/admin/billing/quotes", label: "הצעות מחיר", icon: Quote },
+  { href: "/admin/billing/charges", label: "חיובים", icon: Wallet },
+  { href: "/admin/billing/invoices", label: "חשבוניות", icon: FileText },
+  { href: "/admin/billing/settings", label: "הגדרות מנפיק", icon: Ban },
 ];
 
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
@@ -94,6 +94,7 @@ function UserAvatar({ name }: { name: string }) {
 export function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
+  const workspace = useWorkspace();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -123,6 +124,7 @@ export function TopNav() {
     function handleOutside(event: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
         setAdminOpen(false);
+        setBillingOpen(false);
         setUserOpen(false);
       }
     }
@@ -130,6 +132,7 @@ export function TopNav() {
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setAdminOpen(false);
+        setBillingOpen(false);
         setUserOpen(false);
         setMobileOpen(false);
       }
@@ -153,6 +156,20 @@ export function TopNav() {
   function handleLogout() {
     logout();
     router.push("/login");
+  }
+
+  function navigateTo(href: string) {
+    setAdminOpen(false);
+    setBillingOpen(false);
+    setUserOpen(false);
+    setMobileOpen(false);
+
+    if (workspace) {
+      workspace.navigateTo(href);
+      return;
+    }
+
+    router.push(href);
   }
 
   const isAdmin = Boolean(user && ADMIN_ROLES.includes(user.role));
@@ -209,9 +226,9 @@ export function TopNav() {
 
         {/* ── Desktop nav tabs ── */}
         <nav className="hidden h-full min-w-0 flex-1 items-center overflow-x-auto md:flex" style={{ scrollbarWidth: "none" }}>
-          <PriorityTab href="/dashboard" label="ראשי" active={pathname === "/dashboard"} />
+          <PriorityTab href="/dashboard" label="ראשי" active={pathname === "/dashboard"} onNavigate={navigateTo} />
           {moduleItems.map((item) => (
-            <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} />
+            <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} onNavigate={navigateTo} />
           ))}
         </nav>
 
@@ -264,7 +281,7 @@ export function TopNav() {
               </button>
 
               {adminOpen && (
-                <div className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+                <div className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] overflow-visible rounded border border-slate-200 bg-white shadow-lg">
                   <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                     ניהול מערכת
                   </div>
@@ -277,9 +294,10 @@ export function TopNav() {
                           open={billingOpen}
                           onToggle={() => setBillingOpen((v) => !v)}
                           pathname={pathname}
+                          onNavigate={navigateTo}
                         />
                       ) : (
-                        <AdminMenuLink key={item.href} item={item} />
+                        <AdminMenuLink key={item.href} item={item} onNavigate={navigateTo} />
                       )
                     )}
                   </div>
@@ -347,14 +365,14 @@ export function TopNav() {
             <div className="space-y-4 p-4">
               <div>
                 <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ראשי</div>
-                <MobileLink href="/dashboard" label="ראשי" icon={Home} active={pathname === "/dashboard"} />
+                <MobileLink href="/dashboard" label="ראשי" icon={Home} active={pathname === "/dashboard"} onNavigate={navigateTo} />
               </div>
 
               {moduleItems.length > 0 && (
                 <div>
                   <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">מודולים</div>
                   <div className="space-y-0.5">
-                    {moduleItems.map((item) => <MobileLink key={item.href} {...item} />)}
+                    {moduleItems.map((item) => <MobileLink key={item.href} {...item} onNavigate={navigateTo} />)}
                   </div>
                 </div>
               )}
@@ -371,9 +389,10 @@ export function TopNav() {
                           open={billingOpen}
                           onToggle={() => setBillingOpen((v) => !v)}
                           pathname={pathname}
+                          onNavigate={navigateTo}
                         />
                       ) : (
-                        <MobileLink key={item.href} {...item} />
+                        <MobileLink key={item.href} {...item} onNavigate={navigateTo} />
                       )
                     )}
                   </div>
@@ -388,10 +407,21 @@ export function TopNav() {
 }
 
 /** Priority-style flat tab with bottom-border active indicator */
-function PriorityTab({ href, label, active }: { href: string; label: string; active: boolean }) {
+function PriorityTab({
+  href,
+  label,
+  active,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+  onNavigate: (href: string) => void;
+}) {
   return (
-    <Link
-      href={href}
+    <button
+      type="button"
+      onClick={() => onNavigate(href)}
       className={`relative flex h-full items-center whitespace-nowrap px-4 text-sm transition-colors ${
         active
           ? "text-brand-600 font-medium"
@@ -402,22 +432,23 @@ function PriorityTab({ href, label, active }: { href: string; label: string; act
       {active && (
         <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />
       )}
-    </Link>
+    </button>
   );
 }
 
-function AdminMenuLink({ item }: { item: NavItem }) {
+function AdminMenuLink({ item, onNavigate }: { item: NavItem; onNavigate: (href: string) => void }) {
   const Icon = item.icon;
   return (
-    <Link
-      href={item.href}
-      className={`flex items-center gap-2 px-3 py-2 text-xs transition ${
+    <button
+      type="button"
+      onClick={() => onNavigate(item.href)}
+      className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
         item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
       }`}
     >
       <Icon size={13} className={item.active ? "text-brand-500" : "text-slate-400"} />
       {item.label}
-    </Link>
+    </button>
   );
 }
 
@@ -426,16 +457,19 @@ function MobileLink({
   label,
   icon: Icon,
   active,
+  onNavigate,
 }: {
   href: string;
   label: string;
   icon: LucideIcon;
   active: boolean;
+  onNavigate: (href: string) => void;
 }) {
   return (
-    <Link
-      href={href}
-      className={`flex items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
+    <button
+      type="button"
+      onClick={() => onNavigate(href)}
+      className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
         active
           ? "bg-brand-50 text-brand-700 font-medium"
           : "text-slate-700 hover:bg-slate-50"
@@ -443,7 +477,7 @@ function MobileLink({
     >
       <Icon size={14} className={active ? "text-brand-500" : "text-slate-400"} />
       {label}
-    </Link>
+    </button>
   );
 }
 
@@ -452,16 +486,18 @@ function BillingMenuGroup({
   open,
   onToggle,
   pathname,
+  onNavigate,
 }: {
   item: NavItem;
   open: boolean;
   onToggle: () => void;
   pathname: string | null;
+  onNavigate: (href: string) => void;
 }) {
   const Icon = item.icon;
   const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
   return (
-    <div>
+    <div className="relative">
       <button
         type="button"
         onClick={onToggle}
@@ -471,26 +507,31 @@ function BillingMenuGroup({
       >
         <Icon size={13} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
         <span className="flex-1 text-right">{item.label}</span>
-        <ChevronRight size={11} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+        <ChevronRight size={11} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="border-r-2 border-brand-200 mr-3 pr-0">
-          {BILLING_SUB_ITEMS.map(({ tab, label, icon: SubIcon }) => {
-            const subActive = isBillingActive && pathname === "/admin/billing";
-            const href = `/admin/billing?tab=${tab}`;
+        <div className="absolute right-full top-0 z-50 mr-1 min-w-[190px] overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+          <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            חיובים
+          </div>
+          <div className="py-1">
+            {BILLING_SUB_ITEMS.map(({ href, label, icon: SubIcon }) => {
+              const subActive = pathname === href;
             return (
-              <Link
-                key={tab}
-                href={href}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs transition pr-3 ${
-                  subActive ? "text-slate-700 hover:bg-slate-50" : "text-slate-600 hover:bg-slate-50"
+              <button
+                key={href}
+                type="button"
+                onClick={() => onNavigate(href)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+                  subActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                <SubIcon size={12} className="text-slate-400 shrink-0" />
+                <SubIcon size={12} className={`${subActive ? "text-brand-500" : "text-slate-400"} shrink-0`} />
                 {label}
-              </Link>
+              </button>
             );
           })}
+          </div>
         </div>
       )}
     </div>
@@ -502,11 +543,13 @@ function MobileBillingGroup({
   open,
   onToggle,
   pathname,
+  onNavigate,
 }: {
   item: NavItem;
   open: boolean;
   onToggle: () => void;
   pathname: string | null;
+  onNavigate: (href: string) => void;
 }) {
   const Icon = item.icon;
   const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
@@ -521,19 +564,22 @@ function MobileBillingGroup({
       >
         <Icon size={14} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
         <span className="flex-1 text-right">{item.label}</span>
-        <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+        <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="border-r-2 border-brand-200 mr-4 mt-0.5 space-y-0.5">
-          {BILLING_SUB_ITEMS.map(({ tab, label, icon: SubIcon }) => (
-            <Link
-              key={tab}
-              href={`/admin/billing?tab=${tab}`}
-              className="flex items-center gap-2 rounded px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+          {BILLING_SUB_ITEMS.map(({ href, label, icon: SubIcon }) => (
+            <button
+              key={href}
+              type="button"
+              onClick={() => onNavigate(href)}
+              className={`flex w-full items-center gap-2 rounded px-3 py-2 text-sm transition ${
+                pathname === href ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-600 hover:bg-slate-50"
+              }`}
             >
-              <SubIcon size={13} className="text-slate-400 shrink-0" />
+              <SubIcon size={13} className={`${pathname === href ? "text-brand-500" : "text-slate-400"} shrink-0`} />
               {label}
-            </Link>
+            </button>
           ))}
         </div>
       )}

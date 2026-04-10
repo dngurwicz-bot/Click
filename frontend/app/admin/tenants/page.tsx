@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isLoggedIn, api } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { Plus } from "lucide-react";
 
@@ -57,8 +56,7 @@ export default function TenantsPage() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 
       <main className="flex-1 overflow-hidden flex flex-col">
         <AdminTitleBar title="ניהול ארגונים" onRefresh={loadTenants} />

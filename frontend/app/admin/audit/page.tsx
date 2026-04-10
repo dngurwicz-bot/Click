@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 
 interface AuditLogItem {
@@ -72,8 +71,7 @@ export default function AuditPage() {
   }, [rows]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 
       <main className="flex-1 overflow-hidden flex flex-col">
         <AdminTitleBar title="Audit Log" onRefresh={loadAudit} />

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { CardPage } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
@@ -710,8 +709,7 @@ export default function ModuleDetailPage() {
 
   if (loading || !data) {
     return (
-      <div className="min-h-screen flex flex-col bg-slate-50">
-        <TopNav />
+      <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
         <main className="flex-1 flex items-center justify-center">
           <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </main>
@@ -869,8 +867,7 @@ export default function ModuleDetailPage() {
   }));
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
       <main className="flex-1 overflow-hidden flex flex-col">
         <CardPage
           title={data.name}

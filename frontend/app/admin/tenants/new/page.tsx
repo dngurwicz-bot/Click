@@ -3,7 +3,6 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
-import { TopNav } from "@/components/layout/TopNav";
 import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
 import Link from "next/link";
 
@@ -112,8 +111,7 @@ export default function NewTenantPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <TopNav />
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
       <AdminGrandchildLayout
         title="ארגון חדש"
         backHref="/admin/tenants"
