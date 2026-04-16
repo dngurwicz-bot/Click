@@ -37,8 +37,9 @@ app.include_router(modules.router)
 app.include_router(admin_users.router)
 app.include_router(lookups.router)
 app.include_router(templates.router)
-app.include_router(billing.router)
-app.include_router(billing_engine.router)
+if settings.BILLING_ENABLED:
+    app.include_router(billing.router)
+    app.include_router(billing_engine.router)
 app.include_router(audit.router)
 app.include_router(ai.router)
 

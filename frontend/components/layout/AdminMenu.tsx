@@ -3,13 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Building2, Package, Users, FileText, ClipboardList, List, Receipt } from "lucide-react";
+import { BILLING_ENABLED } from "@/lib/features";
 import { useWorkspace } from "./WorkspaceShell";
 
 const ADMIN_LINKS = [
   { href: "/admin/tenants",   label: "ניהול ארגונים",         icon: Building2 },
   { href: "/admin/lookups",   label: "ניהול רשימות ארגוניות", icon: List },
   { href: "/admin/modules",   label: "מודולים ומחירון",        icon: Package },
-  { href: "/admin/billing",   label: "חיובים וחשבוניות",       icon: Receipt },
+  ...(BILLING_ENABLED ? [{ href: "/admin/billing", label: "חיובים וחשבוניות", icon: Receipt }] : []),
   { href: "/admin/users",     label: "משתמשי מערכת",      icon: Users },
   { href: "/admin/templates", label: "תבניות הקמה",        icon: FileText },
   { href: "/admin/audit",     label: "Audit Log",          icon: ClipboardList },

@@ -1,14 +1,20 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from google import genai
-from google.genai import types, errors
 from app.config import get_settings
 from sqlalchemy import select, func
-from app.database import get_db, AsyncSessionLocal
-from app.models import Module, ModulePrice, Tenant, TenantIdentity, TenantSubscription
+from app.database import AsyncSessionLocal
+from app.models import Module, ModulePrice, Tenant, TenantIdentity
 from app.services.temporal import get_active
-from typing import List, Any, Dict
+from typing import List
 import json
+
+try:
+    from google import genai
+    from google.genai import types, errors
+except ModuleNotFoundError:
+    genai = None
+    types = None
+    errors = None
 
 router = APIRouter(prefix="/api/ai", tags=["AI Assistant"])
 settings = get_settings()
@@ -19,6 +25,12 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
+
+
+class AIStatusResponse(BaseModel):
+    available: bool
+    reason: str | None = None
+    message: str
 
 # Extensive system prompt about the CLICK HR SaaS system
 SYSTEM_PROMPT = """
@@ -104,40 +116,63 @@ TOOLS_MAP = {
     "search_tenant": search_tenant,
 }
 
-# Declarations for the SDK
-TOOLS_DECLARATIONS = [
-    types.Tool(
-        function_declarations=[
-            types.FunctionDeclaration(
-                name="get_modules_catalog",
-                description="Returns a list of all modules and their current active catalog prices (ILS).",
-            ),
-            types.FunctionDeclaration(
-                name="get_system_overview",
-                description="Returns total tenant count and list of recently joined organizations.",
-            ),
-            types.FunctionDeclaration(
-                name="search_tenant",
-                description="Searches for a tenant by name (partial match).",
-                parameters=types.Schema(
-                    type="OBJECT",
-                    properties={
-                        "query": types.Schema(type="STRING", description="The search term (name in Hebrew or English)"),
-                    },
-                    required=["query"],
+TOOLS_DECLARATIONS = []
+if types is not None:
+    TOOLS_DECLARATIONS = [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="get_modules_catalog",
+                    description="Returns a list of all modules and their current active catalog prices (ILS).",
                 ),
-            ),
-        ]
+                types.FunctionDeclaration(
+                    name="get_system_overview",
+                    description="Returns total tenant count and list of recently joined organizations.",
+                ),
+                types.FunctionDeclaration(
+                    name="search_tenant",
+                    description="Searches for a tenant by name (partial match).",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "query": types.Schema(type="STRING", description="The search term (name in Hebrew or English)"),
+                        },
+                        required=["query"],
+                    ),
+                ),
+            ]
+        )
+    ]
+
+
+def get_ai_availability() -> AIStatusResponse:
+    if genai is None or types is None or errors is None:
+        return AIStatusResponse(
+            available=False,
+            reason="missing_dependency",
+            message="רכיב ה-AI אינו מותקן כרגע בשרת.",
+        )
+    if not settings.GEMINI_API_KEY:
+        return AIStatusResponse(
+            available=False,
+            reason="missing_api_key",
+            message="רכיב ה-AI כבוי כרגע כי לא הוגדר GEMINI_API_KEY.",
+        )
+    return AIStatusResponse(
+        available=True,
+        message="רכיב ה-AI זמין.",
     )
-]
+
+
+@router.get("/status", response_model=AIStatusResponse)
+async def ai_status():
+    return get_ai_availability()
 
 @router.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="GEMINI_API_KEY is not configured."
-        )
+    availability = get_ai_availability()
+    if not availability.available:
+        raise HTTPException(status_code=503, detail=availability.message)
 
     # Configure automatic retries for transient errors (like 429)
     retry_options = types.HttpRetryOptions(
@@ -223,15 +258,15 @@ async def chat_endpoint(request: ChatRequest):
 
         return {"content": "I apologize, but I reached my maximum reasoning steps. Please try rephrasing."}
         
-    except errors.ClientError as e:
-        if e.code == 429:
+    except Exception as e:
+        if errors is not None and isinstance(e, errors.ClientError) and e.code == 429:
             # Specific handling for Rate Limit / Quota Exhaustion
             raise HTTPException(
                 status_code=429,
                 detail="יש עומס על שירות ה-AI כרגע (מכסת השימוש הגיעה למקסימום). אנא נסו שוב בעוד כמה דקות."
             )
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+        if errors is not None and isinstance(e, errors.ClientError):
+            raise HTTPException(status_code=400, detail=str(e))
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="שגיאת שרת פנימית. אנא נסו שוב מאוחר יותר.")

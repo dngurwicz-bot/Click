@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     APP_PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Feature flags
+    BILLING_ENABLED: bool = False
+
     # AI
     GEMINI_API_KEY: str = ""
 

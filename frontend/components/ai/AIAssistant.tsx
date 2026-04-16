@@ -8,6 +8,12 @@ interface Message {
   content: string;
 }
 
+interface AIStatus {
+  available: boolean;
+  reason?: string | null;
+  message: string;
+}
+
 export function AIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -15,6 +21,7 @@ export function AIAssistant() {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [status, setStatus] = useState<AIStatus | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -27,8 +34,31 @@ export function AIAssistant() {
     }
   }, [messages, isOpen]);
 
+  useEffect(() => {
+    fetch("/api/ai/status")
+      .then(async (res) => {
+        const data = (await res.json()) as AIStatus;
+        setStatus(data);
+        if (!data.available) {
+          setMessages([
+            {
+              role: "assistant",
+              content: `${data.message} אחרי שמגדירים מפתח AI ומרימים מחדש את השרת, אני חוזר לעבוד.`,
+            },
+          ]);
+        }
+      })
+      .catch(() => {
+        setStatus({
+          available: false,
+          reason: "status_error",
+          message: "לא הצלחתי לבדוק את זמינות רכיב ה-AI כרגע.",
+        });
+      });
+  }, []);
+
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || status?.available === false) return;
 
     const userMessage = { role: "user" as const, content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
@@ -138,20 +168,23 @@ export function AIAssistant() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="שאל אותי משהו..."
+              placeholder={status?.available === false ? "רכיב ה-AI כבוי כרגע" : "שאל אותי משהו..."}
               className="flex-1 px-4 py-2 bg-slate-100 border-none rounded-full outline-none focus:ring-2 focus:ring-brand-500/50 transition-shadow text-sm"
               dir="rtl"
+              disabled={isLoading || status?.available === false}
             />
             <button
               onClick={handleSend}
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || !input.trim() || status?.available === false}
               className="p-2.5 bg-brand-500 text-white rounded-full hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex-shrink-0"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
           <div className="text-center">
-            <span className="text-[10px] text-slate-400">AI can make mistakes. Verify important info.</span>
+            <span className="text-[10px] text-slate-400">
+              {status?.available === false ? status.message : "AI can make mistakes. Verify important info."}
+            </span>
           </div>
         </div>
       </div>

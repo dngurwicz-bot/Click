@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
+import { BILLING_ENABLED } from "@/lib/features";
 import { supabase } from "@/lib/supabase";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
@@ -92,19 +93,6 @@ interface TenantBillingSummary {
   pending_total_ils: string;
   invoiced_total_ils: string;
   paid_total_ils: string;
-}
-
-interface SeatChangeLogItem {
-  id: string;
-  subscription_module_id: string;
-  module_slug: string;
-  old_seats: number;
-  new_seats: number;
-  effective_date: string;
-  billed: boolean;
-  billing_period?: string | null;
-  proration_charge_id?: string | null;
-  created_at: string;
 }
 
 interface TenantInvoiceDetail extends TenantInvoiceItem {
@@ -2108,7 +2096,6 @@ export default function TenantDetailPage() {
   const [history,     setHistory]     = useState<TenantHistory | null>(null);
   const [billing,     setBilling]     = useState<TenantBillingSummary | null>(null);
   const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
-  const [seatChanges, setSeatChanges] = useState<SeatChangeLogItem[]>([]);
   const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<TenantInvoiceItem | null>(null);
@@ -2130,11 +2117,14 @@ export default function TenantDetailPage() {
       api.get<TenantOut>(`/api/admin/tenants/${id}`),
       api.get<TenantHistory>(`/api/admin/tenants/${id}/history`),
       api.get<TemplateOption[]>("/api/admin/templates").catch(() => []),
-      api.get<TenantBillingSummary>(`/api/admin/tenants/${id}/billing`).catch(() => null),
-      api.get<SeatChangeLogItem[]>(`/api/admin/tenants/${id}/seat-changes`).catch(() => []),
-      api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null),
+      (BILLING_ENABLED
+        ? api.get<TenantBillingSummary>(`/api/admin/tenants/${id}/billing`).catch(() => null)
+        : Promise.resolve(null)),
+      (BILLING_ENABLED
+        ? api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null)
+        : Promise.resolve(null)),
     ])
-      .then(([t, h, templates, b, sc, settings]) => { setTenant(t); setHistory(h); setTemplateOptions(templates); setBilling(b); setSeatChanges(sc ?? []); setBillingSettings(settings); })
+      .then(([t, h, templates, b, settings]) => { setTenant(t); setHistory(h); setTemplateOptions(templates); setBilling(b); setBillingSettings(settings); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
@@ -2259,41 +2249,6 @@ export default function TenantDetailPage() {
     emptyMessage: "אין חשבוניות — ניתן ליצור מדף ניהול חיובים",
   };
 
-  const unbilledSeatChanges = seatChanges.filter((c) => !c.billed);
-  const seatChangesTab: ChildTab = {
-    id: "seat_changes",
-    label: unbilledSeatChanges.length > 0
-      ? `שינויי מושבים (${unbilledSeatChanges.length} ממתינים)`
-      : "שינויי מושבים",
-    columns: [
-      { key: "date",       label: "תאריך שינוי" },
-      { key: "module",     label: "מודול" },
-      { key: "change",     label: "שינוי" },
-      { key: "billed",     label: "חויב" },
-      { key: "period",     label: "תקופת חיוב" },
-    ],
-    rows: seatChanges.map((c) => ({
-      date:   fmtDate(c.effective_date),
-      module: c.module_slug,
-      change: (
-        <span className={`tabular-nums font-semibold ${c.new_seats > c.old_seats ? "text-blue-700" : "text-amber-700"}`}>
-          {c.old_seats} → {c.new_seats}
-          {c.new_seats > c.old_seats
-            ? <span className="mr-1 text-xs text-blue-500">(+{c.new_seats - c.old_seats})</span>
-            : <span className="mr-1 text-xs text-amber-500">({c.new_seats - c.old_seats})</span>}
-        </span>
-      ),
-      billed: c.billed
-        ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs font-medium">✓ חויב</span>
-        : <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 text-xs font-medium">ממתין לחיוב</span>,
-      period: c.billing_period ? periodShort(c.billing_period) : "—",
-    })),
-    toolbarNote: unbilledSeatChanges.length > 0
-      ? `⚠️ ${unbilledSeatChanges.length} שינויי מושבים ממתינים לחיוב פרו-ריטה — יחויבו בהרצת "יצירת חיובים" הבאה`
-      : undefined,
-    emptyMessage: "אין שינויי מושבים — השינויים נרשמים אוטומטית בעת עדכון מושבים למודול",
-  };
-
   const childTabs: ChildTab[] = history ? [
     { ...buildIdentityTab(history.identity,         (i) => openEdit("identity",     i)), onAddClick: () => openAddNew("identity") },
     { ...buildContactTab(history.contact,           (i) => openEdit("contact",      i)), onAddClick: () => openAddNew("contact") },
@@ -2308,9 +2263,7 @@ export default function TenantDetailPage() {
       },
     ) : billingChargesTab,
     { ...buildStatusTab(history.status,             (i) => openEdit("status",       i)), onAddClick: () => openAddNew("status") },
-    billingChargesTab,
-    billingInvoicesTab,
-    seatChangesTab,
+    ...(BILLING_ENABLED ? [billingChargesTab, billingInvoicesTab] : []),
   ] : [];
 
   return (

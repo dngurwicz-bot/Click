@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api, canView, getStoredUser, logout, type UserInfo } from "@/lib/api";
+import { BILLING_ENABLED } from "@/lib/features";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
 
@@ -47,7 +48,7 @@ const ADMIN_LINKS = [
   { href: "/admin/tenants", label: "ארגונים", icon: Building2 },
   { href: "/admin/lookups", label: "רשימות", icon: List },
   { href: "/admin/modules", label: "מודולים", icon: Package },
-  { href: "/admin/billing", label: "חיובים", icon: Receipt },
+  ...(BILLING_ENABLED ? [{ href: "/admin/billing", label: "חיובים", icon: Receipt }] : []),
   { href: "/admin/users", label: "משתמשים", icon: Users },
   { href: "/admin/templates", label: "תבניות", icon: FileText },
   { href: "/admin/audit", label: "Audit", icon: ClipboardList },
@@ -494,6 +495,7 @@ function BillingMenuGroup({
   pathname: string | null;
   onNavigate: (href: string) => void;
 }) {
+  if (!BILLING_ENABLED) return null;
   const Icon = item.icon;
   const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
   return (
@@ -551,6 +553,7 @@ function MobileBillingGroup({
   pathname: string | null;
   onNavigate: (href: string) => void;
 }) {
+  if (!BILLING_ENABLED) return null;
   const Icon = item.icon;
   const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
   return (
