@@ -159,12 +159,12 @@ export function canView(resource: string): boolean {
   const user = getStoredUser();
   if (!user) return false;
   if (user.role === "super_admin") return true;
-  return user.permissions.some((p) => p.resource === resource && p.can_view);
+  return user.permissions?.some((p) => p.resource === resource && p.can_view) ?? false;
 }
 
 export function canEdit(resource: string): boolean {
   const user = getStoredUser();
   if (!user) return false;
   if (user.role === "super_admin") return true;
-  return user.permissions.some((p) => p.resource === resource && p.can_edit);
+  return user.permissions?.some((p) => p.resource === resource && p.can_edit) ?? false;
 }

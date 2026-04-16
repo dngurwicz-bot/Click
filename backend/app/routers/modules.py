@@ -25,15 +25,15 @@ async def list_modules(
     result = await db.execute(select(Module).order_by(Module.sort_order))
     modules = result.scalars().all()
 
+    # ── BATCH LOAD: Current prices for all modules ──
+    price_result = await db.execute(
+        select(ModulePrice).where(ModulePrice.valid_to.is_(None))
+    )
+    price_map = {p.module_slug: p for p in price_result.scalars().all()}
+
     items = []
     for module in modules:
-        price_result = await db.execute(
-            select(ModulePrice)
-            .where(ModulePrice.module_slug == module.slug)
-            .where(ModulePrice.valid_to.is_(None))
-            .limit(1)
-        )
-        current_price = price_result.scalar_one_or_none()
+        current_price = price_map.get(module.slug)
         item = ModuleWithPrice.model_validate(module)
         item.current_price = ModulePriceOut.model_validate(current_price) if current_price else None
         items.append(item)
@@ -76,15 +76,17 @@ async def get_module_pricing_recommendations(
     result = await db.execute(select(Module).order_by(Module.sort_order))
     modules = result.scalars().all()
 
-    current_prices: dict[str, ModulePrice | None] = {}
-    for module in modules:
-        price_result = await db.execute(
-            select(ModulePrice)
-            .where(ModulePrice.module_slug == module.slug)
-            .where(ModulePrice.valid_to.is_(None))
-            .limit(1)
-        )
-        current_prices[module.slug] = price_result.scalar_one_or_none()
+    module_slugs = [m.slug for m in modules]
+    price_result = await db.execute(
+        select(ModulePrice)
+        .where(ModulePrice.module_slug.in_(module_slugs))
+        .where(ModulePrice.valid_to.is_(None))
+    )
+    prices = price_result.scalars().all()
+    current_prices: dict[str, ModulePrice | None] = {p.module_slug: p for p in prices}
+    for m in modules:
+        if m.slug not in current_prices:
+            current_prices[m.slug] = None
 
     return build_module_pricing_research(current_prices)
 

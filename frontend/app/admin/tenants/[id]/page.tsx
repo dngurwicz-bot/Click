@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
-import { X, Camera, Building2, AlertCircle, CheckCircle2, Send, FileText } from "lucide-react";
+import { X, Camera, Building2, AlertCircle, CheckCircle2, Send, FileText, Printer } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ interface SeatChangeLogItem {
 interface TenantInvoiceDetail extends TenantInvoiceItem {
   vat_pct: string; discount_ils: string; notes?: string; payment_ref?: string;
   tenant_name?: string;
-  lines: { id: string; description: string; quantity: string; unit_price_ils: string; amount_ils: string }[];
+  lines: { id: string; description: string; quantity: string; unit_amount_ils: string; amount_ils: string }[];
 }
 
 interface TemplatePricingSummary {
@@ -170,6 +170,7 @@ interface TenantSyncPreviewOut {
   proposed_monthly_total_ils: string;
   current_setup_total_ils: string;
   proposed_setup_total_ils: string;
+  immediate_proration_total_ils: string;
 }
 
 interface BillingSettingsOut {
@@ -1863,11 +1864,29 @@ function SyncTemplateModal({
               {previewing ? "מחשב..." : "הצג השוואה"}
             </button>
             {preview && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2">
-                <div className="flex items-center justify-between"><span>חודשי נוכחי</span><span className="font-semibold">{fmtIls(preview.current_monthly_total_ils)}</span></div>
-                <div className="flex items-center justify-between"><span>חודשי מוצע</span><span className="font-semibold">{fmtIls(preview.proposed_monthly_total_ils)}</span></div>
-                <div className="flex items-center justify-between border-t border-slate-200 pt-2"><span>דלתא</span><span className="font-bold">{fmtIls(String(parseFloat(preview.proposed_monthly_total_ils) - parseFloat(preview.current_monthly_total_ils)))}</span></div>
-              </div>
+              <>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2">
+                  <div className="flex items-center justify-between"><span>חודשי נוכחי</span><span className="font-semibold">{fmtIls(preview.current_monthly_total_ils)}</span></div>
+                  <div className="flex items-center justify-between"><span>חודשי מוצע</span><span className="font-semibold">{fmtIls(preview.proposed_monthly_total_ils)}</span></div>
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-2"><span>דלתא</span><span className="font-bold">{fmtIls(String(parseFloat(preview.proposed_monthly_total_ils) - parseFloat(preview.current_monthly_total_ils)))}</span></div>
+                </div>
+                {parseFloat(preview.immediate_proration_total_ils) !== 0 && (
+                  <div className={`mt-3 rounded-xl border p-4 text-xs ${parseFloat(preview.immediate_proration_total_ils) > 0 ? 'bg-orange-50 border-orange-200 text-orange-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+                    <div className="flex items-center gap-2 font-bold mb-1">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-sm shrink-0">
+                        {parseFloat(preview.immediate_proration_total_ils) > 0 ? '!' : '✓'}
+                      </span>
+                      {parseFloat(preview.immediate_proration_total_ils) > 0 ? 'חיוב יחסי מיידי' : 'זיכוי יחסי מיידי'}
+                    </div>
+                    <p className="opacity-90 mt-1 mb-2">
+                      {parseFloat(preview.immediate_proration_total_ils) > 0 
+                        ? 'בשל השינוי באמצע החודש, המערכת תיצור חיוב מיידי יחסי עבור הימים שנותרו עד לתחילת מחזור החיוב הבא של הלקוח.'
+                        : 'בשל הפחתת מושבים או מודולים, המערכת תיצור זיכוי יחסי באופן מיידי על הימים שנותרו בחודש הנוכחי.'}
+                    </p>
+                    <div className="text-lg font-black">{fmtIls(preview.immediate_proration_total_ils)}</div>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div className="rounded-xl border border-slate-200 bg-white">
@@ -1930,7 +1949,7 @@ function InvoiceViewModal({
   const [payRef,  setPayRef]  = useState("");
 
   useEffect(() => {
-    api.get<TenantInvoiceDetail>(`/api/admin/billing/invoices/${initial.id}`)
+    api.get<TenantInvoiceDetail>(`/api/admin/billing/documents/${initial.id}`)
       .then(setInv).catch(console.error).finally(() => setLoading(false));
   }, [initial.id]);
 
@@ -2023,7 +2042,7 @@ function InvoiceViewModal({
                       className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:border-brand-400 text-right" />
                   </div>
                 </div>
-                <button onClick={() => doAction(`/api/admin/billing/invoices/${initial.id}/mark-paid`, { payment_date: payDate, payment_ref: payRef || null })}
+                <button onClick={() => doAction(`/api/admin/billing/documents/${initial.id}/mark-paid`, { payment_date: payDate, payment_ref: payRef || null })}
                   disabled={saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold disabled:opacity-50">
                   <CheckCircle2 size={12} /> {saving ? "שומר..." : "אישור תשלום"}
@@ -2042,12 +2061,16 @@ function InvoiceViewModal({
         {inv && (
           <div className="flex gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
             {inv.status === "draft" && (
-              <button onClick={() => doAction(`/api/admin/billing/invoices/${initial.id}/finalize`, {})}
+              <button onClick={() => doAction(`/api/admin/billing/documents/${initial.id}/finalize`, {})}
                 disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold disabled:opacity-50">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-brand-600 hover:bg-brand-700 text-white rounded font-semibold disabled:opacity-50">
                 <Send size={12} /> שלח ללקוח
               </button>
             )}
+            <button onClick={() => window.open(`/admin/billing/documents/${initial.id}/print`, '_blank')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-900 text-white rounded font-semibold">
+              <Printer size={12} /> הדפס / יצא ל-PDF
+            </button>
             {(inv.status === "sent" || inv.status === "overdue") && !showPaid && (
               <button onClick={() => setShowPaid(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold">
@@ -2204,7 +2227,7 @@ export default function TenantDetailPage() {
         pdf: (
           <div className="flex items-center gap-2">
             <a
-              href={`/api/admin/billing/invoices/${inv.id}/pdf`}
+              href={`/api/admin/billing/documents/${inv.id}/pdf`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -2215,7 +2238,7 @@ export default function TenantDetailPage() {
             </a>
             {billingSettings?.can_render_tax_invoice ? (
               <a
-                href={`/api/admin/billing/invoices/${inv.id}/pdf?variant=tax`}
+                href={`/api/admin/billing/documents/${inv.id}/pdf?variant=tax`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}

@@ -339,14 +339,14 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
   const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl my-4 max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" dir="rtl"
+    <>
+      <div className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={onClose} />
+      <div className="fixed inset-y-0 left-0 z-50 w-full max-w-2xl flex flex-col bg-white shadow-[20px_0_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-left duration-300" dir="rtl"
            onClick={() => setDropdownOpen(false)}>
 
         {/* Header */}
-        <div className={`flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg ${headerBg}`}>
-          <h2 className={`text-sm font-bold ${headerText}`}>{modalTitle}</h2>
+        <div className={`flex items-center justify-between px-6 py-4 border-b border-slate-200 ${headerBg}`}>
+          <h2 className={`text-base font-bold ${headerText}`}>{modalTitle}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
 
@@ -785,7 +785,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

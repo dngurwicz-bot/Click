@@ -125,11 +125,31 @@ async def list_users(
 ):
     result = await db.execute(select(AdminUser).order_by(AdminUser.created_at.desc()))
     users = result.scalars().all()
+    user_ids = [u.id for u in users]
+
+    # ── BATCH LOAD: All permissions for all users ──
+    perm_res = await db.execute(
+        select(AdminUserPermission).where(AdminUserPermission.user_id.in_(user_ids))
+    )
+    perms_all = perm_res.scalars().all()
+    perms_by_user = {}
+    for p in perms_all:
+        perms_by_user.setdefault(p.user_id, {})[p.resource] = p
+
     out = []
     for u in users:
-        perms = await _load_permissions(db, u.id)
+        user_perms = perms_by_user.get(u.id, {})
+        # Always return all resources in fixed order
+        perms_out = [
+            PermissionOut(
+                resource=res,
+                can_view=user_perms[res].can_view if res in user_perms else False,
+                can_edit=user_perms[res].can_edit if res in user_perms else False,
+            )
+            for res in ALL_RESOURCES
+        ]
         obj = AdminUserOut.model_validate(u)
-        obj.permissions = perms
+        obj.permissions = perms_out
         out.append(obj)
     return out
 

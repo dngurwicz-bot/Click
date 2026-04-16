@@ -50,6 +50,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.middleware.auth import require_permission, CurrentUser
 from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine, Quote, QuoteLine
+from app.models.billing_engine import BillingLedgerEntry, BillingDocument, BillingDocumentLine
 from app.models.module import Module, ModulePrice
 from app.models.seat_change_log import SeatChangeLog
 from app.models.tenant import Tenant, TenantAddress, TenantIdentity, TenantSubscription, TenantStatus
@@ -906,29 +907,38 @@ async def mark_paid(
     return await _build_invoice_out(db, invoice)
 
 
-async def _load_invoice_render_payload(
+async def _load_document_render_payload(
     db: AsyncSession,
-    invoice_id: uuid.UUID,
+    document_id: uuid.UUID,
 ):
-    result = await db.execute(sa.select(Invoice).where(Invoice.id == invoice_id))
-    invoice = result.scalar_one_or_none()
-    if not invoice:
-        raise HTTPException(404, detail={"error": "Invoice not found", "code": "NOT_FOUND"})
+    result = await db.execute(sa.select(BillingDocument).where(BillingDocument.id == document_id))
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(404, detail={"error": "Document not found", "code": "NOT_FOUND"})
 
     lines_result = await db.execute(
-        sa.select(InvoiceLine)
-        .where(InvoiceLine.invoice_id == invoice.id)
-        .order_by(InvoiceLine.sort_order)
+        sa.select(BillingDocumentLine)
+        .where(BillingDocumentLine.document_id == document.id)
+        .order_by(BillingDocumentLine.sort_order)
     )
     lines = lines_result.scalars().all()
-    tenant_identity = await get_active(db, TenantIdentity, invoice.tenant_id, as_of=invoice.issue_date)
-    tenant_address_row = await get_active(db, TenantAddress, invoice.tenant_id, as_of=invoice.issue_date)
+    tenant_identity = await get_active(db, TenantIdentity, document.tenant_id, as_of=document.issue_date)
+    tenant_address_row = await get_active(db, TenantAddress, document.tenant_id, as_of=document.issue_date)
     _, issuer_payload, _ = await _get_billing_settings_payload(db)
 
+    # Attach fake billing_period to satisfy render_invoice_pdf
+    if not hasattr(document, "billing_period"):
+        document.billing_period = (document.issue_date or document.created_at.date()).strftime("%Y-%m")
+
+    # Rename unit_amount_ils to unit_price_ils for render_invoice_pdf backward compatibility
+    for line in lines:
+        if not hasattr(line, "unit_price_ils"):
+            line.unit_price_ils = line.unit_amount_ils
+
     return {
-        "invoice": invoice,
+        "invoice": document,
         "lines": lines,
-        "tenant_name": tenant_identity.name_he if tenant_identity else str(invoice.tenant_id),
+        "tenant_name": tenant_identity.name_he if tenant_identity else str(document.tenant_id),
         "tenant_tax_id": tenant_identity.tax_id if tenant_identity else None,
         "tenant_address": (
             f"{tenant_address_row.street}, {tenant_address_row.city}"
@@ -1022,14 +1032,14 @@ async def preview_invoice_html(
     return HTMLResponse(content=html_str)
 
 
-@router.get("/api/admin/billing/invoices/{invoice_id}/pdf")
-async def download_invoice_pdf(
-    invoice_id: uuid.UUID,
+@router.get("/api/admin/billing/documents/{document_id}/pdf")
+async def download_document_pdf(
+    document_id: uuid.UUID,
     variant: str = Query("statement"),
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
-    payload = await _load_invoice_render_payload(db, invoice_id)
+    payload = await _load_document_render_payload(db, document_id)
     try:
         pdf_bytes = render_invoice_pdf(
             invoice=payload["invoice"],
@@ -1064,7 +1074,7 @@ async def download_invoice_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{payload["invoice"].invoice_number}-{filename_suffix}.pdf"',
+            "Content-Disposition": f'inline; filename="{payload["invoice"].invoice_number or payload["invoice"].document_number}-{filename_suffix}.pdf"',
         },
     )
 
@@ -1134,31 +1144,73 @@ async def get_tenant_billing(
     if not t_result.scalar_one_or_none():
         raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
 
-    charges_result = await db.execute(
-        sa.select(BillingCharge)
-        .where(BillingCharge.tenant_id == tenant_id)
-        .order_by(BillingCharge.billing_period.desc(), BillingCharge.created_at.desc())
+    entries_result = await db.execute(
+        sa.select(BillingLedgerEntry)
+        .where(BillingLedgerEntry.tenant_id == tenant_id)
+        .order_by(BillingLedgerEntry.created_at.desc())
     )
-    charges = charges_result.scalars().all()
+    entries = entries_result.scalars().all()
 
-    invoices_result = await db.execute(
-        sa.select(Invoice)
-        .where(Invoice.tenant_id == tenant_id)
-        .order_by(Invoice.issue_date.desc())
+    documents_result = await db.execute(
+        sa.select(BillingDocument)
+        .where(BillingDocument.tenant_id == tenant_id)
+        .order_by(BillingDocument.issue_date.desc().nulls_last())
     )
-    invoices = invoices_result.scalars().all()
+    documents = documents_result.scalars().all()
 
-    charges_out = [await _enrich_charge(db, c) for c in charges]
-    invoices_out = [await _enrich_invoice_list(db, inv) for inv in invoices]
+    charges_out = []
+    status_map = {"open": "pending", "documented": "invoiced", "void": "cancelled"}
+    for entry in entries:
+        period_str = entry.service_period_start.strftime("%Y-%m") if entry.service_period_start else entry.created_at.strftime("%Y-%m")
+        charge_out = BillingChargeOut(
+            id=entry.id,
+            tenant_id=entry.tenant_id,
+            billing_period=period_str,
+            charge_type=entry.entry_type,
+            module_slug=entry.module_slug,
+            description=entry.description,
+            quantity=entry.quantity,
+            unit_price_ils=entry.unit_amount_ils,
+            amount_ils=entry.gross_amount_ils,
+            discount_pct=entry.discount_pct,
+            amount_after_discount_ils=entry.net_amount_ils,
+            status=status_map.get(entry.status, "pending"),
+            invoice_id=entry.document_id,
+            notes=None,
+            created_at=entry.created_at,
+        )
+        charge_out.tenant_name = await _tenant_name(db, entry.tenant_id)
+        charge_out.module_name = await _module_name(db, entry.module_slug)
+        charges_out.append(charge_out)
+
+    invoices_out = []
+    for doc in documents:
+        period_str = doc.issue_date.strftime("%Y-%m") if doc.issue_date else doc.created_at.strftime("%Y-%m")
+        inv_item = InvoiceListItem(
+            id=doc.id,
+            invoice_number=doc.document_number or "טיוטה",
+            tenant_id=doc.tenant_id,
+            billing_period=period_str,
+            issue_date=doc.issue_date or doc.created_at.date(),
+            due_date=doc.due_date or doc.created_at.date(),
+            subtotal_ils=doc.subtotal_ils,
+            discount_ils=doc.discount_ils,
+            vat_ils=doc.vat_ils,
+            total_ils=doc.total_ils,
+            status=doc.status,
+            payment_date=doc.paid_at,
+        )
+        inv_item.tenant_name = await _tenant_name(db, doc.tenant_id)
+        invoices_out.append(inv_item)
 
     pending_total = _round2(_sum_decimal(
-        c.amount_after_discount_ils for c in charges if c.status == "pending"
+        e.net_amount_ils for e in entries if e.status == "open"
     ))
     invoiced_total = _round2(_sum_decimal(
-        inv.total_ils for inv in invoices if inv.status not in ("cancelled",)
+        doc.total_ils for doc in documents if doc.status not in ("void", "draft_blocked")
     ))
     paid_total = _round2(_sum_decimal(
-        inv.total_ils for inv in invoices if inv.status == "paid"
+        doc.total_ils for doc in documents if doc.status == "paid"
     ))
 
     return TenantBillingSummary(

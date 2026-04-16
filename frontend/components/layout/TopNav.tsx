@@ -73,8 +73,8 @@ const BILLING_SUB_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
 
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
 
-function UserAvatar({ name }: { name: string }) {
-  const initials = name
+function UserAvatar({ name }: { name: string | null | undefined }) {
+  const initials = (name || "")
     .split(" ")
     .map((part) => part[0])
     .slice(0, 2)

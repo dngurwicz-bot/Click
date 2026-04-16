@@ -158,6 +158,8 @@ class BillingSettings(Base):
     issuer_logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     footer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    invoice_primary_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#1e3a8a")
+    invoice_layout: Mapped[str] = mapped_column(String(32), nullable=False, default="modern")
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)

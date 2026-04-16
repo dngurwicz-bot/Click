@@ -129,6 +129,8 @@ export interface BillingSettingsOut {
   issuer_logo_url?: string | null;
   payment_instructions?: string | null;
   footer_text?: string | null;
+  invoice_primary_color: string;
+  invoice_layout: string;
   missing_tax_fields: string[];
   can_render_tax_invoice: boolean;
   source: string;
@@ -562,7 +564,27 @@ export function BillingSettingsPanel({
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.payment_instructions ?? ""} onChange={(e) => setField("payment_instructions", e.target.value)} placeholder="הוראות תשלום" />
         <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.footer_text ?? ""} onChange={(e) => setField("footer_text", e.target.value)} placeholder="טקסט footer למסמך" />
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+      <div className="mt-6 border-t border-slate-200 pt-4">
+        <h3 className="text-sm font-semibold text-slate-800">עיצוב חשבונית</h3>
+        <p className="mt-1 text-xs text-slate-500 mb-3">עיצוב זה חל על הפקת חשבוניות מערכת למשתמשים.</p>
+        <div className="grid gap-3 md:grid-cols-2 max-w-lg">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">צבע ראשי (קוד HEX)</label>
+            <div className="flex gap-2">
+              <input type="color" className="w-8 h-8 p-0 border-0 rounded cursor-pointer" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} />
+              <input className="rounded-md flex-1 border border-slate-300 px-3 py-2 text-xs font-mono" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} placeholder="#HexCode" />
+            </div>
+          </div>
+          <div>
+             <label className="block text-xs font-semibold text-slate-600 mb-1">תבנית עיצוב</label>
+             <select className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-xs bg-white" value={value.invoice_layout || "modern"} onChange={(e) => setField("invoice_layout", e.target.value)}>
+                <option value="modern">מודרני (מומלץ)</option>
+                <option value="classic">קלאסי (נקי)</option>
+             </select>
+          </div>
+        </div>
+      </div>
+      <div className="mt-6 flex flex-wrap items-center gap-2 text-xs">
         <span className={`rounded-full px-2.5 py-0.5 font-medium ${value.can_render_tax_invoice ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
           {value.can_render_tax_invoice ? "חשבונית מס זמינה" : "חשבונית מס חסומה"}
         </span>

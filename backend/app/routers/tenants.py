@@ -14,6 +14,8 @@ from app.models.tenant import (
     TenantSubscription, TenantSubscriptionModule, TenantStatus,
 )
 from app.models.module import OrgTemplate, OrgTemplateDefault, OrgTemplateModule
+from app.models.billing_engine import BillingContract
+from app.services.billing_engine import cycle_bounds, remaining_proration_ratio
 from app.schemas.tenant import (
     TenantCreateRequest, TenantUpdateRequest, TenantOut,
     TenantListItem, TenantIdentityOut, TenantContactOut,
@@ -345,6 +347,26 @@ async def _preview_template_sync(
             )
         )
 
+    contract_res = await db.execute(select(BillingContract).where(BillingContract.tenant_id == tenant_id))
+    contract = contract_res.scalar_one_or_none()
+    proration_ratio = Decimal("1")
+    if contract:
+        cycle_start, cycle_end = cycle_bounds(contract, effective_from)
+        proration_ratio = remaining_proration_ratio(effective_from, cycle_start, cycle_end)
+
+    immediate_proration_total = Decimal("0")
+    for d in diffs:
+        monthly_diff = d.proposed_monthly_ils - d.current_monthly_ils
+        immediate_proration_total += (monthly_diff * proration_ratio)
+
+        setup_diff = d.proposed_setup_ils - d.current_setup_ils
+        if setup_diff > 0:
+            immediate_proration_total += setup_diff
+
+    # apply discount ratio to proration
+    discount_multiplier = Decimal("1") - (proposed_discount / Decimal("100"))
+    immediate_proration_total = round(immediate_proration_total * discount_multiplier, 2)
+
     return TenantSyncPreviewOut(
         tenant_id=tenant_id,
         template_id=template.id,
@@ -358,6 +380,7 @@ async def _preview_template_sync(
         proposed_monthly_total_ils=proposed_monthly_total,
         current_setup_total_ils=current_setup_total,
         proposed_setup_total_ils=proposed_setup_total,
+        immediate_proration_total_ils=immediate_proration_total,
     )
 
 
@@ -368,22 +391,58 @@ async def list_tenants(
 ):
     result = await db.execute(select(Tenant).order_by(Tenant.created_at.desc()))
     tenants = result.scalars().all()
+    tenant_ids = [t.tenant_id for t in tenants]
+
+    if not tenant_ids:
+        return []
+
+    today = date.today()
+
+    # ── BATCH LOAD: Identities ──
+    identity_res = await db.execute(
+        select(TenantIdentity).where(TenantIdentity.tenant_id.in_(tenant_ids))
+        .where(TenantIdentity.valid_from <= today)
+        .where((TenantIdentity.valid_to.is_(None)) | (TenantIdentity.valid_to >= today))
+    )
+    identity_map = {r.tenant_id: r for r in identity_res.scalars().all()}
+
+    # ── BATCH LOAD: Statuses ──
+    status_res = await db.execute(
+        select(TenantStatus).where(TenantStatus.tenant_id.in_(tenant_ids))
+        .where(TenantStatus.valid_from <= today)
+        .where((TenantStatus.valid_to.is_(None)) | (TenantStatus.valid_to >= today))
+    )
+    status_map = {r.tenant_id: r for r in status_res.scalars().all()}
+
+    # ── BATCH LOAD: Subscriptions ──
+    sub_res = await db.execute(
+        select(TenantSubscription).where(TenantSubscription.tenant_id.in_(tenant_ids))
+        .where(TenantSubscription.valid_from <= today)
+        .where((TenantSubscription.valid_to.is_(None)) | (TenantSubscription.valid_to >= today))
+    )
+    all_subs = sub_res.scalars().all()
+    sub_map = {s.tenant_id: s for s in all_subs}
+
+    # ── BATCH LOAD: Templates ──
+    template_ids = {s.template_id for s in all_subs if s.template_id}
+    template_map = {}
+    if template_ids:
+        template_res = await db.execute(select(OrgTemplate).where(OrgTemplate.id.in_(template_ids)))
+        template_map = {t.id: t for t in template_res.scalars().all()}
 
     items = []
     for tenant in tenants:
-        identity = await get_active(db, TenantIdentity, tenant.tenant_id)
-        status_row = await get_active(db, TenantStatus, tenant.tenant_id)
-        subscription = await get_active(db, TenantSubscription, tenant.tenant_id)
-        template_name = None
-        if subscription and subscription.template_id:
-            template = await db.get(OrgTemplate, subscription.template_id)
-            template_name = template.name if template else None
+        identity = identity_map.get(tenant.tenant_id)
+        status_row = status_map.get(tenant.tenant_id)
+        subscription = sub_map.get(tenant.tenant_id)
+        template = template_map.get(subscription.template_id) if subscription and subscription.template_id else None
+
         items.append(TenantListItem(
             tenant_id=tenant.tenant_id,
             org_number=tenant.org_number,
             name_he=identity.name_he if identity else "—",
             status=status_row.status if status_row else "unknown",
-            template_name=template_name,
+            template_name=template.name if template else None,
             created_at=tenant.created_at,
         ))
     return items

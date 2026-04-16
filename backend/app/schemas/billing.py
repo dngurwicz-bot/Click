@@ -230,6 +230,8 @@ class BillingSettingsBase(BaseModel):
     issuer_logo_url: Optional[str] = None
     payment_instructions: Optional[str] = None
     footer_text: Optional[str] = None
+    invoice_primary_color: str = "#1e3a8a"
+    invoice_layout: str = "modern"
 
 
 class BillingSettingsUpdate(BillingSettingsBase):

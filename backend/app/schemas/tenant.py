@@ -285,6 +285,7 @@ class TenantSyncPreviewOut(BaseModel):
     proposed_monthly_total_ils: Decimal = Decimal("0")
     current_setup_total_ils: Decimal = Decimal("0")
     proposed_setup_total_ils: Decimal = Decimal("0")
+    immediate_proration_total_ils: Decimal = Decimal("0")
 
 
 class TenantApplyTemplateRequest(BaseModel):
