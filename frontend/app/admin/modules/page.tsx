@@ -70,14 +70,14 @@ export default function ModulesPage() {
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center text-slate-400 text-sm">לא נמצאו מודולים</div>
           ) : (
-            <table className="w-full text-xs border-collapse">
+            <table className="admin-data-table w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
+                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">בתוקף מ-</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap w-8">סדר</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">שם המודול</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מזהה</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מחיר נוכחי</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">בתוקף מ-</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">סטטוס</th>
                 </tr>
               </thead>
@@ -89,6 +89,11 @@ export default function ModulesPage() {
                       ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
                     onClick={() => router.push(`/admin/modules/${m.slug}`)}
                   >
+                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
+                      {m.current_price?.valid_from
+                        ? new Date(m.current_price.valid_from).toLocaleDateString("he-IL")
+                        : "—"}
+                    </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-400 text-center">{m.sort_order}</td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-800 font-medium">
                       {m.name}
@@ -98,11 +103,6 @@ export default function ModulesPage() {
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-500 font-mono text-[11px]">{m.slug}</td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-600">{fmt(m.current_price?.base_price_ils)}</td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
-                      {m.current_price?.valid_from
-                        ? new Date(m.current_price.valid_from).toLocaleDateString("he-IL")
-                        : "—"}
-                    </td>
                     <td className="px-4 py-2 border-b border-slate-100">
                       {m.is_active ? (
                         <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700">

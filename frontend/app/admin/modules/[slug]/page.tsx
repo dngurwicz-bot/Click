@@ -32,6 +32,9 @@ interface PricingRecommendation {
     per_seat_ils: string;
     included_seats: number;
     setup_fee_ils: string;
+    overage_per_seat_ils?: string;
+    pricing_policy_note?: string;
+    pricing_summary_text?: string;
     valid_from: string;
   };
   recommended_price: {
@@ -39,6 +42,9 @@ interface PricingRecommendation {
     per_seat_ils: string;
     included_seats: number;
     setup_fee_ils: string;
+    overage_per_seat_ils?: string;
+    pricing_policy_note?: string;
+    pricing_summary_text?: string;
   };
   current_monthly_at_benchmark_ils: string;
   recommended_monthly_at_benchmark_ils: string;
@@ -63,6 +69,9 @@ interface ModulePriceOut {
   per_seat_ils: string;
   included_seats: number;
   setup_fee_ils: string;
+  overage_per_seat_ils?: string;
+  pricing_policy_note?: string;
+  pricing_summary_text?: string;
   valid_from: string;
   valid_to?: string;
   created_at: string;
@@ -97,6 +106,18 @@ function fmtDate(d?: string | null) {
 function toInput(d?: string | null): string {
   if (!d) return "";
   return d.slice(0, 10);
+}
+
+function pricingSummaryText(price?: {
+  base_price_ils: string;
+  per_seat_ils: string;
+  included_seats: number;
+  overage_per_seat_ils?: string;
+  pricing_summary_text?: string;
+} | null) {
+  if (!price) return "ללא מחירון פעיל.";
+  if (price.pricing_summary_text) return price.pricing_summary_text;
+  return `${fmt(price.base_price_ils)} לחודש כולל ${price.included_seats} מושבים, ואז ${fmt(price.overage_per_seat_ils ?? price.per_seat_ils)} לכל מושב נוסף.`;
 }
 
 // ── Edit Module Modal ──────────────────────────────────────────────────────────
@@ -474,7 +495,7 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
             <div className={`space-y-3 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
               {[
                 { key: "base_price_ils",  label: "מחיר בסיס (₪)",   required: true },
-                { key: "per_seat_ils",    label: "מחיר למושב (₪)" },
+                { key: "per_seat_ils",    label: "מחיר למושב נוסף (₪)" },
                 { key: "included_seats",  label: "מושבים כלולים" },
                 { key: "setup_fee_ils",   label: "דמי הקמה (₪)" },
               ].map(({ key, label, required }) => (
@@ -776,7 +797,7 @@ export default function ModuleDetailPage() {
                   <div className="text-slate-500 text-[11px] mb-1">נוכחי ל-{benchmark.benchmark_team_size} משתמשים</div>
                   <div className="font-bold text-slate-800 text-sm">{fmt(benchmark.current_monthly_at_benchmark_ils)}/חודש</div>
                   <div className="text-[11px] text-slate-500 mt-1">
-                    בסיס {fmt(benchmark.current_price?.base_price_ils)} | מושב {fmt(benchmark.current_price?.per_seat_ils)} | כלול {benchmark.current_price?.included_seats ?? 0}
+                    {pricingSummaryText(benchmark.current_price)}
                   </div>
                   <div className="text-[11px] text-slate-400">הקמה {fmt(benchmark.current_price?.setup_fee_ils)}</div>
                 </div>
@@ -784,7 +805,7 @@ export default function ModuleDetailPage() {
                   <div className="text-brand-600 text-[11px] mb-1">מומלץ ל-{benchmark.benchmark_team_size} משתמשים</div>
                   <div className="font-bold text-brand-800 text-sm">{fmt(benchmark.recommended_monthly_at_benchmark_ils)}/חודש</div>
                   <div className="text-[11px] text-slate-500 mt-1">
-                    בסיס {fmt(benchmark.recommended_price.base_price_ils)} | מושב {fmt(benchmark.recommended_price.per_seat_ils)} | כלול {benchmark.recommended_price.included_seats}
+                    {pricingSummaryText(benchmark.recommended_price)}
                   </div>
                   <div className="text-[11px] text-slate-400">הקמה {fmt(benchmark.recommended_price.setup_fee_ils)}</div>
                 </div>
@@ -807,7 +828,7 @@ export default function ModuleDetailPage() {
               <div>
                 <div className="text-[11px] font-semibold text-slate-500 mb-1">מקורות השוואה</div>
                 <div className="rounded-lg border border-slate-200 overflow-hidden">
-                  <table className="w-full text-[11px]">
+                  <table className="admin-data-table w-full text-[11px]">
                     <thead className="bg-slate-100 text-slate-500">
                       <tr>
                         <th className="text-right px-3 py-1.5 font-semibold">ספק / מוצר</th>
@@ -853,7 +874,7 @@ export default function ModuleDetailPage() {
     _valid_from_raw: p.valid_from,
     _valid_to_raw: p.valid_to ?? null,
     base_price_ils: fmt(p.base_price_ils),
-    per_seat_ils:   fmt(p.per_seat_ils),
+    per_seat_ils:   fmt(p.overage_per_seat_ils ?? p.per_seat_ils),
     included_seats: p.included_seats,
     setup_fee_ils:  fmt(p.setup_fee_ils),
     valid_from:     fmtDate(p.valid_from),
@@ -887,12 +908,12 @@ export default function ModuleDetailPage() {
               id: "prices",
               label: "מחירון",
               columns: [
-                { key: "base_price_ils",  label: "מחיר בסיס",      width: "w-32" },
-                { key: "per_seat_ils",    label: "למושב",           width: "w-28" },
-                { key: "included_seats",  label: "מושבים כלולים",  width: "w-32" },
-                { key: "setup_fee_ils",   label: "דמי הקמה",        width: "w-28" },
                 { key: "valid_from",      label: "תוקף מתאריך",     width: "w-28" },
                 { key: "valid_to",        label: "תוקף עד",         width: "w-28" },
+                { key: "base_price_ils",  label: "מחיר בסיס",      width: "w-32" },
+                { key: "per_seat_ils",    label: "למושב נוסף",      width: "w-28" },
+                { key: "included_seats",  label: "מושבים כלולים",  width: "w-32" },
+                { key: "setup_fee_ils",   label: "דמי הקמה",        width: "w-28" },
               ],
               rows: priceRows as Record<string, React.ReactNode>[],
               temporalFilter: true,

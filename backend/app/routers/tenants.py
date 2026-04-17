@@ -1,12 +1,15 @@
 import uuid
 import sqlalchemy as sa
+import httpx
+import re
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
 
 from app.database import get_db
+from app.config import get_settings
 from app.middleware.auth import require_permission, CurrentUser
 from app.models.admin_user import AdminUser
 from app.models.tenant import (
@@ -46,12 +49,125 @@ from app.services.tenant_status_windows import ensure_tenant_status_allows_range
 from app.models.seat_change_log import SeatChangeLog
 
 router = APIRouter(prefix="/api/admin/tenants", tags=["tenants"])
+settings = get_settings()
+
+_LOGO_BUCKET = "logos"
+_LOGO_CONTENT_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "image/gif",
+    "image/svg+xml",
+}
+_LOGO_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _resolve_user_label(user_lookup: dict[uuid.UUID, str], user_id: uuid.UUID | None) -> str | None:
     if user_id is None:
         return None
     return user_lookup.get(user_id, "—")
+
+
+def _sanitize_storage_segment(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip())
+    return cleaned.strip("-._") or uuid.uuid4().hex
+
+
+def _sanitize_extension(value: str | None, content_type: str | None) -> str:
+    if value:
+        cleaned = re.sub(r"[^a-zA-Z0-9]+", "", value.lower())
+        if cleaned:
+            return cleaned
+    if content_type == "image/png":
+        return "png"
+    if content_type in {"image/jpeg", "image/jpg"}:
+        return "jpg"
+    if content_type == "image/webp":
+        return "webp"
+    if content_type == "image/gif":
+        return "gif"
+    if content_type == "image/svg+xml":
+        return "svg"
+    return "png"
+
+
+async def _ensure_public_logo_bucket() -> None:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
+        )
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            f"{settings.SUPABASE_URL}/storage/v1/bucket",
+            headers={
+                "apikey": settings.SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"id": _LOGO_BUCKET, "name": _LOGO_BUCKET, "public": True},
+        )
+    if response.status_code in (200, 201):
+        return
+    if response.status_code == 409:
+        return
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail={
+            "error": body.get("message") or body.get("error") or "Failed to ensure logo bucket",
+            "code": "STORAGE_BUCKET_ERROR",
+        },
+    )
+
+
+async def _upload_logo_to_storage(*, content: bytes, content_type: str, storage_key: str, extension: str) -> str:
+    await _ensure_public_logo_bucket()
+
+    object_path = f"tenants/{_sanitize_storage_segment(storage_key)}/logo.{_sanitize_extension(extension, content_type)}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
+            headers={
+                "apikey": settings.SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+            content=content,
+        )
+        if response.status_code not in (200, 201):
+            if response.status_code == 400:
+                response = await client.put(
+                    f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
+                    headers={
+                        "apikey": settings.SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                        "Content-Type": content_type,
+                        "x-upsert": "true",
+                    },
+                    content=content,
+                )
+
+    if response.status_code not in (200, 201):
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": body.get("message") or body.get("error") or "Failed to upload logo",
+                "code": "STORAGE_UPLOAD_ERROR",
+            },
+        )
+
+    return f"{settings.SUPABASE_URL}/storage/v1/object/public/{_LOGO_BUCKET}/{object_path}?t={int(datetime.now(timezone.utc).timestamp())}"
 
 
 async def _load_user_lookup(db: AsyncSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
@@ -507,6 +623,41 @@ async def create_tenant(
     await db.commit()
     await db.refresh(tenant)
     return await _build_tenant_out(tenant, db)
+
+
+@router.post("/logo-upload")
+async def upload_tenant_logo(
+    file: UploadFile = File(...),
+    storage_key: str = Form(...),
+    extension: str | None = Form(default=None),
+    _: CurrentUser = Depends(require_permission("tenants", "edit")),
+):
+    content_type = (file.content_type or "").lower()
+    if content_type not in _LOGO_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "סוג קובץ לא נתמך", "code": "INVALID_FILE_TYPE"},
+        )
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "הקובץ ריק", "code": "EMPTY_FILE"},
+        )
+    if len(content) > _LOGO_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "הקובץ גדול מדי", "code": "FILE_TOO_LARGE"},
+        )
+
+    public_url = await _upload_logo_to_storage(
+        content=content,
+        content_type=content_type,
+        storage_key=storage_key,
+        extension=extension or "",
+    )
+    return {"public_url": public_url}
 
 
 @router.get("/{tenant_id}", response_model=TenantOut)

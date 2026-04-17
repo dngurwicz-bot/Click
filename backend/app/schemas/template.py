@@ -1,8 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 import uuid
 from datetime import date, datetime
 from typing import Optional
 from decimal import Decimal
+
+from app.services.pricing_policy import pricing_policy_note, pricing_summary_text
 
 
 class TemplateModulePricing(BaseModel):
@@ -17,6 +19,30 @@ class TemplateModulePricing(BaseModel):
     billable_seats: int = 0
     recurring_total_ils: Decimal = Decimal("0")
     setup_total_ils: Decimal = Decimal("0")
+
+    @computed_field
+    @property
+    def pricing_model(self) -> str:
+        return "base_included_overage"
+
+    @computed_field
+    @property
+    def overage_per_seat_ils(self) -> Decimal:
+        return self.per_seat_ils
+
+    @computed_field
+    @property
+    def pricing_policy_note(self) -> str:
+        return pricing_policy_note(self.included_seats)
+
+    @computed_field
+    @property
+    def pricing_summary_text(self) -> str:
+        return pricing_summary_text(
+            base_price_ils=self.base_price_ils,
+            included_seats=self.included_seats,
+            overage_per_seat_ils=self.per_seat_ils,
+        )
 
 
 class TemplatePricingSummary(BaseModel):

@@ -83,6 +83,7 @@ export default function AuditPage() {
               <select
                 value={action}
                 onChange={(event) => setAction(event.target.value)}
+                aria-label="פעולה"
                 className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-28"
               >
                 <option value="">כל הפעולות</option>
@@ -93,6 +94,7 @@ export default function AuditPage() {
               <select
                 value={entityType}
                 onChange={(event) => setEntityType(event.target.value)}
+                aria-label="סוג ישות"
                 className="px-2 py-1.5 text-xs border border-slate-300 bg-white rounded-md focus:outline-none focus:border-brand-400 text-right w-36"
               >
                 <option value="">כל הישויות</option>
@@ -120,7 +122,7 @@ export default function AuditPage() {
           ) : rows.length === 0 ? (
             <div className="py-20 text-center text-slate-400 text-sm">לא נמצאו פעולות Audit</div>
           ) : (
-            <table className="w-full text-xs border-collapse">
+            <table className="admin-data-table w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
                   {["תאריך", "פעולה", "ישות", "שחקן", "מזהה רשומה", "IP"].map((header) => (

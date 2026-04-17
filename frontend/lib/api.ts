@@ -17,6 +17,14 @@ function removeCookie(name: string) {
   document.cookie = `${name}=; path=/; max-age=0; SameSite=Strict`;
 }
 
+function getAuthHeaders(options?: RequestInit): HeadersInit {
+  const token = getCookie("click_token");
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options?.headers ?? {}),
+  };
+}
+
 export interface ApiError {
   error: string;
   code: string;
@@ -82,6 +90,16 @@ async function request<T>(
       .catch(() => ({ detail: { error: "Unknown error", code: "UNKNOWN" } }));
     const detail = body.detail ?? body;
     const fallbackMessage = `Request failed with status ${res.status}`;
+
+    if (res.status === 401 && token && path !== "/api/auth/login") {
+      logout();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const loginUrl = `/login?reason=session_expired&next=${encodeURIComponent(next)}`;
+        window.location.replace(loginUrl);
+      }
+    }
+
     throw new ApiRequestError({
       message: getErrorMessage(detail, fallbackMessage),
       status: res.status,
@@ -101,6 +119,29 @@ export const api = {
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  postForm: async <T>(path: string, body: FormData): Promise<T> => {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      body,
+      headers: getAuthHeaders(),
+    });
+
+    if (!res.ok) {
+      const payload = await res
+        .json()
+        .catch(() => ({ detail: { error: "Unknown error", code: "UNKNOWN" } }));
+      const detail = payload.detail ?? payload;
+      throw new ApiRequestError({
+        message: getErrorMessage(detail, `Request failed with status ${res.status}`),
+        status: res.status,
+        code: typeof detail?.code === "string" ? detail.code : undefined,
+        error: typeof detail?.error === "string" ? detail.error : undefined,
+        details: detail,
+      });
+    }
+
+    return res.json() as Promise<T>;
+  },
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────

@@ -375,12 +375,14 @@ function UserModal({
                         <span className="text-xs text-slate-700 font-medium">{r.label}</span>
                         <div className="flex justify-center">
                           <button type="button" onClick={() => handlePermChange(r.key, "can_view", !perm.can_view)}
+                            aria-label="צפיה"
                             className={`rounded-full transition-colors duration-200 relative ${perm.can_view ? "bg-brand-500" : "bg-slate-200"}`} style={{ width: 32, height: 18 }}>
                             <span className={`absolute top-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${perm.can_view ? "translate-x-[14px]" : "translate-x-0.5"}`} style={{ width: 14, height: 14 }} />
                           </button>
                         </div>
                         <div className="flex justify-center">
                           <button type="button" onClick={() => handlePermChange(r.key, "can_edit", !perm.can_edit)}
+                            aria-label="עריכה"
                             className={`relative rounded-full transition-colors duration-200 ${perm.can_edit ? "bg-emerald-500" : "bg-slate-200"}`} style={{ width: 32, height: 18 }}>
                             <span className={`absolute top-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${perm.can_edit ? "translate-x-[14px]" : "translate-x-0.5"}`} style={{ width: 14, height: 14 }} />
                           </button>
@@ -532,12 +534,14 @@ function UserModal({
                           <span className="text-xs text-slate-700 font-medium">{r.label}</span>
                           <div className="flex justify-center">
                             <button type="button" onClick={() => handlePermChange(r.key, "can_view", !perm.can_view)}
+                              aria-label="צפיה"
                               className={`rounded-full transition-colors duration-200 relative ${perm.can_view ? "bg-brand-500" : "bg-slate-200"}`} style={{ width: 32, height: 18 }}>
                               <span className={`absolute top-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${perm.can_view ? "translate-x-[14px]" : "translate-x-0.5"}`} style={{ width: 14, height: 14 }} />
                             </button>
                           </div>
                           <div className="flex justify-center">
                             <button type="button" onClick={() => handlePermChange(r.key, "can_edit", !perm.can_edit)}
+                              aria-label="עריכה"
                               className={`relative rounded-full transition-colors duration-200 ${perm.can_edit ? "bg-emerald-500" : "bg-slate-200"}`} style={{ width: 32, height: 18 }}>
                               <span className={`absolute top-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${perm.can_edit ? "translate-x-[14px]" : "translate-x-0.5"}`} style={{ width: 14, height: 14 }} />
                             </button>
@@ -779,16 +783,16 @@ export default function AdminUsersPage() {
           ) : filtered.length === 0 ? (
             <div className="py-20 text-center text-slate-400 text-sm">לא נמצאו משתמשים</div>
           ) : (
-            <table className="w-full text-xs border-collapse">
+            <table className="admin-data-table w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
+                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף מ</th>
+                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף עד</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">שם</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">דוא״ל</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תפקיד</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">הרשאות</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">כניסה אחרונה</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף מ</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף עד</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">סטטוס</th>
                   <th className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 w-20" />
                 </tr>
@@ -802,6 +806,16 @@ export default function AdminUsersPage() {
                       className={`transition-colors group
                         ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
                     >
+                      <td className="px-4 py-2 border-b border-slate-100 text-slate-500 whitespace-nowrap">
+                        {fmtDate(u.valid_from)}
+                      </td>
+                      <td className="px-4 py-2 border-b border-slate-100 whitespace-nowrap">
+                        {u.valid_to ? (
+                          <span className="text-slate-500">{fmtDate(u.valid_to)}</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700">פעיל</span>
+                        )}
+                      </td>
                       <td className="px-4 py-2 border-b border-slate-100 text-slate-800 font-medium">
                         <div className="flex items-center gap-2">
                           {u.id === currentUserId && (
@@ -852,16 +866,6 @@ export default function AdminUsersPage() {
                         {u.last_login_at
                           ? new Date(u.last_login_at).toLocaleString("he-IL")
                           : "לא נכנס"}
-                      </td>
-                      <td className="px-4 py-2 border-b border-slate-100 text-slate-500 whitespace-nowrap">
-                        {fmtDate(u.valid_from)}
-                      </td>
-                      <td className="px-4 py-2 border-b border-slate-100 whitespace-nowrap">
-                        {u.valid_to ? (
-                          <span className="text-slate-500">{fmtDate(u.valid_to)}</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700">פעיל</span>
-                        )}
                       </td>
                       <td className="px-4 py-2 border-b border-slate-100">
                         {u.is_active ? (

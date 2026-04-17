@@ -1,15 +1,14 @@
 "use client";
 
-import Image from "next/image";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
-import { supabase } from "@/lib/supabase";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
+import { LogoUploadField } from "@/components/tenants/LogoUploadField";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
-import { X, Camera, Building2, AlertCircle, CheckCircle2, Send, FileText, Printer } from "lucide-react";
+import { X, AlertCircle, CheckCircle2, Send, FileText, Printer } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -130,6 +129,9 @@ interface ModuleOption {
     per_seat_ils: string;
     included_seats: number;
     setup_fee_ils: string;
+    overage_per_seat_ils?: string;
+    pricing_policy_note?: string;
+    pricing_summary_text?: string;
     valid_from: string;
   } | null;
 }
@@ -174,6 +176,11 @@ const ENTITY_LABELS: Record<string, string> = {
 };
 const STATUS_LABELS: Record<string, string> = {
   trial: "ניסיון", active: "פעיל", suspended: "מושהה", cancelled: "מבוטל",
+};
+const BILLING_CYCLE_LABELS: Record<string, string> = {
+  monthly: "חודשי",
+  quarterly: "רבעוני",
+  yearly: "שנתי",
 };
 const STATUS_TYPE_MAP: Record<string, "active" | "trial" | "suspended" | "cancelled"> = {
   active: "active", trial: "trial", suspended: "suspended", cancelled: "cancelled",
@@ -252,6 +259,7 @@ interface EditModalProps {
   allRows: Array<{ valid_from: string; valid_to?: string }>;
   statusRows: TenantStatusOut[];
   tenantId: string;
+  templateOptions?: { value: string; label: string }[];
   onClose: () => void;
   onSaved: () => void;
   initialMode?: EditMode;
@@ -262,6 +270,7 @@ type FieldDef = {
   type?: "text" | "email" | "select" | "checkbox" | "textarea";
   options?: { value: string; label: string }[];
   lookupKey?: string;
+  helpText?: string;
 };
 
 const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
@@ -271,7 +280,7 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
     { key: "tax_id",        label: 'ח.פ / ע.מ',        required: true },
     { key: "entity_type",   label: "סוג ישות",           required: true, lookupKey: "entity_type" },
     { key: "industry_code", label: "ענף תעשייה" },
-    { key: "logo_url",      label: "לוגו (URL)" },
+    { key: "logo_url",      label: "לוגו" },
   ],
   contact: [
     { key: "contact_type", label: "סוג",         required: true, lookupKey: "contact_type" },
@@ -290,15 +299,13 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
       options: [{ value: "main", label: "ראשית" }, { value: "mailing", label: "דואר" }, { value: "branch", label: "סניף" }] },
   ],
   subscription: [
-    { key: "template_id", label: "תבנית" },
+    { key: "template_id", label: "תבנית", type: "select" },
     { key: "billing_cycle", label: "מחזור חיוב",  required: true, type: "select",
       options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "yearly", label: "שנתי" }] },
     { key: "currency",      label: "מטבע",         required: true, type: "select",
       options: [{ value: "ILS", label: "₪ שקל" }, { value: "USD", label: "$ דולר" }, { value: "EUR", label: "€ יורו" }] },
-    { key: "seat_count",     label: "מושבים" },
-    { key: "selected_module_slugs", label: "מודולים" },
     { key: "discount_pct",   label: "הנחה %" },
-    { key: "is_price_locked", label: "מחיר נעול", type: "checkbox" },
+    { key: "is_price_locked", label: "מחיר נעול", type: "checkbox", helpText: "כשזה פעיל, המחיר ללקוח נשאר קבוע ולא מתעדכן אוטומטית לפי מחירון חדש." },
   ],
   status: [
     { key: "status", label: "סטטוס", required: true, type: "select",
@@ -310,7 +317,7 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   identity: "פרטי זהות", contact: "פרטי קשר", address: "כתובת",
-  subscription: "מנוי", status: "סטטוס",
+  subscription: "הגדרות מנוי", status: "סטטוס",
 };
 
 // Action codes matching Hilan spec: ' '=הוספה, '2'=עדכון, '4'=קביעה, '3'=ביטול
@@ -377,7 +384,7 @@ function LookupInput({ value, options, onChange }: {
 
 // ── EditModal ─────────────────────────────────────────────────────────────────
 
-function EditModal({ section, initialData, initialValidFrom, initialValidTo, allRows, statusRows, tenantId, onClose, onSaved, initialMode }: EditModalProps) {
+function EditModal({ section, initialData, initialValidFrom, initialValidTo, allRows, statusRows, tenantId, templateOptions = [], onClose, onSaved, initialMode }: EditModalProps) {
   const [mode, setMode]           = useState<EditMode>(initialMode ?? "update");
   const [form, setForm]           = useState<Record<string, string>>(initialData);
   const [validFrom, setValidFrom] = useState<string>(initialValidFrom);
@@ -387,7 +394,15 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [lookupOptions, setLookupOptions] = useState<Record<string, { value: string; label: string }[]>>({});
 
-  const fields = SECTION_FIELDS[section];
+  const fields = SECTION_FIELDS[section].map((field) => {
+    if (section === "subscription" && field.key === "template_id") {
+      return {
+        ...field,
+        options: [{ value: "", label: "ללא תבנית" }, ...templateOptions],
+      };
+    }
+    return field;
+  });
 
   // Fetch lookup lists needed for this section
   useEffect(() => {
@@ -617,49 +632,65 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
           {/* Section fields — hidden in add mode when blocked */}
           <div className={`space-y-3 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
             {fields.map((f) => (
-              <div key={f.key} className="flex items-center gap-3">
+              <div key={f.key} className="flex items-start gap-3">
                 <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
                   {f.required && <span className="text-red-500 ml-0.5">*</span>}
                   {f.label}
                 </label>
-                {f.lookupKey ? (
-                  <LookupInput
-                    value={form[f.key] ?? ""}
-                    options={lookupOptions[f.lookupKey] ?? []}
-                    onChange={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))}
-                  />
-                ) : f.type === "checkbox" ? (
-                  <input
-                    type="checkbox"
-                    checked={form[f.key] === "true"}
-                    onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: String(e.target.checked) }))}
-                    className="w-4 h-4 rounded border-slate-300 text-brand-600"
-                  />
-                ) : f.type === "textarea" ? (
-                  <textarea
-                    value={form[f.key] ?? ""}
-                    onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    rows={2}
-                    className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 resize-none"
-                  />
-                ) : f.type === "select" && f.options ? (
-                  <select
-                    value={form[f.key] ?? ""}
-                    onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 bg-white"
-                  >
-                    {f.options.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={f.type ?? "text"}
-                    value={form[f.key] ?? ""}
-                    onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400"
-                  />
-                )}
+                <div className="flex-1">
+                  {f.lookupKey ? (
+                    <LookupInput
+                      value={form[f.key] ?? ""}
+                      options={lookupOptions[f.lookupKey] ?? []}
+                      onChange={(v) => setForm((prev) => ({ ...prev, [f.key]: v }))}
+                    />
+                  ) : f.type === "checkbox" ? (
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="checkbox"
+                        checked={form[f.key] === "true"}
+                        onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: String(e.target.checked) }))}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-600"
+                      />
+                      <span className="text-xs text-slate-500">{form[f.key] === "true" ? "פעיל" : "כבוי"}</span>
+                    </div>
+                  ) : f.type === "textarea" ? (
+                    <textarea
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      rows={2}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400 resize-none"
+                    />
+                  ) : section === "identity" && f.key === "logo_url" ? (
+                    <LogoUploadField
+                      value={form[f.key] ?? ""}
+                      onChange={(value) => setForm((prev) => ({ ...prev, [f.key]: value }))}
+                      storageKey={tenantId}
+                      label=""
+                      hint="העלה קובץ תמונה עבור לוגו הארגון"
+                    />
+                  ) : f.type === "select" && f.options ? (
+                    <select
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400 bg-white"
+                    >
+                      {f.options.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={f.type ?? "text"}
+                      value={form[f.key] ?? ""}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400"
+                    />
+                  )}
+                  {f.helpText ? (
+                    <p className="mt-1 text-[11px] leading-4 text-slate-500">{f.helpText}</p>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
@@ -837,106 +868,6 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
 
 // ─── Parent form ──────────────────────────────────────────────────────────────
 
-function LogoUpload({ tenantId, logoUrl, onUploaded }: {
-  tenantId: string;
-  logoUrl?: string;
-  onUploaded: (url: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [preview, setPreview]     = useState<string | undefined>(logoUrl);
-  const [errMsg,  setErrMsg]      = useState<string | null>(null);
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setErrMsg(null);
-
-    // 1. Show instant local preview while uploading
-    const localUrl = URL.createObjectURL(file);
-    setPreview(localUrl);
-
-    try {
-      const ext  = file.name.split(".").pop() ?? "png";
-      const path = `tenants/${tenantId}/logo.${ext}`;
-
-      // 2. Ensure the bucket exists (create if missing)
-      const { data: buckets } = await supabase.storage.listBuckets();
-      const bucketExists = buckets?.some((b) => b.name === "logos");
-      if (!bucketExists) {
-        await supabase.storage.createBucket("logos", { public: true });
-      }
-
-      // 3. Upload file
-      const { error: upErr } = await supabase.storage
-        .from("logos")
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) throw upErr;
-
-      // 4. Get public URL and notify parent
-      const { data } = supabase.storage.from("logos").getPublicUrl(path);
-      const publicUrl = data.publicUrl + `?t=${Date.now()}`;
-      setPreview(publicUrl);
-      onUploaded(publicUrl);
-    } catch (err: unknown) {
-      const msg = (err as { message?: string })?.message ?? "שגיאה בהעלאה";
-      setErrMsg(msg);
-      setPreview(logoUrl); // revert to original
-    } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-1 shrink-0">
-      <div
-        className="relative group cursor-pointer"
-        onClick={() => !uploading && inputRef.current?.click()}
-        title="לחץ להעלאת לוגו"
-      >
-        {/* Logo box */}
-        <div className="w-[72px] h-[72px] rounded-xl border border-dashed border-slate-300 bg-white
-                        flex items-center justify-center overflow-hidden
-                        group-hover:border-brand-400 transition-colors">
-          {preview ? (
-            <Image src={preview} alt="לוגו" fill sizes="72px" className="object-contain p-1.5" />
-          ) : (
-            <Building2 size={24} className="text-slate-300" />
-          )}
-        </div>
-
-        {/* Spinner overlay while uploading */}
-        {uploading && (
-          <div className="absolute inset-0 rounded-xl bg-white/75 flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-
-        {/* Camera icon on hover (when not uploading) */}
-        {!uploading && (
-          <div className="absolute inset-0 rounded-xl bg-black/25 flex items-center justify-center
-                          opacity-0 group-hover:opacity-100 transition-opacity">
-            <Camera size={20} className="text-white drop-shadow" />
-          </div>
-        )}
-
-        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-      </div>
-
-      {/* Caption / error */}
-      {errMsg ? (
-        <p className="text-[10px] text-red-500 text-center leading-tight max-w-[72px]">{errMsg}</p>
-      ) : (
-        <p className="text-[10px] text-slate-400 text-center leading-tight">
-          {uploading ? "מעלה…" : "לחץ להעלאת לוגו"}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploaded: (url: string) => void }) {
   const statusVal = tenant.status?.status ?? "trial";
   const statusLabel = STATUS_LABELS[statusVal] ?? statusVal;
@@ -945,6 +876,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
   const pageUpdatedAt = tenant.updated_at ?? identityAudit.at;
   const pageUpdatedBy = tenant.updated_by ?? identityAudit.by;
   const billingCycleLabel = tenant.subscription?.billing_cycle ?? "—";
+  const billingCycleDisplay = BILLING_CYCLE_LABELS[billingCycleLabel] ?? billingCycleLabel;
   const activeModules = (tenant.subscription_modules ?? []).filter((item) => item.status === "active");
   const currentValidity = tenant.identity?.valid_to
     ? `${fmtDate(tenant.identity.valid_from)} עד ${fmtDate(tenant.identity.valid_to)}`
@@ -963,10 +895,14 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
       <div className="rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
         <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start">
           <div className="flex items-start gap-4">
-            <LogoUpload
-              tenantId={tenant.tenant_id}
-              logoUrl={tenant.identity?.logo_url}
-              onUploaded={onLogoUploaded}
+            <LogoUploadField
+              storageKey={tenant.tenant_id}
+              value={tenant.identity?.logo_url}
+              onChange={onLogoUploaded}
+              size={72}
+              label=""
+              hint="לחץ להעלאת לוגו"
+              className="shrink-0"
             />
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -986,7 +922,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
                   מ.ארגון {tenant.org_number}
                 </span>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
-                  מחזור {billingCycleLabel}
+                  מחזור {billingCycleDisplay}
                 </span>
               </div>
             </div>
@@ -1174,16 +1110,16 @@ function buildSubscriptionTab(
 ): ChildTab {
   const sorted = sortRows(rows);
   return {
-    id: "subscription", label: "מנוי",
+    id: "subscription", label: "הגדרות מנוי",
     columns: [
       { key: "valid_from",    label: "תוקף מ",       required: true },
       { key: "valid_to",      label: "תוקף עד" },
       { key: "template_id",   label: "תבנית" },
       { key: "billing_cycle", label: "מחזור חיוב",   required: true },
-      { key: "seat_count",    label: "מושבים" },
-      { key: "modules",       label: "מודולים" },
       { key: "currency",      label: "מטבע",         required: true },
       { key: "discount_pct",  label: "הנחה %" },
+      { key: "is_price_locked", label: "מחיר נעול" },
+      { key: "next_renewal_at", label: "חידוש הבא" },
       { key: "created_at",    label: "תאריך שינוי" },
       { key: "created_by",    label: "בוצע ע\"י" },
     ],
@@ -1193,11 +1129,11 @@ function buildSubscriptionTab(
       valid_from:    fmtDate(r.valid_from),
       valid_to:      r.valid_to ? fmtDate(r.valid_to) : "—",
       template_id:   (r.template_id ? templateNames[r.template_id] : null) ?? "—",
-      billing_cycle: r.billing_cycle,
-      seat_count:    r.seat_count,
-      modules:       r.selected_module_slugs?.length ? r.selected_module_slugs.join(", ") : "—",
+      billing_cycle: BILLING_CYCLE_LABELS[r.billing_cycle] ?? r.billing_cycle,
       currency:      r.currency,
       discount_pct:  `${r.discount_pct}%`,
+      is_price_locked: r.is_price_locked ? "כן" : "לא",
+      next_renewal_at: fmtDate(r.next_renewal_at),
       created_at:    fmtDateTime(audit.at),
       created_by:    audit.by ?? "—",
       _current:      !r.valid_to,
@@ -1257,17 +1193,17 @@ function buildSubscriptionModulesTab(
   });
   return {
     id: "subscription_modules",
-    label: "מודולי מנוי",
+    label: "מודולים בפועל",
     columns: [
+      { key: "valid_from", label: "מתאריך", required: true },
+      { key: "valid_to",   label: "בתוקף עד" },
       { key: "module_slug", label: "מודול" },
       { key: "source_type", label: "מקור" },
       { key: "status", label: "סטטוס" },
-      { key: "valid_from", label: "מתאריך", required: true },
-      { key: "valid_to",   label: "בתוקף עד" },
       { key: "seats", label: "מושבים למודול" },
       { key: "pricing_mode", label: "תמחור" },
       { key: "base_price", label: "בסיס" },
-      { key: "per_seat", label: "למושב" },
+      { key: "per_seat", label: "למושב נוסף" },
       { key: "setup_fee", label: "הקמה" },
       { key: "created_at", label: "עודכן" },
       { key: "created_by", label: "ע״י" },
@@ -1337,7 +1273,7 @@ const fmtIls = (v: string | number) =>
   `₪${parseFloat(String(v)).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const CHARGE_TYPE_LABELS: Record<string, string> = {
-  base_fee: "דמי מנוי", per_seat: "לפי מושב",
+  base_fee: "דמי מנוי", per_seat: "מושבים נוספים",
   setup_fee: "דמי הקמה", addon: "תוספת", credit: "זיכוי", manual: "ידני",
 };
 
@@ -1442,7 +1378,7 @@ function ApplyTemplateModal({
                 <div className="font-semibold text-slate-800">{selectedTemplate.name}</div>
                 {selectedTemplate.description && <div>{selectedTemplate.description}</div>}
                 <div className="grid grid-cols-2 gap-2">
-                  <span>מחזור: {selectedTemplate.default_billing_cycle}</span>
+                  <span>מחזור: {BILLING_CYCLE_LABELS[selectedTemplate.default_billing_cycle] ?? selectedTemplate.default_billing_cycle}</span>
                   <span>מושבים: {selectedTemplate.seat_count}</span>
                   <span>הנחה: {selectedTemplate.discount_pct}%</span>
                 </div>
@@ -1675,7 +1611,7 @@ function SubscriptionModuleModal({
                 <input className={inputCls} type="number" min="0" step="0.01" value={form.override_base_price_ils} onChange={(e) => setField("override_base_price_ils", e.target.value)} disabled={saving} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">מחיר למושב</label>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">מחיר למושב נוסף</label>
                 <input className={inputCls} type="number" min="0" step="0.01" value={form.override_per_seat_ils} onChange={(e) => setField("override_per_seat_ils", e.target.value)} disabled={saving} />
               </div>
               <div>
@@ -1683,7 +1619,7 @@ function SubscriptionModuleModal({
                 <input className={inputCls} type="number" min="0" step="0.01" value={form.override_setup_fee_ils} onChange={(e) => setField("override_setup_fee_ils", e.target.value)} disabled={saving} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">מושבים כלולים</label>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">מושבים כלולים במחיר הבסיס</label>
                 <input className={inputCls} type="number" min="0" value={form.override_included_seats} onChange={(e) => setField("override_included_seats", e.target.value)} disabled={saving} />
               </div>
               <div className="md:col-span-2">
@@ -1880,7 +1816,7 @@ function SyncTemplateModal({
           <div className="rounded-xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800">פערי מודולים ומושבים</div>
             <div className="max-h-[420px] overflow-auto">
-              <table className="w-full text-xs">
+              <table className="admin-data-table w-full text-xs">
                 <thead className="sticky top-0 bg-slate-100 text-slate-600">
                   <tr>
                     <th className="px-3 py-2 text-right">מודול</th>
@@ -1986,7 +1922,7 @@ function InvoiceViewModal({
             </div>
 
             <div className="border border-slate-200 rounded-md overflow-hidden">
-              <table className="w-full text-xs border-collapse">
+              <table className="admin-data-table w-full text-xs border-collapse">
                 <thead>
                   <tr>
                     <th className="text-right px-3 py-2 bg-slate-100 border-b border-slate-200 font-semibold text-slate-600">תיאור</th>
@@ -1997,7 +1933,7 @@ function InvoiceViewModal({
                   {inv.lines.map((line, i) => (
                     <tr key={line.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
                       <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">{line.description}</td>
-                      <td className="px-3 py-1.5 border-b border-slate-100 font-medium tabular-nums text-left">{fmtIls(line.amount_ils)}</td>
+                      <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 font-medium">{fmtIls(line.amount_ils)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2253,13 +2189,17 @@ export default function TenantDetailPage() {
     { ...buildIdentityTab(history.identity,         (i) => openEdit("identity",     i)), onAddClick: () => openAddNew("identity") },
     { ...buildContactTab(history.contact,           (i) => openEdit("contact",      i)), onAddClick: () => openAddNew("contact") },
     { ...buildAddressTab(history.address,           (i) => openEdit("address",      i)), onAddClick: () => openAddNew("address") },
-    { ...buildSubscriptionTab(history.subscription, (i) => openEdit("subscription", i), templateNameMap), onAddClick: () => openAddNew("subscription") },
+    {
+      ...buildSubscriptionTab(history.subscription, (i) => openEdit("subscription", i), templateNameMap),
+      onAddClick: () => openAddNew("subscription"),
+      toolbarNote: "כאן מנהלים את מסגרת המנוי: תבנית, מחזור חיוב, מטבע, הנחה ונעילת מחיר.",
+    },
     tenant ? buildSubscriptionModulesTab(
       history.subscription_modules ?? [],
       (row) => setModuleModalState({ initial: row }),
       () => setModuleModalState({ initial: null }),
       {
-        toolbarNote: "מודולים מנוהלים כעת היסטורית לפי תוקף, כולל פתיחה, עדכון, סגירה ומחיקה.",
+        toolbarNote: "כאן מנהלים אילו מודולים באמת פעילים ללקוח, כולל מושבים, override והיסטוריית תוקף.",
       },
     ) : billingChargesTab,
     { ...buildStatusTab(history.status,             (i) => openEdit("status",       i)), onAddClick: () => openAddNew("status") },
@@ -2317,6 +2257,7 @@ export default function TenantDetailPage() {
           allRows={editState.allRows}
           statusRows={history?.status ?? []}
           tenantId={tenant.tenant_id}
+          templateOptions={templateOptions.map((item) => ({ value: item.id, label: item.name }))}
           onClose={() => setEditState(null)}
           onSaved={loadData}
           initialMode={editState.initialMode}

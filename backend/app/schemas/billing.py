@@ -30,7 +30,7 @@ InvoiceStatus = Literal["draft", "sent", "paid", "overdue", "cancelled"]
 
 CHARGE_TYPE_LABELS: dict[str, str] = {
     "base_fee":  "דמי מנוי",
-    "per_seat":  "לפי מושב",
+    "per_seat":  "מושבים נוספים",
     "setup_fee": "דמי הקמה",
     "addon":     "תוספת",
     "credit":    "זיכוי",

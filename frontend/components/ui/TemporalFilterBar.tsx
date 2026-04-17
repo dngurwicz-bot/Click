@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
   createDefaultTemporalFilterState,
   formatMonthDisplay,
   getTemporalFilterError,
+  normalizeMonthDisplayInput,
   parseMonthInput,
   type TemporalFilterMode,
   type TemporalFilterState,
@@ -26,25 +27,38 @@ function MonthField({
   label,
   value,
   onChange,
+  onBlur,
   error,
   idPrefix,
+  inputRef,
 }: {
   label: string;
   value: string;
   onChange: (nextValue: string) => void;
+  onBlur: () => void;
   error?: string | null;
   idPrefix: string;
+  inputRef?: { current: HTMLInputElement | null };
 }) {
+  function selectInputText(event: React.SyntheticEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    requestAnimationFrame(() => input.select());
+  }
+
   return (
     <div className="flex items-center gap-2">
       <label className="text-xs text-slate-500 whitespace-nowrap" htmlFor={idPrefix}>{label}</label>
       <div className="flex items-center gap-2">
         <input
           id={idPrefix}
+          ref={inputRef}
           inputMode="numeric"
           placeholder="MM/YYYY"
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
+          onFocus={selectInputText}
+          onClick={selectInputText}
           className={`w-24 rounded-md border bg-white px-3 py-1.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-100 ${
             error ? "border-red-300 focus:border-red-400" : "border-slate-300 focus:border-brand-400"
           }`}
@@ -66,6 +80,8 @@ export function TemporalFilterBar({
   rowRanges: RowRange[];
   idPrefix: string;
 }) {
+  const fromMonthInputRef = useRef<HTMLInputElement>(null);
+  const fromDateInputRef = useRef<HTMLInputElement>(null);
   const [monthDrafts, setMonthDrafts] = useState(() => ({
     fromMonth: formatMonthDisplay(filter.fromMonth),
     toMonth: formatMonthDisplay(filter.toMonth),
@@ -77,6 +93,17 @@ export function TemporalFilterBar({
       toMonth: formatMonthDisplay(filter.toMonth),
     });
   }, [filter.fromMonth, filter.toMonth]);
+
+  useEffect(() => {
+    if (filter.mode === "month_range") {
+      requestAnimationFrame(() => fromMonthInputRef.current?.select());
+      return;
+    }
+
+    if (filter.mode === "date_range") {
+      requestAnimationFrame(() => fromDateInputRef.current?.select());
+    }
+  }, [filter.mode]);
 
   void rowRanges;
 
@@ -94,15 +121,8 @@ export function TemporalFilterBar({
     onChange({ ...filter, mode });
   }
 
-  function normalizeMonthDraft(value: string): string {
-    if (/^\d{6}$/.test(value)) {
-      return `${value.slice(0, 2)}/${value.slice(2)}`;
-    }
-    return value;
-  }
-
   function updateMonthDraft(field: "fromMonth" | "toMonth", nextValue: string) {
-    const formatted = normalizeMonthDraft(nextValue);
+    const formatted = normalizeMonthDisplayInput(nextValue);
     setMonthDrafts((prev) => ({ ...prev, [field]: formatted }));
 
     const parsed = parseMonthInput(formatted);
@@ -111,6 +131,25 @@ export function TemporalFilterBar({
     onChange({
       ...filter,
       [field]: parsed.normalized ?? "",
+    });
+  }
+
+  function commitMonthDraft(field: "fromMonth" | "toMonth") {
+    const currentDraft = monthDrafts[field];
+    const parsed = parseMonthInput(currentDraft);
+    if (!parsed.normalized) {
+      setMonthDrafts((prev) => ({
+        ...prev,
+        [field]: formatMonthDisplay(filter[field]),
+      }));
+      return;
+    }
+
+    const formatted = formatMonthDisplay(parsed.normalized);
+    setMonthDrafts((prev) => ({ ...prev, [field]: formatted }));
+    onChange({
+      ...filter,
+      [field]: parsed.normalized,
     });
   }
 
@@ -148,13 +187,16 @@ export function TemporalFilterBar({
               label="מ-"
               value={monthDrafts.fromMonth}
               onChange={(nextValue) => updateMonthDraft("fromMonth", nextValue)}
+              onBlur={() => commitMonthDraft("fromMonth")}
               error={fromMonthParse.error}
               idPrefix={`${idPrefix}-from-month`}
+              inputRef={fromMonthInputRef}
             />
             <MonthField
               label="עד"
               value={monthDrafts.toMonth}
               onChange={(nextValue) => updateMonthDraft("toMonth", nextValue)}
+              onBlur={() => commitMonthDraft("toMonth")}
               error={toMonthParse.error}
               idPrefix={`${idPrefix}-to-month`}
             />
@@ -170,6 +212,7 @@ export function TemporalFilterBar({
                 id={`${idPrefix}-from-date`}
                 value={filter.fromDate}
                 onChange={(v) => onChange({ ...filter, fromDate: v })}
+                inputRef={fromDateInputRef}
                 className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
               />
             </div>

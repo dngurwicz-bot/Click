@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, FormEvent, ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { Logo } from "@/components/layout/Logo";
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
@@ -16,6 +18,8 @@ export default function LoginPage() {
   const [forgotMode,    setForgotMode]    = useState(false);
   const [forgotEmail,   setForgotEmail]   = useState("");
   const [forgotSuccess, setForgotSuccess] = useState(false);
+  const sessionExpired = searchParams.get("reason") === "session_expired";
+  const nextPath = searchParams.get("next") || "/dashboard";
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -38,7 +42,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(normalizedEmail, password);
-      window.location.replace("/dashboard");
+      window.location.replace(nextPath);
     } catch (err: unknown) {
       const apiErr = err as { error?: string; message?: string };
       setError(apiErr.error ?? apiErr.message ?? "שגיאה בהתחברות. נסה שנית.");
@@ -80,6 +84,12 @@ export default function LoginPage() {
           <div className="mb-8">
             <Logo href="" size="md" variant="dark" />
           </div>
+
+          {sessionExpired && !error && (
+            <div className="mb-5 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-right text-sm text-amber-700">
+              פג תוקף ההתחברות שלך. צריך להתחבר מחדש כדי להמשיך.
+            </div>
+          )}
 
           {forgotMode ? (
             forgotSuccess ? (

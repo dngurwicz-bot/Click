@@ -42,6 +42,9 @@ interface ModulePriceOut {
   per_seat_ils: string;
   included_seats: number;
   setup_fee_ils: string;
+  overage_per_seat_ils?: string;
+  pricing_policy_note?: string;
+  pricing_summary_text?: string;
 }
 
 interface ModuleOption {
@@ -63,6 +66,9 @@ interface TemplateModulePricing {
   billable_seats: number;
   recurring_total_ils: string;
   setup_total_ils: string;
+  overage_per_seat_ils?: string;
+  pricing_policy_note?: string;
+  pricing_summary_text?: string;
 }
 
 interface TemplatePricingSummary {
@@ -93,6 +99,13 @@ function fmtDate(d?: string | null): string {
 function fmtMoney(v?: string | number | null): string {
   const n = typeof v === "number" ? v : parseFloat(v ?? "0");
   return `₪${n.toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function pricingSummaryText(price?: ModulePriceOut | null): string {
+  if (!price) return "ללא מחירון פעיל.";
+  if (price.pricing_summary_text) return price.pricing_summary_text;
+  const overage = price.overage_per_seat_ils ?? price.per_seat_ils;
+  return `${fmtMoney(price.base_price_ils)} לחודש כולל ${price.included_seats} מושבים, ואז ${fmtMoney(overage)} לכל מושב נוסף.`;
 }
 
 const BILLING_CYCLE_LABELS: Record<string, string> = {
@@ -334,7 +347,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
     mode === "delete" ? "text-red-800"    :
     mode === "close"  ? "text-orange-800" :
     "text-[#1a3a6e]";
-  const isFullscreen = mode === "add";
+  const isFullscreen = mode === "add" || mode === "update";
 
   const inputCls = "border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 text-right";
   const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
@@ -524,7 +537,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-800">הרכב מודולים</h3>
-                        <p className="text-[11px] text-slate-500">בחירה חזותית עם מחיר חודשי, מושבים כלולים ודמי הקמה לכל מודול.</p>
+                        <p className="text-[11px] text-slate-500">בחירה חזותית עם מחיר בסיס, מושבים כלולים וחיוב רק על מושבים נוספים.</p>
                       </div>
                       <button
                         type="button"
@@ -562,12 +575,15 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                                   <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[10px] text-slate-500">{module.slug}</span>
                                 </div>
                                 {currentPrice ? (
-                                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
-                                    <span>בסיס {fmtMoney(currentPrice.base_price_ils)}</span>
-                                    <span>למושב {fmtMoney(currentPrice.per_seat_ils)}</span>
-                                    <span>הקמה {fmtMoney(currentPrice.setup_fee_ils)}</span>
-                                    <span>כולל {currentPrice.included_seats} מושבים</span>
-                                  </div>
+                                  <>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
+                                      <span>בסיס {fmtMoney(currentPrice.base_price_ils)}</span>
+                                      <span>למושב נוסף {fmtMoney(currentPrice.overage_per_seat_ils ?? currentPrice.per_seat_ils)}</span>
+                                      <span>הקמה {fmtMoney(currentPrice.setup_fee_ils)}</span>
+                                      <span>כולל {currentPrice.included_seats} מושבים</span>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-slate-500">{pricingSummaryText(currentPrice)}</div>
+                                  </>
                                 ) : (
                                   <div className="mt-2 text-[11px] text-amber-600">אין מחיר פעיל למודול זה</div>
                                 )}
@@ -633,9 +649,13 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-500">
                             <span>בסיס {fmtMoney(row.base)}</span>
-                            <span>למושב {fmtMoney(row.perSeat)}</span>
+                            <span>למושב נוסף {fmtMoney(row.perSeat)}</span>
                             <span>מושבים לחיוב {row.billableSeats}</span>
                             <span>הקמה {fmtMoney(row.setup)}</span>
+                            <span>כולל {row.included} מושבים</span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {fmtMoney(row.base)} לחודש כולל {row.included} מושבים, ואז {fmtMoney(row.perSeat)} לכל מושב נוסף.
                           </div>
                           {!row.hasPrice && (
                             <div className="mt-2 text-[11px] text-amber-600">אין מחיר פעיל, לכן המודול לא תורם כרגע לסכום.</div>
@@ -906,9 +926,11 @@ export default function AdminTemplatesPage() {
               {temporalFilterError ? "הטווח שנבחר אינו תקין" : "לא נמצאו תבניות עבור הסינון שנבחר"}
             </div>
           ) : (
-            <table className="w-full text-xs border-collapse" dir="rtl">
+            <table className="admin-data-table w-full text-xs border-collapse" dir="rtl">
               <thead className="sticky top-0 z-10">
                 <tr>
+                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף מ</th>
+                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף עד</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">שם</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מחזור חיוב</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">מושבים</th>
@@ -918,8 +940,6 @@ export default function AdminTemplatesPage() {
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">חודשי</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">הקמה</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תעשייה</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף מ</th>
-                  <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">תוקף עד</th>
                   <th className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">סטטוס</th>
                 </tr>
               </thead>
@@ -931,6 +951,16 @@ export default function AdminTemplatesPage() {
                     className={`transition-colors cursor-pointer
                       ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
                   >
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-500 whitespace-nowrap">
+                      {fmtDate(t.valid_from)}
+                    </td>
+                    <td className="px-4 py-2 border-b border-slate-100 whitespace-nowrap">
+                      {t.valid_to ? (
+                        <span className="text-slate-500">{fmtDate(t.valid_to)}</span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700">פעיל</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-800 font-medium">
                       <div>
                         <div>{t.name}</div>
@@ -942,38 +972,28 @@ export default function AdminTemplatesPage() {
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-600">
                       {BILLING_CYCLE_LABELS[t.default_billing_cycle] ?? t.default_billing_cycle}
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600 text-center">
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-600">
                       {t.seat_count}
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600 text-center">
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-600">
                       {parseFloat(t.discount_pct) > 0 ? `${t.discount_pct}%` : "—"}
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600 text-center">
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-600">
                       {t.trial_days}
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-center">
+                    <td className="px-4 py-2 border-b border-slate-100">
                       <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-medium bg-brand-100 text-brand-700 rounded-full">
                         {t.module_slugs?.length ?? 0}
                       </span>
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {t.pricing_summary ? fmtMoney(t.pricing_summary.recurring_after_discount_ils) : "—"}
                     </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                    <td className="cell-numeric px-4 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {t.pricing_summary ? fmtMoney(t.pricing_summary.setup_after_discount_ils) : "—"}
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
                       {t.target_industry ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500 whitespace-nowrap">
-                      {fmtDate(t.valid_from)}
-                    </td>
-                    <td className="px-4 py-2 border-b border-slate-100 whitespace-nowrap">
-                      {t.valid_to ? (
-                        <span className="text-slate-500">{fmtDate(t.valid_to)}</span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700">פעיל</span>
-                      )}
                     </td>
                     <td className="px-4 py-2 border-b border-slate-100">
                       {t.is_active ? (

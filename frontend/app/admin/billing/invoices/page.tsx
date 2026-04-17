@@ -99,11 +99,13 @@ export default function BillingInvoicesPage() {
             <HebrewMonthPicker
               value={filterPeriod}
               onChange={setFilterPeriod}
+              fieldLabel="תקופת חיוב"
               className="w-36 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             />
             <select
               value={filterTenantId}
               onChange={(event) => setFilterTenantId(event.target.value)}
+              aria-label="ארגון"
               className="w-40 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             >
               <option value="">כל הארגונים</option>
@@ -116,6 +118,7 @@ export default function BillingInvoicesPage() {
             <select
               value={filterStatus}
               onChange={(event) => setFilterStatus(event.target.value)}
+              aria-label="סטטוס"
               className="w-28 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             >
               <option value="">כל הסטטוסים</option>
@@ -136,7 +139,7 @@ export default function BillingInvoicesPage() {
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
           </div>
         ) : (
-          <table className="w-full border-collapse text-xs">
+          <table className="admin-data-table w-full border-collapse text-xs">
             <thead className="sticky top-0 z-10">
               <tr>
                 {["מס' חשבונית", "ארגון", "תקופה", "הנפקה", "לתשלום עד", "לפני מע\"מ", "מע\"מ", "סה\"כ", "סטטוס", "PDF"].map((heading) => (
@@ -172,9 +175,9 @@ export default function BillingInvoicesPage() {
                       <td className={`whitespace-nowrap border-b border-slate-100 px-4 py-2 ${invoice.status === "overdue" ? "font-medium text-red-600" : "text-slate-600"}`}>
                         {fmtDate(invoice.due_date)}
                       </td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left tabular-nums text-slate-600">{fmt(invoice.subtotal_ils)}</td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left tabular-nums text-slate-500">{fmt(invoice.vat_ils)}</td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left font-bold tabular-nums text-slate-800">{fmt(invoice.total_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 text-slate-600">{fmt(invoice.subtotal_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 text-slate-500">{fmt(invoice.vat_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 font-bold text-slate-800">{fmt(invoice.total_ils)}</td>
                       <td className="border-b border-slate-100 px-4 py-2">
                         <StatusBadge cfg={status} />
                       </td>

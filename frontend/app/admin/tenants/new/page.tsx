@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { api, isLoggedIn } from "@/lib/api";
 import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
+import { LogoUploadField } from "@/components/tenants/LogoUploadField";
 import Link from "next/link";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export default function NewTenantPage() {
   const [loading, setLoading] = useState(false);
   const [templates, setTemplates] = useState<TemplateOption[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [logoStorageKey] = useState(() => `draft-${crypto.randomUUID()}`);
 
   const [form, setForm] = useState({
     name_he: "", name_en: "", tax_id: "", entity_type: "company", logo_url: "",
@@ -140,6 +142,14 @@ export default function NewTenantPage() {
                     <option value="gov">ממשלה</option>
                   </select>
                 </Field>
+                <div className="col-span-2">
+                  <LogoUploadField
+                    value={form.logo_url}
+                    onChange={(value) => set("logo_url", value)}
+                    storageKey={logoStorageKey}
+                    hint="העלה קובץ תמונה של לוגו הארגון"
+                  />
+                </div>
               </div>
             </AdminSectionCard>
 

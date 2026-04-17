@@ -52,23 +52,43 @@ export function formatMonthDisplay(month?: string): string {
   return `${monthPart}/${year}`;
 }
 
+function expandShortYear(yearPart: string): string {
+  if (yearPart.length !== 2) return yearPart;
+  const year = Number(yearPart);
+  if (!Number.isInteger(year)) return yearPart;
+  return String(year >= 50 ? 1900 + year : 2000 + year);
+}
+
+export function normalizeMonthDisplayInput(value?: string | null): string {
+  const digits = (value ?? "").replace(/\D/g, "").slice(0, 6);
+  if (digits.length <= 2) return digits;
+
+  const monthPart = digits.slice(0, 2);
+  const yearPart = digits.slice(2);
+  if (yearPart.length === 2) {
+    return `${monthPart}/${expandShortYear(yearPart)}`;
+  }
+
+  return `${monthPart}/${yearPart}`;
+}
+
 export function parseMonthInput(value?: string | null): {
   normalized: string | null;
   error: string | null;
 } {
-  const trimmed = value?.trim() ?? "";
-  if (!trimmed) {
+  const normalizedDisplay = normalizeMonthDisplayInput(value?.trim() ?? "");
+  if (!normalizedDisplay) {
     return { normalized: null, error: null };
   }
 
-  if (!/^\d{2}\/\d{4}$/.test(trimmed)) {
+  if (!/^\d{2}\/\d{4}$/.test(normalizedDisplay)) {
     return {
       normalized: null,
       error: 'יש להזין חודש בפורמט MM/YYYY, למשל 02/2026.',
     };
   }
 
-  const [monthPart, yearPart] = trimmed.split("/");
+  const [monthPart, yearPart] = normalizedDisplay.split("/");
   const month = Number(monthPart);
   const year = Number(yearPart);
 

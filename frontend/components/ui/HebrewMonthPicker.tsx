@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  formatMonthDisplay,
+  normalizeMonthDisplayInput,
+  parseMonthInput,
+} from "@/lib/temporalFilter";
 
 const HE_MONTHS = [
   "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
@@ -20,21 +25,28 @@ export function HebrewMonthPicker({
   onChange,
   className,
   disabled,
+  fieldLabel,
+  inputRef: externalInputRef,
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
   disabled?: boolean;
+  fieldLabel?: string;
+  inputRef?: { current: HTMLInputElement | null };
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [inputElement, setInputNode] = useState<HTMLInputElement | null>(null);
   const now = new Date();
   const parsed = parseMonthValue(value);
   const [pickerYear, setPickerYear] = useState(parsed?.year ?? now.getFullYear());
+  const [inputText, setInputText] = useState(() => formatMonthDisplay(value));
 
   useEffect(() => {
     const p = parseMonthValue(value);
     if (p) setPickerYear(p.year);
+    setInputText(formatMonthDisplay(value));
   }, [value]);
 
   useEffect(() => {
@@ -47,25 +59,84 @@ export function HebrewMonthPicker({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  const displayText = parsed
-    ? `${HE_MONTHS[parsed.month - 1]} ${parsed.year}`
-    : "בחר חודש";
+  function selectInputText() {
+    requestAnimationFrame(() => {
+      const target = externalInputRef?.current ?? inputElement;
+      target?.focus();
+      target?.select();
+    });
+  }
+
+  function setInputElement(node: HTMLInputElement | null) {
+    setInputNode(node);
+    if (externalInputRef) {
+      externalInputRef.current = node;
+    }
+  }
 
   function selectMonth(monthIndex: number) {
-    onChange(`${pickerYear}-${String(monthIndex + 1).padStart(2, "0")}`);
+    const nextValue = `${pickerYear}-${String(monthIndex + 1).padStart(2, "0")}`;
+    onChange(nextValue);
+    setInputText(formatMonthDisplay(nextValue));
     setOpen(false);
+    selectInputText();
+  }
+
+  function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const formatted = normalizeMonthDisplayInput(event.target.value);
+    setInputText(formatted);
+
+    const parsedInput = parseMonthInput(formatted);
+    if (parsedInput.normalized) {
+      onChange(parsedInput.normalized);
+    }
+  }
+
+  function handleInputBlur() {
+    const parsedInput = parseMonthInput(inputText);
+    if (parsedInput.normalized) {
+      const formatted = formatMonthDisplay(parsedInput.normalized);
+      setInputText(formatted);
+      onChange(parsedInput.normalized);
+      return;
+    }
+
+    setInputText(formatMonthDisplay(value));
   }
 
   return (
     <div ref={ref} className="relative">
+      <input
+        type="text"
+        ref={setInputElement}
+        value={inputText}
+        onChange={handleInputChange}
+        onBlur={handleInputBlur}
+        onFocus={selectInputText}
+        onClick={selectInputText}
+        placeholder="MM/YYYY"
+        inputMode="numeric"
+        maxLength={7}
+        disabled={disabled}
+        data-field-label={fieldLabel}
+        aria-label={fieldLabel}
+        className={`${className ?? ""} pl-7 ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+        dir="ltr"
+      />
       <button
         type="button"
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (disabled) return;
+          selectInputText();
+          setOpen((current) => !current);
+        }}
         disabled={disabled}
-        className={`${className ?? ""} ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
-        dir="rtl"
+        tabIndex={-1}
+        className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-600 disabled:cursor-not-allowed"
+        title="בחר חודש"
       >
-        {displayText}
+        <CalendarDays size={13} />
       </button>
 
       {open && (

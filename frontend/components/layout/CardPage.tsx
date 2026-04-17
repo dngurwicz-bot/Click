@@ -261,7 +261,7 @@ export function CardPage({
       <div className="flex-1 overflow-auto bg-white min-h-0">
         {currentChildTab && (
           <>
-            <table className="w-full text-xs border-collapse min-w-max">
+            <table className="admin-data-table w-full text-xs border-collapse min-w-max">
               <thead className="sticky top-0 z-10">
                 <tr>
                   {currentChildTab.columns.map((col) => (

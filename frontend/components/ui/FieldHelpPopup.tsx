@@ -12,9 +12,18 @@ interface HelpState {
 
 /** מוצא את תווית השדה הממוקד על פי עץ ה-DOM */
 function getLabelText(el: Element): string | null {
+  const dataFieldLabel = el.getAttribute("data-field-label");
+  if (dataFieldLabel) return normalizeLabel(dataFieldLabel);
+
   // aria-label
   const aria = el.getAttribute("aria-label");
   if (aria) return normalizeLabel(aria);
+
+  const placeholder = el.getAttribute("placeholder");
+  if (placeholder) return normalizeLabel(placeholder);
+
+  const title = el.getAttribute("title");
+  if (title) return normalizeLabel(title);
 
   // id → label[for]
   const id = el.id;
@@ -81,7 +90,10 @@ export function FieldHelpPopup() {
       }
 
       const active = document.activeElement;
-      if (!active || !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(active.tagName)) return;
+      if (
+        !active ||
+        !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(active.tagName)
+      ) return;
 
       const label = getLabelText(active);
       if (!label) return;
@@ -113,7 +125,8 @@ export function FieldHelpPopup() {
 
   if (!help) return null;
 
-  const data = FIELD_HELP[normalizeLabel(help.label)];
+  const normalizedLabel = normalizeLabel(help.label);
+  const data = FIELD_HELP[normalizedLabel];
 
   return (
     <>
@@ -165,7 +178,9 @@ export function FieldHelpPopup() {
               )}
             </>
           ) : (
-            <p className="text-slate-400 italic">אין מידע עזרה עבור שדה זה.</p>
+            <p className="text-slate-400 italic">
+              אין עדיין עזרה מפורטת עבור השדה "{normalizedLabel}".
+            </p>
           )}
         </div>
 

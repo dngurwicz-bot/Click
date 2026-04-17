@@ -1,8 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
+
+from app.services.pricing_policy import pricing_policy_note, pricing_summary_text
 
 
 class ModuleOut(BaseModel):
@@ -47,6 +49,30 @@ class ModulePriceBase(BaseModel):
     included_seats: int = 0
     setup_fee_ils: Decimal = Decimal("0")
     valid_from: date
+
+    @computed_field
+    @property
+    def pricing_model(self) -> str:
+        return "base_included_overage"
+
+    @computed_field
+    @property
+    def overage_per_seat_ils(self) -> Decimal:
+        return self.per_seat_ils
+
+    @computed_field
+    @property
+    def pricing_policy_note(self) -> str:
+        return pricing_policy_note(self.included_seats)
+
+    @computed_field
+    @property
+    def pricing_summary_text(self) -> str:
+        return pricing_summary_text(
+            base_price_ils=self.base_price_ils,
+            included_seats=self.included_seats,
+            overage_per_seat_ils=self.per_seat_ils,
+        )
 
 
 class ModulePriceUpdate(ModulePriceBase):
@@ -97,6 +123,30 @@ class RecommendedModulePrice(BaseModel):
     per_seat_ils: Decimal = Decimal("0")
     included_seats: int = 0
     setup_fee_ils: Decimal = Decimal("0")
+
+    @computed_field
+    @property
+    def pricing_model(self) -> str:
+        return "base_included_overage"
+
+    @computed_field
+    @property
+    def overage_per_seat_ils(self) -> Decimal:
+        return self.per_seat_ils
+
+    @computed_field
+    @property
+    def pricing_policy_note(self) -> str:
+        return pricing_policy_note(self.included_seats)
+
+    @computed_field
+    @property
+    def pricing_summary_text(self) -> str:
+        return pricing_summary_text(
+            base_price_ils=self.base_price_ils,
+            included_seats=self.included_seats,
+            overage_per_seat_ils=self.per_seat_ils,
+        )
 
 
 class ModulePricingRecommendationOut(BaseModel):

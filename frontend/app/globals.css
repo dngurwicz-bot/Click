@@ -52,6 +52,30 @@ html {
   direction: rtl;
 }
 
+@layer components {
+  .admin-data-table {
+    direction: rtl;
+  }
+
+  .admin-data-table :is(th, td) {
+    text-align: right;
+    vertical-align: middle;
+  }
+
+  .admin-data-table .cell-center {
+    text-align: center;
+  }
+
+  .admin-data-table .cell-left {
+    text-align: left;
+  }
+
+  .admin-data-table .cell-numeric {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}
+
 /* Refined scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

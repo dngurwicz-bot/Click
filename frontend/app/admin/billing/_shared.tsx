@@ -115,7 +115,15 @@ export interface QuoteOut extends QuoteListItem {
 export interface ModuleMinimal {
   slug: string;
   name: string;
-  current_price?: { base_price_ils: string; per_seat_ils: string; included_seats: number; setup_fee_ils: string };
+  current_price?: {
+    base_price_ils: string;
+    per_seat_ils: string;
+    included_seats: number;
+    setup_fee_ils: string;
+    overage_per_seat_ils?: string;
+    pricing_policy_note?: string;
+    pricing_summary_text?: string;
+  };
 }
 
 export interface BillingSettingsOut {
@@ -140,7 +148,7 @@ export interface BillingSettingsOut {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 export const CHARGE_TYPE_LABELS: Record<string, string> = {
-  base_fee: "דמי מנוי", per_seat: "לפי מושב",
+  base_fee: "דמי מנוי", per_seat: "מושבים נוספים",
   setup_fee: "דמי הקמה", addon: "תוספת",
   credit: "זיכוי", manual: "ידני",
 };
@@ -440,7 +448,7 @@ export function NewInvoiceModal({
               </div>
             ) : (
               <div className="border border-slate-200 rounded-md overflow-hidden">
-                <table className="w-full text-xs border-collapse">
+                <table className="admin-data-table w-full text-xs border-collapse">
                   <thead>
                     <tr>
                       <th className="w-8 px-3 py-2 bg-slate-100 border-b border-slate-200 text-center">
@@ -466,7 +474,7 @@ export function NewInvoiceModal({
                           <input type="checkbox" checked={selected.has(c.id)} readOnly className="accent-brand-600" />
                         </td>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">{c.description}</td>
-                        <td className="px-3 py-1.5 border-b border-slate-100 text-slate-800 font-medium tabular-nums text-left">
+                        <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 text-slate-800 font-medium">
                           {fmt(c.amount_after_discount_ils)}
                         </td>
                       </tr>
@@ -554,15 +562,15 @@ export function BillingSettingsPanel({
         </button>
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_he ?? ""} onChange={(e) => setField("issuer_name_he", e.target.value)} placeholder="שם מנפיק בעברית" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_en ?? ""} onChange={(e) => setField("issuer_name_en", e.target.value)} placeholder="שם מנפיק באנגלית" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_tax_id ?? ""} onChange={(e) => setField("issuer_tax_id", e.target.value)} placeholder="ח.פ / ע.מ" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-2" value={value.issuer_address ?? ""} onChange={(e) => setField("issuer_address", e.target.value)} placeholder="כתובת מנפיק" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_logo_url ?? ""} onChange={(e) => setField("issuer_logo_url", e.target.value)} placeholder="URL ללוגו (אופציונלי)" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_phone ?? ""} onChange={(e) => setField("issuer_phone", e.target.value)} placeholder="טלפון" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_email ?? ""} onChange={(e) => setField("issuer_email", e.target.value)} placeholder="אימייל" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.payment_instructions ?? ""} onChange={(e) => setField("payment_instructions", e.target.value)} placeholder="הוראות תשלום" />
-        <input className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.footer_text ?? ""} onChange={(e) => setField("footer_text", e.target.value)} placeholder="טקסט footer למסמך" />
+        <input aria-label="שם מנפיק בעברית" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_he ?? ""} onChange={(e) => setField("issuer_name_he", e.target.value)} placeholder="שם מנפיק בעברית" />
+        <input aria-label="שם מנפיק באנגלית" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_name_en ?? ""} onChange={(e) => setField("issuer_name_en", e.target.value)} placeholder="שם מנפיק באנגלית" />
+        <input aria-label="ח.פ / ע.מ" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_tax_id ?? ""} onChange={(e) => setField("issuer_tax_id", e.target.value)} placeholder="ח.פ / ע.מ" />
+        <input aria-label="כתובת מנפיק" className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-2" value={value.issuer_address ?? ""} onChange={(e) => setField("issuer_address", e.target.value)} placeholder="כתובת מנפיק" />
+        <input aria-label="URL ללוגו (אופציונלי)" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_logo_url ?? ""} onChange={(e) => setField("issuer_logo_url", e.target.value)} placeholder="URL ללוגו (אופציונלי)" />
+        <input aria-label="טלפון" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_phone ?? ""} onChange={(e) => setField("issuer_phone", e.target.value)} placeholder="טלפון" />
+        <input aria-label="אימייל" className="rounded-md border border-slate-300 px-3 py-2 text-xs" value={value.issuer_email ?? ""} onChange={(e) => setField("issuer_email", e.target.value)} placeholder="אימייל" />
+        <input aria-label="הוראות תשלום" className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.payment_instructions ?? ""} onChange={(e) => setField("payment_instructions", e.target.value)} placeholder="הוראות תשלום" />
+        <input aria-label="טקסט footer למסמך" className="rounded-md border border-slate-300 px-3 py-2 text-xs md:col-span-3" value={value.footer_text ?? ""} onChange={(e) => setField("footer_text", e.target.value)} placeholder="טקסט footer למסמך" />
       </div>
       <div className="mt-6 border-t border-slate-200 pt-4">
         <h3 className="text-sm font-semibold text-slate-800">עיצוב חשבונית</h3>
@@ -571,8 +579,8 @@ export function BillingSettingsPanel({
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">צבע ראשי (קוד HEX)</label>
             <div className="flex gap-2">
-              <input type="color" className="w-8 h-8 p-0 border-0 rounded cursor-pointer" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} />
-              <input className="rounded-md flex-1 border border-slate-300 px-3 py-2 text-xs font-mono" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} placeholder="#HexCode" />
+              <input aria-label="צבע ראשי (קוד HEX)" type="color" className="w-8 h-8 p-0 border-0 rounded cursor-pointer" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} />
+              <input aria-label="צבע ראשי (קוד HEX)" className="rounded-md flex-1 border border-slate-300 px-3 py-2 text-xs font-mono" value={value.invoice_primary_color || "#1e3a8a"} onChange={(e) => setField("invoice_primary_color", e.target.value)} placeholder="#HexCode" />
             </div>
           </div>
           <div>
@@ -696,7 +704,7 @@ export function InvoiceDetailModal({
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1.5">פירוט חיובים</p>
               <div className="border border-slate-200 rounded-md overflow-hidden">
-                <table className="w-full text-xs border-collapse">
+                <table className="admin-data-table w-full text-xs border-collapse">
                   <thead>
                     <tr>
                       <th className="text-right px-3 py-2 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200">תיאור</th>
@@ -710,8 +718,8 @@ export function InvoiceDetailModal({
                       <tr key={line.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">{line.description}</td>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-600 tabular-nums">{parseFloat(line.quantity)}</td>
-                        <td className="px-3 py-1.5 border-b border-slate-100 text-slate-600 tabular-nums text-left">{fmt(line.unit_price_ils)}</td>
-                        <td className="px-3 py-1.5 border-b border-slate-100 text-slate-800 font-medium tabular-nums text-left">{fmt(line.amount_ils)}</td>
+                        <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 text-slate-600">{fmt(line.unit_price_ils)}</td>
+                        <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 text-slate-800 font-medium">{fmt(line.amount_ils)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -955,7 +963,7 @@ export function QuoteBuilderModal({
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">תוקף עד</label>
-              <HebrewDatePicker value={validUntil} onChange={setValidUntil}
+              <HebrewDatePicker value={validUntil} onChange={setValidUntil} fieldLabel="תוקף עד"
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right bg-white" />
             </div>
           </div>
@@ -963,26 +971,26 @@ export function QuoteBuilderModal({
             <label className="block text-xs font-medium text-slate-700 mb-2">נמען</label>
             <div className="flex gap-3 mb-2 text-xs">
               <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" checked={tenantMode === "tenant"} onChange={() => setTenantMode("tenant")} className="accent-brand-600" />
+                <input type="radio" checked={tenantMode === "tenant"} onChange={() => setTenantMode("tenant")} className="accent-brand-600" aria-label="ארגון קיים" />
                 ארגון קיים
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" checked={tenantMode === "prospect"} onChange={() => setTenantMode("prospect")} className="accent-brand-600" />
+                <input type="radio" checked={tenantMode === "prospect"} onChange={() => setTenantMode("prospect")} className="accent-brand-600" aria-label="פרוספקט חדש" />
                 פרוספקט חדש
               </label>
             </div>
             {tenantMode === "tenant" ? (
-              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)}
+              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} aria-label="ארגון"
                 className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 bg-white text-right">
                 <option value="">בחר ארגון...</option>
                 {tenants.map((t) => <option key={t.tenant_id} value={t.tenant_id}>{t.name_he}</option>)}
               </select>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                <input value={prospectName} onChange={(e) => setProspectName(e.target.value)}
+                <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} aria-label="שם פרוספקט"
                   placeholder="שם פרוספקט *"
                   className="px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right" />
-                <input value={prospectEmail} onChange={(e) => setProspectEmail(e.target.value)}
+                <input value={prospectEmail} onChange={(e) => setProspectEmail(e.target.value)} aria-label="אימייל (אופציונלי)"
                   placeholder="אימייל (אופציונלי)"
                   className="px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right" />
               </div>
@@ -1022,7 +1030,7 @@ export function QuoteBuilderModal({
               </div>
             ) : (
               <div className="border border-slate-200 rounded-md overflow-hidden">
-                <table className="w-full text-xs border-collapse">
+                <table className="admin-data-table w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-600">
                       <th className="text-right px-2 py-2 font-semibold">מודול</th>
@@ -1031,7 +1039,7 @@ export function QuoteBuilderModal({
                       <th className="text-right px-2 py-2 font-semibold w-14">כמות</th>
                       <th className="text-right px-2 py-2 font-semibold w-24">מחיר יח׳ ₪</th>
                       <th className="text-right px-2 py-2 font-semibold w-14">הנחה%</th>
-                      <th className="text-left px-2 py-2 font-semibold w-24">סכום</th>
+                      <th className="px-2 py-2 font-semibold w-24">סכום</th>
                       <th className="w-8" />
                     </tr>
                   </thead>
@@ -1042,14 +1050,14 @@ export function QuoteBuilderModal({
                       return (
                         <tr key={line._key} className="border-t border-slate-100 hover:bg-slate-50/40">
                           <td className="px-1.5 py-1.5">
-                            <select value={line.module_slug} onChange={(e) => updateLine(line._key, "module_slug", e.target.value)}
+                            <select value={line.module_slug} onChange={(e) => updateLine(line._key, "module_slug", e.target.value)} aria-label="מודול"
                               className="w-28 px-1.5 py-1 text-[11px] border border-slate-300 rounded bg-white text-right">
                               <option value="">—</option>
                               {modules.map((m) => <option key={m.slug} value={m.slug}>{m.name}</option>)}
                             </select>
                           </td>
                           <td className="px-1.5 py-1.5">
-                            <select value={line.charge_type} onChange={(e) => updateLine(line._key, "charge_type", e.target.value)}
+                            <select value={line.charge_type} onChange={(e) => updateLine(line._key, "charge_type", e.target.value)} aria-label="סוג"
                               className="w-24 px-1.5 py-1 text-[11px] border border-slate-300 rounded bg-white text-right">
                               {Object.entries(CHARGE_TYPE_LABELS).filter(([k]) => k !== "credit").map(([k, v]) => (
                                 <option key={k} value={k}>{v}</option>
@@ -1057,26 +1065,26 @@ export function QuoteBuilderModal({
                             </select>
                           </td>
                           <td className="px-1.5 py-1.5">
-                            <input value={line.description} onChange={(e) => updateLine(line._key, "description", e.target.value)}
+                            <input value={line.description} onChange={(e) => updateLine(line._key, "description", e.target.value)} aria-label="תיאור"
                               placeholder="תיאור..."
                               className="w-full px-1.5 py-1 text-[11px] border border-slate-300 rounded text-right" />
                           </td>
                           <td className="px-1.5 py-1.5">
-                            <input type="number" value={line.quantity} onChange={(e) => updateLine(line._key, "quantity", e.target.value)}
+                            <input type="number" value={line.quantity} onChange={(e) => updateLine(line._key, "quantity", e.target.value)} aria-label="כמות"
                               min="0" step="0.01"
                               className="w-14 px-1.5 py-1 text-[11px] border border-slate-300 rounded text-right" />
                           </td>
                           <td className="px-1.5 py-1.5">
-                            <input type="number" value={line.unit_price_ils} onChange={(e) => updateLine(line._key, "unit_price_ils", e.target.value)}
+                            <input type="number" value={line.unit_price_ils} onChange={(e) => updateLine(line._key, "unit_price_ils", e.target.value)} aria-label="מחיר יח׳ ₪"
                               min="0" step="0.01"
                               className="w-24 px-1.5 py-1 text-[11px] border border-slate-300 rounded text-right" />
                           </td>
                           <td className="px-1.5 py-1.5">
-                            <input type="number" value={line.discount_pct} onChange={(e) => updateLine(line._key, "discount_pct", e.target.value)}
+                            <input type="number" value={line.discount_pct} onChange={(e) => updateLine(line._key, "discount_pct", e.target.value)} aria-label="הנחה%"
                               min="0" max="100" step="0.01"
                               className="w-14 px-1.5 py-1 text-[11px] border border-slate-300 rounded text-right" />
                           </td>
-                          <td className="px-1.5 py-1.5 text-left font-medium text-slate-800">
+                          <td className="cell-numeric px-1.5 py-1.5 font-medium text-slate-800">
                             {fmt(afterDiscount)}
                           </td>
                           <td className="px-1.5 py-1.5">
@@ -1220,7 +1228,7 @@ export function QuoteDetailModal({
             <div>
               <p className="text-xs font-semibold text-slate-600 mb-1.5">פירוט שורות</p>
               <div className="border border-slate-200 rounded-md overflow-hidden">
-                <table className="w-full text-xs border-collapse">
+                <table className="admin-data-table w-full text-xs border-collapse">
                   <thead>
                     <tr>
                       {["תיאור", "כמות", "מחיר יח׳", "הנחה", "סכום"].map((h) => (
@@ -1233,11 +1241,11 @@ export function QuoteDetailModal({
                       <tr key={line.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-700">{line.description}</td>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-600 tabular-nums">{parseFloat(line.quantity)}</td>
-                        <td className="px-3 py-1.5 border-b border-slate-100 text-slate-600 tabular-nums text-left">{fmt(line.unit_price_ils)}</td>
+                        <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 text-slate-600">{fmt(line.unit_price_ils)}</td>
                         <td className="px-3 py-1.5 border-b border-slate-100 text-slate-500 tabular-nums">
                           {parseFloat(line.discount_pct) > 0 ? `${line.discount_pct}%` : "—"}
                         </td>
-                        <td className="px-3 py-1.5 border-b border-slate-100 font-medium text-slate-800 tabular-nums text-left">
+                        <td className="cell-numeric px-3 py-1.5 border-b border-slate-100 font-medium text-slate-800">
                           {fmt(line.amount_after_discount_ils)}
                         </td>
                       </tr>

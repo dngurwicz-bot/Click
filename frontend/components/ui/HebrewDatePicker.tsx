@@ -56,16 +56,21 @@ export function HebrewDatePicker({
   className,
   id,
   disabled,
+  fieldLabel,
+  inputRef: externalInputRef,
 }: {
   value: string;
   onChange: (v: string) => void;
   className?: string;
   id?: string;
   disabled?: boolean;
+  fieldLabel?: string;
+  inputRef?: { current: HTMLInputElement | null };
 }) {
   const [open, setOpen] = useState(false);
   const [inputText, setInputText] = useState(() => valueToDisplay(value));
   const ref = useRef<HTMLDivElement>(null);
+  const [inputElement, setInputNode] = useState<HTMLInputElement | null>(null);
   const today = new Date();
   const parsed = parseDateValue(value);
   const [viewYear, setViewYear] = useState(parsed?.year ?? today.getFullYear());
@@ -86,6 +91,21 @@ export function HebrewDatePicker({
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
+
+  function selectInputText() {
+    requestAnimationFrame(() => {
+      const target = externalInputRef?.current ?? inputElement;
+      target?.focus();
+      target?.select();
+    });
+  }
+
+  function setInputElement(node: HTMLInputElement | null) {
+    setInputNode(node);
+    if (externalInputRef) {
+      externalInputRef.current = node;
+    }
+  }
 
   function prevMonth() {
     if (viewMonth === 1) { setViewYear((y) => y - 1); setViewMonth(12); }
@@ -138,10 +158,14 @@ export function HebrewDatePicker({
       <input
         id={id}
         type="text"
+        ref={setInputElement}
         value={inputText}
         onChange={handleInputChange}
         onBlur={handleInputBlur}
+        onFocus={selectInputText}
+        onClick={selectInputText}
         placeholder="DD/MM/YY"
+        data-field-label={fieldLabel}
         maxLength={8}
         disabled={disabled}
         dir="ltr"
@@ -150,7 +174,12 @@ export function HebrewDatePicker({
       {/* Calendar icon — absolutely positioned inside the input on the left */}
       <button
         type="button"
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (disabled) return;
+          selectInputText();
+          setOpen((o) => !o);
+        }}
         disabled={disabled}
         tabIndex={-1}
         className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-600 disabled:cursor-not-allowed"

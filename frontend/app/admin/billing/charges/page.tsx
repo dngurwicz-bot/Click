@@ -93,11 +93,13 @@ export default function BillingChargesPage() {
             <HebrewMonthPicker
               value={filterPeriod}
               onChange={setFilterPeriod}
+              fieldLabel="תקופת חיוב"
               className="w-36 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             />
             <select
               value={filterTenantId}
               onChange={(event) => setFilterTenantId(event.target.value)}
+              aria-label="ארגון"
               className="w-40 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             >
               <option value="">כל הארגונים</option>
@@ -110,6 +112,7 @@ export default function BillingChargesPage() {
             <select
               value={filterStatus}
               onChange={(event) => setFilterStatus(event.target.value)}
+              aria-label="סטטוס"
               className="w-28 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-right text-xs focus:border-brand-400 focus:outline-none"
             >
               <option value="">כל הסטטוסים</option>
@@ -128,7 +131,7 @@ export default function BillingChargesPage() {
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
           </div>
         ) : (
-          <table className="w-full border-collapse text-xs">
+          <table className="admin-data-table w-full border-collapse text-xs">
             <thead className="sticky top-0 z-10">
               <tr>
                 {["ארגון", "תקופה", "מודול", "סוג", "תיאור", "מחיר יח׳", "סכום", "הנחה%", "לחיוב", "סטטוס"].map((heading) => (
@@ -163,12 +166,12 @@ export default function BillingChargesPage() {
                       <td className="max-w-[200px] truncate border-b border-slate-100 px-4 py-2 text-slate-700" title={charge.description}>
                         {charge.description}
                       </td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left tabular-nums text-slate-600">{fmt(charge.unit_price_ils)}</td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left tabular-nums text-slate-600">{fmt(charge.amount_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 text-slate-600">{fmt(charge.unit_price_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 text-slate-600">{fmt(charge.amount_ils)}</td>
                       <td className="border-b border-slate-100 px-4 py-2 tabular-nums text-slate-500">
                         {parseFloat(charge.discount_pct) > 0 ? `${charge.discount_pct}%` : "—"}
                       </td>
-                      <td className="border-b border-slate-100 px-4 py-2 text-left font-semibold tabular-nums text-slate-800">{fmt(charge.amount_after_discount_ils)}</td>
+                      <td className="cell-numeric border-b border-slate-100 px-4 py-2 font-semibold text-slate-800">{fmt(charge.amount_after_discount_ils)}</td>
                       <td className="border-b border-slate-100 px-4 py-2">
                         <StatusBadge cfg={status} />
                       </td>

@@ -118,6 +118,7 @@ export function AdminSearchField({
       <input
         type="text"
         placeholder={placeholder}
+        aria-label={placeholder || "חיפוש"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={`pr-8 pl-3 py-1 text-xs border border-slate-300 bg-white rounded

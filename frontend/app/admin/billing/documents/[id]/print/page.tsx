@@ -116,14 +116,14 @@ export default function DocumentPrintPage() {
             <thead>
               <tr className="border-b-2 border-slate-800">
                 <th className="py-3 px-2 text-right font-bold text-slate-800">תיאור שירות / פריט</th>
-                <th className="py-3 px-2 text-left font-bold text-slate-800 w-32">סכום ש"ח</th>
+                <th className="py-3 px-2 text-right font-bold text-slate-800 w-32">סכום ש"ח</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {inv.lines.map((l) => (
                 <tr key={l.id}>
                   <td className="py-4 px-2 text-slate-700 font-medium">{l.description}</td>
-                  <td className="py-4 px-2 text-left text-slate-800 font-bold tracking-tight">₪ {parseFloat(l.amount_ils).toLocaleString()}</td>
+                  <td className="py-4 px-2 text-right text-slate-800 font-bold tracking-tight">₪ {parseFloat(l.amount_ils).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
