@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, ReactNode } from "react";
+import { Suspense, useState, FormEvent, ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/api";
@@ -8,6 +8,14 @@ import { supabase } from "@/lib/supabase";
 import { Logo } from "@/components/layout/Logo";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginPageFallback />}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const searchParams = useSearchParams();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -211,6 +219,18 @@ export default function LoginPage() {
         <p className="text-center text-slate-400 text-xs mt-5">
           CLICK · DNG HUB &copy; {new Date().getFullYear()}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function LoginPageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#eef1f5" }}>
+      <div className="w-full max-w-[460px]">
+        <div className="bg-white rounded-2xl px-10 py-10 text-center text-sm text-slate-400" style={{ boxShadow: "0 4px 24px 0 rgb(0 0 0 / 0.08), 0 1px 4px 0 rgb(0 0 0 / 0.04)" }}>
+          טוען...
+        </div>
       </div>
     </div>
   );

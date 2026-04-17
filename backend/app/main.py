@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit, ai
+from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit, ai, insights, dynamic_reports
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.billing                # noqa: F401 – ensure billing models are registered
 import app.models.billing_engine         # noqa: F401 – ensure billing engine models are registered
@@ -42,6 +42,8 @@ if settings.BILLING_ENABLED:
     app.include_router(billing_engine.router)
 app.include_router(audit.router)
 app.include_router(ai.router)
+app.include_router(insights.router)
+app.include_router(dynamic_reports.router)
 
 
 @app.get("/api/health")
