@@ -4,7 +4,7 @@ from datetime import datetime, date
 from typing import Literal, Optional
 
 
-RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "billing", "users", "templates", "audit"]
+RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
 
 # Default permissions per role (applied when creating a user)
 DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
@@ -12,6 +12,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "tenants":   {"can_view": True,  "can_edit": True},
         "lookups":   {"can_view": True,  "can_edit": True},
         "modules":   {"can_view": True,  "can_edit": False},
+        "reports":   {"can_view": True,  "can_edit": True},
         "billing":   {"can_view": True,  "can_edit": True},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": True,  "can_edit": True},
@@ -21,6 +22,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "tenants":   {"can_view": True,  "can_edit": False},
         "lookups":   {"can_view": True,  "can_edit": False},
         "modules":   {"can_view": False, "can_edit": False},
+        "reports":   {"can_view": True,  "can_edit": False},
         "billing":   {"can_view": True,  "can_edit": False},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
@@ -30,6 +32,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "tenants":   {"can_view": False, "can_edit": False},
         "lookups":   {"can_view": False, "can_edit": False},
         "modules":   {"can_view": True,  "can_edit": False},
+        "reports":   {"can_view": True,  "can_edit": False},
         "billing":   {"can_view": True,  "can_edit": True},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
@@ -37,7 +40,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
     },
 }
 
-ALL_RESOURCES = ["tenants", "lookups", "modules", "billing", "users", "templates", "audit"]
+ALL_RESOURCES = ["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
 
 
 class PermissionIn(BaseModel):

@@ -1,4 +1,4 @@
-// Use empty base so requests go through Next.js rewrites proxy → backend
+// Use empty base so requests go through Next.js rewrites proxy -> backend
 const API_BASE = "";
 
 function getCookie(name: string): string | undefined {
@@ -69,20 +69,37 @@ function getErrorMessage(detail: unknown, fallback: string): string {
   return fallback;
 }
 
+function getNetworkErrorMessage(path: string): string {
+  if (path === "/api/auth/login") {
+    return "לא ניתן להתחבר לשרת ההתחברות כרגע. ודא שה-backend פועל ונסה שוב.";
+  }
+  return "לא ניתן להתחבר לשרת כרגע. בדוק שהשירות פעיל ונסה שוב.";
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
   const token = getCookie("click_token");
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers ?? {}),
+      },
+    });
+  } catch (error: unknown) {
+    throw new ApiRequestError({
+      message: getNetworkErrorMessage(path),
+      status: 0,
+      code: "NETWORK_ERROR",
+      error: error instanceof Error ? error.message : "Network error",
+      details: error,
+    });
+  }
 
   if (!res.ok) {
     const body = await res
@@ -120,11 +137,22 @@ export const api = {
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   postForm: async <T>(path: string, body: FormData): Promise<T> => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      body,
-      headers: getAuthHeaders(),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        body,
+        headers: getAuthHeaders(),
+      });
+    } catch (error: unknown) {
+      throw new ApiRequestError({
+        message: getNetworkErrorMessage(path),
+        status: 0,
+        code: "NETWORK_ERROR",
+        error: error instanceof Error ? error.message : "Network error",
+        details: error,
+      });
+    }
 
     if (!res.ok) {
       const payload = await res

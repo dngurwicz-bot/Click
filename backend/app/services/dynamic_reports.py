@@ -2,7 +2,8 @@ from datetime import datetime
 from typing import Any
 from sqlalchemy import Select, select, desc, asc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.tenant import Tenant, TenantIdentity, TenantStatus, TenantSubscription
+from app.models.tenant import Tenant, TenantIdentity, TenantStatus, TenantSubscription, TenantSubscriptionModule
+from app.models.module import Module
 from app.models.audit_log import AuditLog
 from app.models.admin_user import AdminUser
 from app.schemas.dynamic_reports import (
@@ -44,6 +45,22 @@ AVAILABLE_ENTITIES = [
             FieldDefinition(id="created_at", label="Created At", type="datetime", operators=["greater_than", "less_than"]),
         ],
     ),
+    EntityDefinition(
+        id="tenant_modules",
+        label="Tenant Modules",
+        description="Complex join of Tenants and their assigned Modules with seats and status.",
+        fields=[
+            FieldDefinition(id="tenant_id", label="Tenant ID", type="uuid", operators=["equals", "not_equals"]),
+            FieldDefinition(id="org_number", label="Org Number", type="number", operators=["equals", "not_equals"]),
+            FieldDefinition(id="tenant_name", label="Tenant Name", type="string", operators=["equals", "contains"]),
+            FieldDefinition(id="tenant_status", label="Tenant Status", type="string", operators=["equals", "not_equals", "in"]),
+            FieldDefinition(id="module_slug", label="Module Slug", type="string", operators=["equals", "not_equals", "in"]),
+            FieldDefinition(id="module_name", label="Module Name", type="string", operators=["equals", "contains", "in"]),
+            FieldDefinition(id="module_seats", label="Module Seats", type="number", operators=["equals", "greater_than", "less_than"]),
+            FieldDefinition(id="module_status", label="Module Status", type="string", operators=["equals", "not_equals"]),
+            FieldDefinition(id="valid_from", label="Added On (Date)", type="date", operators=["greater_than", "less_than"]),
+        ],
+    ),
 ]
 
 _FIELD_MAPPING = {
@@ -65,6 +82,17 @@ _FIELD_MAPPING = {
         "actor_name": AdminUser.full_name,
         "actor_email": AdminUser.email,
         "created_at": AuditLog.created_at,
+    },
+    "tenant_modules": {
+        "tenant_id": Tenant.tenant_id,
+        "org_number": Tenant.org_number,
+        "tenant_name": TenantIdentity.name_he,
+        "tenant_status": TenantStatus.status,
+        "module_slug": TenantSubscriptionModule.module_slug,
+        "module_name": Module.name,
+        "module_seats": TenantSubscriptionModule.seats,
+        "module_status": TenantSubscriptionModule.status,
+        "valid_from": TenantSubscriptionModule.valid_from,
     },
 }
 
@@ -111,6 +139,14 @@ async def execute_dynamic_query(db: AsyncSession, request: DynamicReportQuery) -
         query = query.outerjoin(TenantIdentity, (Tenant.tenant_id == TenantIdentity.tenant_id) & TenantIdentity.valid_to.is_(None))
         query = query.outerjoin(TenantStatus, (Tenant.tenant_id == TenantStatus.tenant_id) & TenantStatus.valid_to.is_(None))
         query = query.outerjoin(TenantSubscription, (Tenant.tenant_id == TenantSubscription.tenant_id) & TenantSubscription.valid_to.is_(None))
+    elif request.entity == "tenant_modules":
+        query = select(TenantSubscriptionModule)
+        query = query.join(Module, TenantSubscriptionModule.module_slug == Module.slug)
+        query = query.join(TenantSubscription, TenantSubscriptionModule.tenant_subscription_id == TenantSubscription.id)
+        query = query.join(Tenant, TenantSubscription.tenant_id == Tenant.tenant_id)
+        query = query.outerjoin(TenantIdentity, (Tenant.tenant_id == TenantIdentity.tenant_id) & TenantIdentity.valid_to.is_(None))
+        query = query.outerjoin(TenantStatus, (Tenant.tenant_id == TenantStatus.tenant_id) & TenantStatus.valid_to.is_(None))
+        query = query.where(TenantSubscriptionModule.valid_to.is_(None))
     elif request.entity == "audit_logs":
         query = select(AuditLog)
         query = query.outerjoin(AdminUser, AuditLog.actor_id == AdminUser.id)
@@ -142,6 +178,8 @@ async def execute_dynamic_query(db: AsyncSession, request: DynamicReportQuery) -
             query = query.order_by(desc(Tenant.created_at))
         elif request.entity == "audit_logs":
             query = query.order_by(desc(AuditLog.created_at))
+        elif request.entity == "tenant_modules":
+            query = query.order_by(desc(TenantSubscriptionModule.valid_from))
 
     # 4. Limit
     query = query.limit(min(request.limit, 1000))

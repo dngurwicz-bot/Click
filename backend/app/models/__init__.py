@@ -21,6 +21,7 @@ from app.models.billing_engine import (
 )
 from app.models.audit_log import AuditLog
 from app.models.seat_change_log import SeatChangeLog
+from app.models.saved_report_view import SavedReportView
 
 __all__ = [
     "AdminUser",
@@ -31,4 +32,5 @@ __all__ = [
     "BillingLedgerEntry", "BillingDocument", "BillingDocumentLine",
     "AuditLog",
     "SeatChangeLog",
+    "SavedReportView",
 ]

@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
 
 
-RESOURCES = ["tenants", "lookups", "modules", "billing", "users", "templates", "audit"]
+RESOURCES = ["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
 
 
 class AdminUserPermission(Base):

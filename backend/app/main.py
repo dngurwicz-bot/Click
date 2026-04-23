@@ -8,6 +8,7 @@ from app.routers import auth, tenants, modules, admin_users, lookups, templates,
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.billing                # noqa: F401 – ensure billing models are registered
 import app.models.billing_engine         # noqa: F401 – ensure billing engine models are registered
+import app.models.saved_report_view      # noqa: F401 – ensure saved report model is registered
 
 settings = get_settings()
 

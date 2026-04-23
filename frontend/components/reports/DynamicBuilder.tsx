@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, getAuthHeaders } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Download, Filter, FileSpreadsheet, Command, TerminalSquare, AlertCircle } from "lucide-react";
 
 interface FieldDef {

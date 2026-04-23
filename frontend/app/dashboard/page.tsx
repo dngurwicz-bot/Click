@@ -203,8 +203,8 @@ export default function DashboardPage() {
                 {canEdit("tenants") && <QuickAction href="/admin/tenants/new" label="ארגון חדש" desc="הוספת לקוח חדש למערכת" icon={Building2} />}
                 {canView("users") && <QuickAction href="/admin/users" label="ניהול משתמשים" desc="הרשאות ומשתמשי מנהל" icon={Users} />}
                 {canView("modules") && <QuickAction href="/admin/modules" label="מודולים ומחירון" desc="הגדרות פרייסינג" icon={Package} />}
-                {canView("modules") && <QuickAction href="/admin/reports" label="Insights & Reports" desc="דוחות גמישים וניתוח נתונים" icon={TrendingUp} />}
-                {!canEdit("tenants") && !canView("users") && !canView("modules") && (
+                {canView("reports") && <QuickAction href="/admin/reports" label="Insights & Reports" desc="דוחות גמישים וניתוח נתונים" icon={TrendingUp} />}
+                {!canEdit("tenants") && !canView("users") && !canView("modules") && !canView("reports") && (
                   <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
                     אין כרגע פעולות מהירות זמינות לפי ההרשאות שלך.
                   </div>
