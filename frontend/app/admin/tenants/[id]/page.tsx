@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
+import { ApiRequestError, getStoredUser, isLoggedIn, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { LogoUploadField } from "@/components/tenants/LogoUploadField";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
-import { X, AlertCircle, CheckCircle2, Send, FileText, Printer } from "lucide-react";
+import { X, AlertCircle, CheckCircle2, Send, FileText, Printer, Trash2 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +66,16 @@ interface TenantOut extends AuditFields {
 interface TenantHistory {
   identity: TenantIdentityOut[]; contact: TenantContactOut[];
   address: TenantAddressOut[]; subscription: TenantSubscriptionOut[]; subscription_modules: TenantSubscriptionModuleOut[]; status: TenantStatusOut[];
+}
+interface TenantDeleteImpact {
+  tenant_id: string;
+  org_number: number;
+  tenant_name?: string | null;
+  tax_id?: string | null;
+  confirmation_phrase: string;
+  delete_logo: boolean;
+  logo_will_be_deleted: boolean;
+  counts: Record<string, number>;
 }
 
 type SectionKey = "identity" | "contact" | "address" | "subscription" | "status";
@@ -1282,6 +1292,192 @@ function periodShort(p: string) {
   return `${ILS_MONTHS_SHORT[parseInt(m)]} ${y}`;
 }
 
+const DELETE_COUNT_LABELS: Record<string, string> = {
+  identity_rows: "רשומות זהות",
+  contact_rows: "רשומות קשר",
+  address_rows: "רשומות כתובת",
+  status_rows: "רשומות סטטוס",
+  subscription_rows: "רשומות מנוי",
+  subscription_module_rows: "רשומות מודולים",
+  seat_change_logs: "לוג שינוי מושבים",
+  billing_charges: "חיובים",
+  invoices: "חשבוניות",
+  invoice_lines: "שורות חשבונית",
+  quotes: "הצעות מחיר",
+  quote_lines: "שורות הצעה",
+  billing_contracts: "חוזי חיוב",
+  billing_contract_items: "שורות חוזה",
+  billing_change_events: "אירועי חיוב",
+  billing_bill_runs: "ריצות חיוב",
+  billing_documents: "מסמכי חיוב",
+  billing_document_lines: "שורות מסמך",
+  billing_ledger_entries: "רשומות ספר עזר",
+  audit_logs: "Audit logs",
+};
+
+function TenantDeleteModal({
+  tenant,
+  onClose,
+  onDeleted,
+}: {
+  tenant: TenantOut;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [impact, setImpact] = useState<TenantDeleteImpact | null>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const [purgeAuditLogs, setPurgeAuditLogs] = useState(false);
+  const [deleteLogo, setDeleteLogo] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api
+      .get<TenantDeleteImpact>(
+        `/api/admin/tenants/${tenant.tenant_id}/delete-impact?purge_audit_logs=${purgeAuditLogs ? "true" : "false"}&delete_logo=${deleteLogo ? "true" : "false"}`
+      )
+      .then((data) => {
+        if (!cancelled) setImpact(data);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(getApiErrorMessage(e, "לא הצלחתי לטעון את פרטי המחיקה"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deleteLogo, purgeAuditLogs, tenant.tenant_id]);
+
+  async function handleDelete() {
+    if (!impact) return;
+    if (confirmation.trim() !== impact.confirmation_phrase) {
+      setError("יש להקליד את ביטוי האישור בדיוק כפי שמופיע.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/admin/tenants/${tenant.tenant_id}/hard-delete`, {
+        confirmation_phrase: confirmation.trim(),
+        purge_audit_logs: purgeAuditLogs,
+        delete_logo: deleteLogo,
+      });
+      onDeleted();
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, "מחיקת הארגון נכשלה"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const countEntries = impact
+    ? Object.entries(impact.counts).filter(([, value]) => value > 0)
+    : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-5 py-3 rounded-t-xl">
+          <div>
+            <h3 className="text-sm font-semibold text-red-900">מחיקת ארגון לצמיתות</h3>
+            <p className="mt-1 text-[11px] text-red-700">הפעולה מוחקת את הארגון ואת כל הנתונים המשויכים אליו ואינה ניתנת לשחזור.</p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-red-700"><X size={16} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900 space-y-1">
+            <div><strong>ארגון:</strong> {tenant.identity?.name_he ?? "—"} ({tenant.org_number})</div>
+            <div><strong>ח.פ / ע.מ:</strong> {tenant.identity?.tax_id ?? "—"}</div>
+            <div>רק משתמש מסוג <strong>super admin</strong> יכול לבצע את הפעולה הזו.</div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
+              <input type="checkbox" checked={deleteLogo} onChange={(e) => setDeleteLogo(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+              <span>מחק גם את קובץ הלוגו מה־storage אם נמצא קובץ משויך.</span>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
+              <input type="checkbox" checked={purgeAuditLogs} onChange={(e) => setPurgeAuditLogs(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+              <span>מחק גם audit logs המשויכים לארגון הזה.</span>
+            </label>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : impact ? (
+            <>
+              <div className="rounded-lg border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700">
+                  נתונים שיימחקו
+                </div>
+                <div className="grid gap-x-6 gap-y-2 px-4 py-3 sm:grid-cols-2 text-xs text-slate-700">
+                  {countEntries.map(([key, value]) => (
+                    <div key={key} className="flex items-center justify-between border-b border-slate-100 py-1">
+                      <span>{DELETE_COUNT_LABELS[key] ?? key}</span>
+                      <span className="font-semibold tabular-nums">{value}</span>
+                    </div>
+                  ))}
+                  {countEntries.length === 0 && <div className="text-slate-500">לא נמצאו רשומות משויכות מעבר לרשומת הארגון עצמה.</div>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-2">
+                <div>כדי לאשר, יש להקליד בדיוק את הביטוי הבא:</div>
+                <code className="block rounded bg-white px-3 py-2 text-[12px] text-slate-900 border border-amber-200">{impact.confirmation_phrase}</code>
+                {impact.logo_will_be_deleted ? (
+                  <div>לוגו משויך יימחק מה־storage כחלק מהפעולה.</div>
+                ) : (
+                  <div>לא זוהה קובץ לוגו למחיקה ב־storage.</div>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-700">ביטוי אישור</label>
+                <input
+                  type="text"
+                  value={confirmation}
+                  onChange={(e) => setConfirmation(e.target.value)}
+                  className="w-full rounded border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-red-400"
+                  placeholder={impact.confirmation_phrase}
+                />
+              </div>
+            </>
+          ) : null}
+
+          {error && (
+            <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <AlertCircle size={13} /> {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
+          <button onClick={onClose} className="px-4 py-1.5 text-xs border border-slate-300 bg-white text-slate-600 rounded hover:bg-slate-50">
+            ביטול
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={loading || saving || !impact}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs bg-red-600 hover:bg-red-700 text-white rounded font-semibold disabled:opacity-50"
+          >
+            <Trash2 size={12} />
+            {saving ? "מוחק..." : "מחק ארגון וכל הנתונים"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApplyTemplateModal({
   tenantId,
   statusRows,
@@ -2037,6 +2233,7 @@ export default function TenantDetailPage() {
   const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<TenantInvoiceItem | null>(null);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
   const [showSyncTemplate, setShowSyncTemplate] = useState(false);
+  const [showDeleteTenant, setShowDeleteTenant] = useState(false);
   const [moduleModalState, setModuleModalState] = useState<{ initial?: TenantSubscriptionModuleOut | null } | null>(null);
   const [editState, setEditState] = useState<{
     section: SectionKey;
@@ -2100,6 +2297,7 @@ export default function TenantDetailPage() {
   const statusVal = tenant?.status?.status ?? "trial";
   const statusRows = history?.status ?? [];
   const templateNameMap = Object.fromEntries(templateOptions.map((item) => [item.id, item.name]));
+  const canHardDeleteTenant = getStoredUser()?.role === "super_admin";
 
   // ── Billing child tabs ────────────────────────────────────────────────────
   const billingChargesTab: ChildTab = {
@@ -2230,6 +2428,11 @@ export default function TenantDetailPage() {
               onClick: () => setShowSyncTemplate(true),
               icon: <Send size={12} />,
             },
+            ...(canHardDeleteTenant ? [{
+              label: "מחק ארגון",
+              onClick: () => setShowDeleteTenant(true),
+              icon: <Trash2 size={12} />,
+            }] : []),
           ]}
           parentContent={tenant ? (
             <ParentForm
@@ -2292,6 +2495,17 @@ export default function TenantDetailPage() {
           onApplied={() => {
             setShowSyncTemplate(false);
             loadData();
+          }}
+        />
+      )}
+
+      {showDeleteTenant && tenant && (
+        <TenantDeleteModal
+          tenant={tenant}
+          onClose={() => setShowDeleteTenant(false)}
+          onDeleted={() => {
+            setShowDeleteTenant(false);
+            router.push("/admin/tenants");
           }}
         />
       )}

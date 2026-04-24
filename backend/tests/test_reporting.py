@@ -266,12 +266,46 @@ async def test_load_snapshot_rows_exposes_full_core_datasets():
 
     assert tenant_row["identity_name_he"] == "Acme"
     assert tenant_row["subscription_template_name"] == "Growth"
+    assert tenant_row["subscription_seat_count"] == 12
+    assert tenant_row["subscription_selected_module_slugs"] == "core"
     assert module_row["override_setup_fee_ils"] == 50.0
+    assert module_row["subscription_seat_count"] == 12
     assert module_row["module_color_hex"] == "#112233"
     assert "audit_log" in master_row_types
     assert "saved_report" in master_row_types
     assert rows["admin_permissions"][0]["resource"] == "reports"
     assert rows["template_defaults"][0]["default_value"] == "ILS"
+    assert rows["master_dataset"][0]["contact_main_phone"] == "050-1234567"
+    assert rows["master_dataset"][0]["address_main_street"] == "Herzl 1"
+
+
+def test_master_dataset_metadata_contains_contact_and_address_fields():
+    dataset = reporting.DATASET_MAP["master_dataset"]
+    field_ids = {field.id for field in dataset.fields}
+
+    assert "contact_main_name" in field_ids
+    assert "contact_main_phone" in field_ids
+    assert "contact_main_email" in field_ids
+    assert "address_main_street" in field_ids
+    assert "address_main_city" in field_ids
+
+
+def test_dataset_metadata_exposes_new_system_fields_and_summary_datasets():
+    tenant_dataset = reporting.DATASET_MAP["tenant_snapshot_full"]
+    tenant_field_ids = {field.id for field in tenant_dataset.fields}
+    module_dataset = reporting.DATASET_MAP["tenant_module_snapshot_full"]
+    module_field_ids = {field.id for field in module_dataset.fields}
+
+    assert "identity_created_at" in tenant_field_ids
+    assert "contact_main_created_at" in tenant_field_ids
+    assert "address_main_updated_at" in tenant_field_ids
+    assert "status_created_at" in tenant_field_ids
+    assert "subscription_updated_at" in tenant_field_ids
+    assert "tenant_subscription_id" in module_field_ids
+    assert "assignment_created_at" in module_field_ids
+
+    assert "module_summary" in reporting.DATASET_MAP
+    assert "seat_distribution" in reporting.DATASET_MAP
 
 
 @pytest.mark.asyncio

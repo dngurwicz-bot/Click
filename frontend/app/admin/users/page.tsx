@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isLoggedIn, getStoredUser, api } from "@/lib/api";
+import { BILLING_ENABLED } from "@/lib/features";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
@@ -37,14 +38,14 @@ const ROLE_LABEL: Record<string, string> = {
   super_admin: "Super Admin",
   admin:       "מנהל",
   support:     "תמיכה",
-  billing:     "כספים",
+  ...(BILLING_ENABLED ? { billing: "כספים" } : {}),
 };
 
 const ROLE_STYLE: Record<string, string> = {
   super_admin: "bg-violet-50 text-violet-700",
   admin:       "bg-brand-50 text-brand-700",
   support:     "bg-sky-50 text-sky-700",
-  billing:     "bg-amber-50 text-amber-700",
+  ...(BILLING_ENABLED ? { billing: "bg-amber-50 text-amber-700" } : {}),
 };
 
 const RESOURCES: { key: string; label: string }[] = [
@@ -52,7 +53,7 @@ const RESOURCES: { key: string; label: string }[] = [
   { key: "lookups",   label: "רשימות ארגוניות" },
   { key: "modules",   label: "מודולים ומחירון" },
   { key: "reports",   label: "דוחות ו-Insights" },
-  { key: "billing",   label: "חיובים וחשבוניות" },
+  ...(BILLING_ENABLED ? [{ key: "billing", label: "חיובים וחשבוניות" }] : []),
   { key: "users",     label: "משתמשי מערכת" },
   { key: "templates", label: "תבניות הקמה" },
   { key: "audit",     label: "Audit Log" },
@@ -68,7 +69,6 @@ const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; 
     lookups:   { can_view: true,  can_edit: true  },
     modules:   { can_view: true,  can_edit: false },
     reports:   { can_view: true,  can_edit: true  },
-    billing:   { can_view: true,  can_edit: true  },
     users:     { can_view: false, can_edit: false },
     templates: { can_view: true,  can_edit: true  },
     audit:     { can_view: true,  can_edit: false },
@@ -78,12 +78,16 @@ const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; 
     lookups:   { can_view: true,  can_edit: false },
     modules:   { can_view: false, can_edit: false },
     reports:   { can_view: true,  can_edit: false },
-    billing:   { can_view: true,  can_edit: false },
     users:     { can_view: false, can_edit: false },
     templates: { can_view: false, can_edit: false },
     audit:     { can_view: false, can_edit: false },
   },
-  billing: {
+};
+
+if (BILLING_ENABLED) {
+  DEFAULT_PERMS_BY_ROLE.admin.billing = { can_view: true, can_edit: true };
+  DEFAULT_PERMS_BY_ROLE.support.billing = { can_view: true, can_edit: false };
+  DEFAULT_PERMS_BY_ROLE.billing = {
     tenants:   { can_view: false, can_edit: false },
     lookups:   { can_view: false, can_edit: false },
     modules:   { can_view: true,  can_edit: false },
@@ -92,8 +96,8 @@ const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; 
     users:     { can_view: false, can_edit: false },
     templates: { can_view: false, can_edit: false },
     audit:     { can_view: false, can_edit: false },
-  },
-};
+  };
+}
 
 function permissionsForRole(role: string): Permission[] {
   if (role === "super_admin") return emptyPermissions(); // super_admin = no restrictions
@@ -349,7 +353,7 @@ function UserModal({
                   <option value="super_admin">Super Admin</option>
                   <option value="admin">מנהל (Admin)</option>
                   <option value="support">תמיכה (Support)</option>
-                  <option value="billing">כספים (Billing)</option>
+                  {BILLING_ENABLED ? <option value="billing">כספים (Billing)</option> : null}
                 </select>
               </div>
             </div>
@@ -496,7 +500,7 @@ function UserModal({
                     <option value="super_admin">Super Admin</option>
                     <option value="admin">מנהל (Admin)</option>
                     <option value="support">תמיכה (Support)</option>
-                    <option value="billing">כספים (Billing)</option>
+                    {BILLING_ENABLED ? <option value="billing">כספים (Billing)</option> : null}
                   </select>
                   {isSelf && <p className="text-[10px] text-amber-600 mt-1">לא ניתן לשנות את התפקיד שלך</p>}
                 </div>

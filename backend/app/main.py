@@ -4,13 +4,16 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, admin_users, lookups, templates, billing, billing_engine, audit, ai, insights, dynamic_reports
+from app.routers import auth, tenants, modules, admin_users, lookups, templates, audit, ai, insights, dynamic_reports
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
-import app.models.billing                # noqa: F401 – ensure billing models are registered
-import app.models.billing_engine         # noqa: F401 – ensure billing engine models are registered
 import app.models.saved_report_view      # noqa: F401 – ensure saved report model is registered
 
 settings = get_settings()
+
+if settings.BILLING_ENABLED:
+    import app.models.billing  # noqa: F401 – ensure billing models are registered
+    import app.models.billing_engine  # noqa: F401 – ensure billing engine models are registered
+    from app.routers import billing, billing_engine
 
 app = FastAPI(
     title="CLICK HR SaaS API",

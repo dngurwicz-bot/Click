@@ -43,6 +43,7 @@ from app.schemas.insights import (
     InsightsReportResponse,
     InsightsSection,
 )
+from app.services.subscription_modules import derive_subscription_snapshot
 
 settings = get_settings()
 FONT_NAME = "NotoSansHebrew"
@@ -255,7 +256,7 @@ async def _load_current_tenant_snapshots(db: AsyncSession, request: InsightsRepo
         subscription = subscriptions.get(tenant.tenant_id)
         address = addresses.get(tenant.tenant_id)
         tenant_modules = subscription_modules.get(str(subscription.id), []) if subscription else []
-        module_slugs = [row.module_slug for row in tenant_modules]
+        derived_seat_count, module_slugs = derive_subscription_snapshot(tenant_modules)
         if filtered_statuses and (status is None or status.status not in filtered_statuses):
             continue
         if filtered_modules and not filtered_modules.intersection(module_slugs):
@@ -268,7 +269,7 @@ async def _load_current_tenant_snapshots(db: AsyncSession, request: InsightsRepo
                 "status": getattr(status, "status", None) or "unknown",
                 "industry_code": getattr(identity, "industry_code", None) or "—",
                 "city": getattr(address, "city", None) or "—",
-                "seat_count": int(getattr(subscription, "seat_count", 0) or 0),
+                "seat_count": derived_seat_count,
                 "module_slugs": module_slugs,
                 "module_names": [module_map.get(slug, slug) for slug in module_slugs],
                 "module_count": len(module_slugs),

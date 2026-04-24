@@ -3,9 +3,13 @@ from sqlalchemy import Boolean, String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
+from app.config import get_settings
 
+settings = get_settings()
 
-RESOURCES = ["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
+RESOURCES = ["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+if settings.BILLING_ENABLED:
+    RESOURCES.insert(4, "billing")
 
 
 class AdminUserPermission(Base):

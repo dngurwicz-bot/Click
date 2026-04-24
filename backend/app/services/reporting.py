@@ -57,6 +57,7 @@ from app.schemas.reporting import (
     SavedReportViewOut,
     SavedReportViewUpdate,
 )
+from app.services.subscription_modules import derive_subscription_snapshot
 
 FONT_NAME = "NotoSansHebrew"
 FONT_PATH = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "NotoSansHebrew-Regular.ttf"
@@ -166,6 +167,7 @@ TENANT_SNAPSHOT_FIELDS = [
     _field("tenant_id", "מזהה לקוח", "uuid", category="לקוח"),
     _field("org_number", "מספר ארגון", "number", category="לקוח", groupable=True),
     _field("tenant_created_at", "נוצר בתאריך", "datetime", category="לקוח"),
+    _field("identity_id", "מזהה רשומת זהות", "uuid", category="זהות"),
     _field("identity_name_he", "שם לקוח", "string", category="זהות", groupable=True),
     _field("identity_name_en", "שם באנגלית", "string", category="זהות"),
     _field("identity_tax_id", "ח.פ / ע.מ", "string", category="זהות"),
@@ -174,6 +176,12 @@ TENANT_SNAPSHOT_FIELDS = [
     _field("identity_industry_code", "ענף", "string", category="זהות", groupable=True),
     _field("identity_valid_from", "זהות מתאריך", "date", category="זהות"),
     _field("identity_valid_to", "זהות עד תאריך", "date", category="זהות"),
+    _field("identity_created_by", "זהות נוצרה על ידי", "uuid", category="זהות"),
+    _field("identity_created_at", "זהות נוצרה בתאריך", "datetime", category="זהות"),
+    _field("identity_updated_by", "זהות עודכנה על ידי", "uuid", category="זהות"),
+    _field("identity_updated_at", "זהות עודכנה בתאריך", "datetime", category="זהות"),
+    _field("contact_main_id", "מזהה איש קשר", "uuid", category="איש קשר"),
+    _field("contact_main_type", "סוג איש קשר", "string", category="איש קשר", groupable=True),
     _field("contact_main_name", "איש קשר ראשי", "string", category="איש קשר"),
     _field("contact_main_email", "דוא\"ל ראשי", "string", category="איש קשר"),
     _field("contact_main_phone", "טלפון ראשי", "string", category="איש קשר"),
@@ -181,17 +189,32 @@ TENANT_SNAPSHOT_FIELDS = [
     _field("contact_main_website", "אתר", "string", category="איש קשר"),
     _field("contact_main_valid_from", "איש קשר מתאריך", "date", category="איש קשר"),
     _field("contact_main_valid_to", "איש קשר עד תאריך", "date", category="איש קשר"),
+    _field("contact_main_created_by", "איש קשר נוצר על ידי", "uuid", category="איש קשר"),
+    _field("contact_main_created_at", "איש קשר נוצר בתאריך", "datetime", category="איש קשר"),
+    _field("contact_main_updated_by", "איש קשר עודכן על ידי", "uuid", category="איש קשר"),
+    _field("contact_main_updated_at", "איש קשר עודכן בתאריך", "datetime", category="איש קשר"),
+    _field("address_main_id", "מזהה כתובת", "uuid", category="כתובת"),
+    _field("address_main_type", "סוג כתובת", "string", category="כתובת", groupable=True),
     _field("address_main_street", "רחוב", "string", category="כתובת"),
     _field("address_main_city", "עיר", "string", category="כתובת", groupable=True),
     _field("address_main_zip_code", "מיקוד", "string", category="כתובת"),
     _field("address_main_country", "מדינה", "string", category="כתובת", groupable=True),
     _field("address_main_valid_from", "כתובת מתאריך", "date", category="כתובת"),
     _field("address_main_valid_to", "כתובת עד תאריך", "date", category="כתובת"),
+    _field("address_main_created_by", "כתובת נוצרה על ידי", "uuid", category="כתובת"),
+    _field("address_main_created_at", "כתובת נוצרה בתאריך", "datetime", category="כתובת"),
+    _field("address_main_updated_by", "כתובת עודכנה על ידי", "uuid", category="כתובת"),
+    _field("address_main_updated_at", "כתובת עודכנה בתאריך", "datetime", category="כתובת"),
+    _field("status_id", "מזהה סטטוס", "uuid", category="סטטוס"),
     _field("status_value", "סטטוס לקוח", "string", category="סטטוס", groupable=True),
     _field("status_reason", "סיבת סטטוס", "string", category="סטטוס", groupable=True),
     _field("status_notes", "הערות סטטוס", "string", category="סטטוס"),
     _field("status_valid_from", "סטטוס מתאריך", "date", category="סטטוס"),
     _field("status_valid_to", "סטטוס עד תאריך", "date", category="סטטוס"),
+    _field("status_created_by", "סטטוס נוצר על ידי", "uuid", category="סטטוס"),
+    _field("status_created_at", "סטטוס נוצר בתאריך", "datetime", category="סטטוס"),
+    _field("status_updated_by", "סטטוס עודכן על ידי", "uuid", category="סטטוס"),
+    _field("status_updated_at", "סטטוס עודכן בתאריך", "datetime", category="סטטוס"),
     _field("subscription_id", "מזהה מנוי", "uuid", category="מנוי"),
     _field("subscription_billing_cycle", "מחזור חיוב", "string", category="מנוי", groupable=True),
     _field("subscription_currency", "מטבע", "string", category="מנוי", groupable=True),
@@ -204,6 +227,10 @@ TENANT_SNAPSHOT_FIELDS = [
     _field("subscription_next_renewal_at", "חידוש הבא", "date", category="מנוי", groupable=True),
     _field("subscription_valid_from", "מנוי מתאריך", "date", category="מנוי"),
     _field("subscription_valid_to", "מנוי עד תאריך", "date", category="מנוי"),
+    _field("subscription_created_by", "מנוי נוצר על ידי", "uuid", category="מנוי"),
+    _field("subscription_created_at", "מנוי נוצר בתאריך", "datetime", category="מנוי"),
+    _field("subscription_updated_by", "מנוי עודכן על ידי", "uuid", category="מנוי"),
+    _field("subscription_updated_at", "מנוי עודכן בתאריך", "datetime", category="מנוי"),
     _field("module_count", "כמות מודולים", "number", category="מנוי"),
     _field("module_names", "שמות מודולים", "string", category="מנוי"),
 ]
@@ -218,7 +245,12 @@ TENANT_MODULE_FIELDS = [
     _field("subscription_billing_cycle", "מחזור חיוב", "string", category="מנוי", groupable=True),
     _field("subscription_currency", "מטבע", "string", category="מנוי", groupable=True),
     _field("subscription_seat_count", "מושבים במנוי", "number", category="מנוי"),
+    _field("subscription_created_by", "מנוי נוצר על ידי", "uuid", category="מנוי"),
+    _field("subscription_created_at", "מנוי נוצר בתאריך", "datetime", category="מנוי"),
+    _field("subscription_updated_by", "מנוי עודכן על ידי", "uuid", category="מנוי"),
+    _field("subscription_updated_at", "מנוי עודכן בתאריך", "datetime", category="מנוי"),
     _field("module_assignment_id", "מזהה שיוך מודול", "uuid", category="שיוך מודול"),
+    _field("tenant_subscription_id", "מזהה מנוי בשיוך", "uuid", category="שיוך מודול"),
     _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
     _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
     _field("module_description", "תיאור מודול", "string", category="מודול"),
@@ -244,6 +276,10 @@ TENANT_MODULE_FIELDS = [
     _field("notes", "הערות שיוך", "string", category="שיוך מודול"),
     _field("valid_from", "שיוך מתאריך", "date", category="שיוך מודול", groupable=True),
     _field("valid_to", "שיוך עד תאריך", "date", category="שיוך מודול"),
+    _field("assignment_created_by", "שיוך נוצר על ידי", "uuid", category="שיוך מודול"),
+    _field("assignment_created_at", "שיוך נוצר בתאריך", "datetime", category="שיוך מודול"),
+    _field("assignment_updated_by", "שיוך עודכן על ידי", "uuid", category="שיוך מודול"),
+    _field("assignment_updated_at", "שיוך עודכן בתאריך", "datetime", category="שיוך מודול"),
     _field("next_renewal_at", "חידוש הבא", "date", category="מנוי", groupable=True),
 ]
 
@@ -261,6 +297,7 @@ MODULE_CATALOG_FIELDS = [
 ]
 
 MODULE_PRICING_FIELDS = [
+    _field("module_price_id", "מזהה מחיר מודול", "uuid", category="מחיר"),
     _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
     _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
     _field("base_price_ils", "מחיר בסיס", "number", category="מחיר"),
@@ -269,6 +306,7 @@ MODULE_PRICING_FIELDS = [
     _field("setup_fee_ils", "דמי הקמה", "number", category="מחיר"),
     _field("valid_from", "מחיר מתאריך", "date", category="מחיר", groupable=True),
     _field("valid_to", "מחיר עד תאריך", "date", category="מחיר"),
+    _field("created_by", "מחיר נוצר על ידי", "uuid", category="מחיר"),
     _field("created_at", "מחיר נוצר בתאריך", "datetime", category="מחיר"),
 ]
 
@@ -299,6 +337,7 @@ TEMPLATE_MODULE_FIELDS = [
 ]
 
 TEMPLATE_DEFAULT_FIELDS = [
+    _field("template_default_id", "מזהה ברירת מחדל", "uuid", category="ברירת מחדל"),
     _field("template_id", "מזהה תבנית", "uuid", category="תבנית"),
     _field("template_name", "שם תבנית", "string", category="תבנית", groupable=True),
     _field("default_type", "סוג ברירת מחדל", "string", category="ברירת מחדל", groupable=True),
@@ -353,15 +392,34 @@ SAVED_REPORT_FIELDS = [
     _field("saved_report_name", "שם דוח", "string", category="דוח שמור", groupable=True),
     _field("saved_report_description", "תיאור", "string", category="דוח שמור"),
     _field("saved_report_dataset", "Dataset", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_model_dataset", "Dataset בטבלה", "string", category="דוח שמור", groupable=True),
     _field("saved_report_visibility", "נראות", "string", category="דוח שמור", groupable=True),
     _field("saved_report_owner_id", "מזהה בעלים", "uuid", category="דוח שמור"),
     _field("saved_report_owner_name", "בעלים", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_definition_json", "הגדרת JSON", "string", category="דוח שמור"),
     _field("saved_report_columns_count", "כמות עמודות", "number", category="דוח שמור"),
     _field("saved_report_filters_count", "כמות סינונים", "number", category="דוח שמור"),
     _field("saved_report_group_by_count", "כמות קיבוצים", "number", category="דוח שמור"),
     _field("saved_report_metrics_count", "כמות מדדים", "number", category="דוח שמור"),
     _field("saved_report_created_at", "נוצר בתאריך", "datetime", category="דוח שמור"),
     _field("saved_report_updated_at", "עודכן בתאריך", "datetime", category="דוח שמור"),
+]
+
+MODULE_SUMMARY_FIELDS = [
+    _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
+    _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
+    _field("tenant_count", "כמות לקוחות", "number", category="סיכום"),
+    _field("total_seats", "סה\"כ מושבים", "number", category="סיכום"),
+    _field("avg_seats", "ממוצע מושבים", "number", category="סיכום"),
+    _field("first_assigned_at", "שיוך ראשון", "date", category="סיכום", groupable=True),
+    _field("last_assigned_at", "שיוך אחרון", "date", category="סיכום", groupable=True),
+]
+
+SEAT_DISTRIBUTION_FIELDS = [
+    _field("seat_bucket", "טווח מושבים", "string", category="סיכום", groupable=True),
+    _field("tenant_count", "כמות לקוחות", "number", category="סיכום"),
+    _field("total_seats", "סה\"כ מושבים", "number", category="סיכום"),
+    _field("avg_seats", "ממוצע מושבים", "number", category="סיכום"),
 ]
 
 def _merge_fields(*groups: list[ReportFieldDefinition]) -> list[ReportFieldDefinition]:
@@ -536,6 +594,30 @@ DATASETS = [
         SAVED_REPORT_FIELDS,
         ["saved_report_name", "saved_report_dataset", "saved_report_visibility", "saved_report_owner_name", "saved_report_updated_at"],
         [ReportMetricDefinition(operation="count", label="דוחות שמורים")],
+    ),
+    _dataset(
+        "module_summary",
+        "סיכום מודולים",
+        "תמונת סיכום של אימוץ מודולים לפי כמות לקוחות ומושבים.",
+        MODULE_SUMMARY_FIELDS,
+        ["module_name", "tenant_count", "total_seats", "avg_seats", "last_assigned_at"],
+        [
+            ReportMetricDefinition(operation="count", label="מודולים"),
+            ReportMetricDefinition(operation="sum", field="tenant_count", label='סה"כ לקוחות'),
+            ReportMetricDefinition(operation="sum", field="total_seats", label='סה"כ מושבים'),
+        ],
+    ),
+    _dataset(
+        "seat_distribution",
+        "התפלגות מושבים",
+        "פילוח לקוחות לפי טווחי מושבים במנוי.",
+        SEAT_DISTRIBUTION_FIELDS,
+        ["seat_bucket", "tenant_count", "total_seats", "avg_seats"],
+        [
+            ReportMetricDefinition(operation="count", label="קבוצות"),
+            ReportMetricDefinition(operation="sum", field="tenant_count", label='סה"כ לקוחות'),
+            ReportMetricDefinition(operation="sum", field="total_seats", label='סה"כ מושבים'),
+        ],
     ),
 ]
 
@@ -747,6 +829,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
         status = statuses.get(tenant.tenant_id)
         subscription = subscriptions.get(tenant.tenant_id)
         subscription_modules = module_rows_by_subscription.get(subscription.id, []) if subscription else []
+        derived_seat_count, derived_module_slugs = derive_subscription_snapshot(subscription_modules)
         module_names = [
             modules[row.module_slug].name if row.module_slug in modules else row.module_slug
             for row in subscription_modules
@@ -759,6 +842,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
             "tenant_id": tenant.tenant_id,
             "org_number": tenant.org_number,
             "tenant_created_at": tenant.created_at,
+            "identity_id": getattr(identity, "id", None),
             "identity_name_he": tenant_name,
             "identity_name_en": getattr(identity, "name_en", None),
             "identity_tax_id": getattr(identity, "tax_id", None),
@@ -767,6 +851,12 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
             "identity_industry_code": getattr(identity, "industry_code", None),
             "identity_valid_from": getattr(identity, "valid_from", None),
             "identity_valid_to": getattr(identity, "valid_to", None),
+            "identity_created_by": getattr(identity, "created_by", None),
+            "identity_created_at": getattr(identity, "created_at", None),
+            "identity_updated_by": getattr(identity, "updated_by", None),
+            "identity_updated_at": getattr(identity, "updated_at", None),
+            "contact_main_id": getattr(contact, "id", None),
+            "contact_main_type": getattr(contact, "contact_type", None),
             "contact_main_name": getattr(contact, "contact_name", None),
             "contact_main_email": getattr(contact, "email", None),
             "contact_main_phone": getattr(contact, "phone", None),
@@ -774,29 +864,48 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
             "contact_main_website": getattr(contact, "website", None),
             "contact_main_valid_from": getattr(contact, "valid_from", None),
             "contact_main_valid_to": getattr(contact, "valid_to", None),
+            "contact_main_created_by": getattr(contact, "created_by", None),
+            "contact_main_created_at": getattr(contact, "created_at", None),
+            "contact_main_updated_by": getattr(contact, "updated_by", None),
+            "contact_main_updated_at": getattr(contact, "updated_at", None),
+            "address_main_id": getattr(address, "id", None),
+            "address_main_type": getattr(address, "addr_type", None),
             "address_main_street": getattr(address, "street", None),
             "address_main_city": getattr(address, "city", None),
             "address_main_zip_code": getattr(address, "zip_code", None),
             "address_main_country": getattr(address, "country", None),
             "address_main_valid_from": getattr(address, "valid_from", None),
             "address_main_valid_to": getattr(address, "valid_to", None),
+            "address_main_created_by": getattr(address, "created_by", None),
+            "address_main_created_at": getattr(address, "created_at", None),
+            "address_main_updated_by": getattr(address, "updated_by", None),
+            "address_main_updated_at": getattr(address, "updated_at", None),
+            "status_id": getattr(status, "id", None),
             "status_value": getattr(status, "status", None),
             "status_reason": getattr(status, "reason", None),
             "status_notes": getattr(status, "notes", None),
             "status_valid_from": getattr(status, "valid_from", None),
             "status_valid_to": getattr(status, "valid_to", None),
+            "status_created_by": getattr(status, "created_by", None),
+            "status_created_at": getattr(status, "created_at", None),
+            "status_updated_by": getattr(status, "updated_by", None),
+            "status_updated_at": getattr(status, "updated_at", None),
             "subscription_id": getattr(subscription, "id", None),
             "subscription_billing_cycle": getattr(subscription, "billing_cycle", None),
             "subscription_currency": getattr(subscription, "currency", None),
             "subscription_template_id": getattr(subscription, "template_id", None),
             "subscription_template_name": getattr(template, "name", None),
-            "subscription_seat_count": int(getattr(subscription, "seat_count", 0) or 0),
-            "subscription_selected_module_slugs": _join_text(getattr(subscription, "selected_module_slugs", None)),
+            "subscription_seat_count": derived_seat_count,
+            "subscription_selected_module_slugs": _join_text(derived_module_slugs),
             "subscription_discount_pct": float(getattr(subscription, "discount_pct", 0) or 0),
             "subscription_is_price_locked": getattr(subscription, "is_price_locked", False),
             "subscription_next_renewal_at": getattr(subscription, "next_renewal_at", None),
             "subscription_valid_from": getattr(subscription, "valid_from", None),
             "subscription_valid_to": getattr(subscription, "valid_to", None),
+            "subscription_created_by": getattr(subscription, "created_by", None),
+            "subscription_created_at": getattr(subscription, "created_at", None),
+            "subscription_updated_by": getattr(subscription, "updated_by", None),
+            "subscription_updated_at": getattr(subscription, "updated_at", None),
             "module_count": len(subscription_modules),
             "module_names": _join_text(module_names),
         }
@@ -823,8 +932,13 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
                 "subscription_template_name": getattr(template, "name", None),
                 "subscription_billing_cycle": getattr(subscription, "billing_cycle", None),
                 "subscription_currency": getattr(subscription, "currency", None),
-                "subscription_seat_count": int(getattr(subscription, "seat_count", 0) or 0),
+                "subscription_seat_count": derived_seat_count,
+                "subscription_created_by": getattr(subscription, "created_by", None),
+                "subscription_created_at": getattr(subscription, "created_at", None),
+                "subscription_updated_by": getattr(subscription, "updated_by", None),
+                "subscription_updated_at": getattr(subscription, "updated_at", None),
                 "module_assignment_id": row.id,
+                "tenant_subscription_id": row.tenant_subscription_id,
                 "module_slug": row.module_slug,
                 "module_name": getattr(module, "name", row.module_slug),
                 "module_description": getattr(module, "description", None),
@@ -850,6 +964,10 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
                 "notes": getattr(row, "notes", None),
                 "valid_from": row.valid_from,
                 "valid_to": row.valid_to,
+                "assignment_created_by": getattr(row, "created_by", None),
+                "assignment_created_at": getattr(row, "created_at", None),
+                "assignment_updated_by": getattr(row, "updated_by", None),
+                "assignment_updated_at": getattr(row, "updated_at", None),
                 "next_renewal_at": getattr(subscription, "next_renewal_at", None),
             }
             tenant_module_rows.append(module_row)
@@ -892,6 +1010,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
         module = modules.get(slug)
         module_pricing_rows.append(
             {
+                "module_price_id": getattr(price, "id", None),
                 "module_slug": slug,
                 "module_name": getattr(module, "name", slug),
                 "base_price_ils": float(getattr(price, "base_price_ils", 0) or 0),
@@ -900,6 +1019,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
                 "setup_fee_ils": float(getattr(price, "setup_fee_ils", 0) or 0),
                 "valid_from": getattr(price, "valid_from", None),
                 "valid_to": getattr(price, "valid_to", None),
+                "created_by": getattr(price, "created_by", None),
                 "created_at": getattr(price, "created_at", None),
             }
         )
@@ -968,6 +1088,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
         template = templates.get(row.template_id)
         template_default_rows.append(
             {
+                "template_default_id": row.id,
                 "template_id": row.template_id,
                 "template_name": getattr(template, "name", str(row.template_id)),
                 "default_type": row.default_type,
@@ -1078,9 +1199,11 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
                 "saved_report_name": row.name,
                 "saved_report_description": row.description,
                 "saved_report_dataset": definition.dataset,
+                "saved_report_model_dataset": row.dataset,
                 "saved_report_visibility": row.visibility,
                 "saved_report_owner_id": row.owner_id,
                 "saved_report_owner_name": getattr(owner, "full_name", None),
+                "saved_report_definition_json": _serialize_value(row.definition_json),
                 "saved_report_columns_count": len(definition.columns),
                 "saved_report_filters_count": len(definition.filters),
                 "saved_report_group_by_count": len(definition.group_by),

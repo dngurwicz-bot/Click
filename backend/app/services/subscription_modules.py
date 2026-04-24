@@ -23,6 +23,13 @@ def round2(value: Decimal | int | float | None) -> Decimal:
     return numeric.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
 
+def derive_subscription_snapshot(modules: list[TenantSubscriptionModule]) -> tuple[int, list[str]]:
+    active_rows = [row for row in modules if row.status == "active"]
+    active_module_slugs = [row.module_slug for row in active_rows]
+    seat_count = max((row.seats for row in active_rows), default=0)
+    return seat_count, active_module_slugs
+
+
 @dataclass
 class BlueprintModule:
     module_slug: str
@@ -259,9 +266,9 @@ async def align_subscription_modules_to_subscription(
 
 
 def sync_subscription_header(subscription: TenantSubscription, modules: list[TenantSubscriptionModule]) -> None:
-    active_module_slugs = [row.module_slug for row in modules if row.status == "active"]
+    seat_count, active_module_slugs = derive_subscription_snapshot(modules)
     subscription.selected_module_slugs = active_module_slugs
-    subscription.seat_count = max((row.seats for row in modules if row.status == "active"), default=0)
+    subscription.seat_count = seat_count
 
 
 async def get_effective_module_prices(

@@ -3,6 +3,25 @@ import { Search, Hash, Type, CalendarDays, GripVertical, Plus, ToggleLeft } from
 import { ReportDatasetDefinition } from "./types";
 import { useMemo, useState } from "react";
 
+const CATEGORY_ORDER = [
+  "לקוח",
+  "זהות",
+  "איש קשר",
+  "כתובת",
+  "סטטוס",
+  "מנוי",
+  "שיוך מודול",
+  "מודול",
+  "תמחור",
+  "תבנית",
+  "ברירת מחדל",
+  "משתמש",
+  "הרשאה",
+  "Audit",
+  "דוח שמור",
+  "כללי",
+];
+
 function FieldIcon({ type }: { type: string }) {
   if (type === "number") return <Hash size={14} className="text-sky-600" />;
   if (type === "date" || type === "datetime") return <CalendarDays size={14} className="text-emerald-600" />;
@@ -22,6 +41,7 @@ export function SidebarFields({
   onAddMetric: (metric: { operation: string; field?: string | null; label?: string }) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("all");
 
   const filteredFields = useMemo(() => {
     if (!activeDataset) return [];
@@ -32,19 +52,39 @@ export function SidebarFields({
         .join(" ")
         .toLowerCase()
         .includes(needle);
-    });
+      });
   }, [activeDataset, search]);
+
+  const categories = useMemo(() => {
+    const values = Array.from(new Set((activeDataset?.fields ?? []).map((field) => field.category || "כללי")));
+    return values.sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(a);
+      const bi = CATEGORY_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b, "he");
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [activeDataset]);
 
   const groupedFields = useMemo(() => {
     const groups = new Map<string, typeof filteredFields>();
     for (const field of filteredFields) {
       const category = field.category || "כללי";
+      if (activeCategory !== "all" && category !== activeCategory) continue;
       const current = groups.get(category) ?? [];
       current.push(field);
       groups.set(category, current);
     }
-    return Array.from(groups.entries());
-  }, [filteredFields]);
+    return Array.from(groups.entries()).sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(a[0]);
+      const bi = CATEGORY_ORDER.indexOf(b[0]);
+      if (ai === -1 && bi === -1) return a[0].localeCompare(b[0], "he");
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [activeCategory, filteredFields]);
 
   const metrics = useMemo(() => {
     if (!activeDataset) return [];
@@ -76,6 +116,30 @@ export function SidebarFields({
             className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pl-3 pr-9 text-sm outline-none transition focus:border-sky-500 focus:bg-white"
           />
         </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveCategory("all")}
+            className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+              activeCategory === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            כל השדות ({activeDataset.fields.length})
+          </button>
+          {categories.map((category) => {
+            const count = activeDataset.fields.filter((field) => (field.category || "כללי") === category).length;
+            return (
+              <button
+                key={category}
+                onClick={() => setActiveCategory(category)}
+                className={`rounded-full px-3 py-1 text-[11px] font-medium transition ${
+                  activeCategory === category ? "bg-sky-600 text-white" : "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                }`}
+              >
+                {category} ({count})
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
@@ -93,17 +157,21 @@ export function SidebarFields({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <GripVertical size={13} className="mt-0.5 text-slate-300 opacity-0 transition group-hover:opacity-100" />
+                          <GripVertical size={13} className="mt-0.5 text-slate-300" />
                           <FieldIcon type={field.type} />
                           <span className="truncate text-sm font-medium text-slate-800">{field.label}</span>
                         </div>
                         <div className="mt-1 pr-7 text-[11px] text-slate-500">
-                          <span className="font-mono text-slate-400">{field.id}</span>
-                          {field.description ? <span className="mr-2">{field.description}</span> : null}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {field.category ? (
+                              <span className="rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-700">{field.category}</span>
+                            ) : null}
+                            {field.description ? <span className="text-slate-400">{field.description}</span> : null}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100">
+                      <div className="flex shrink-0 gap-1 opacity-100">
                         <button
                           onClick={() => onAddColumn(field.id)}
                           className="rounded-lg bg-slate-200 p-1.5 text-slate-700 hover:bg-sky-100 hover:text-sky-700"

@@ -53,6 +53,21 @@ export function ReportsWorkspace() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function buildDefinitionFromDataset(dataset: ReportDatasetDefinition, base: ReportDefinition = emptyDefinition): ReportDefinition {
+    return {
+      ...base,
+      dataset: dataset.id,
+      columns: base.columns.length > 0 ? base.columns : dataset.default_columns,
+      metrics: base.metrics.length > 0 ? base.metrics : dataset.metrics.map((metric) => ({
+        operation: metric.operation,
+        field: metric.field ?? null,
+        label: metric.label,
+      })),
+      limit: base.limit || 50,
+      offset: 0,
+    };
+  }
+
   useEffect(() => {
     setLoading(true);
     Promise.allSettled([
@@ -91,22 +106,15 @@ export function ReportsWorkspace() {
           const item = loadedSaved.find(r => r.id === savedId);
           if (item) applyDefinition(item.definition, item.name);
         } else if (isNew) {
-          applyDefinition(emptyDefinition, "");
+          const defaultDataset = loadedDatasets.find((item) => item.id === emptyDefinition.dataset) ?? loadedDatasets[0];
+          if (defaultDataset) {
+            applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
+          } else {
+            applyDefinition(emptyDefinition, "");
+          }
         } else if (loadedDatasets.length > 0) {
           const defaultDataset = loadedDatasets.find((item) => item.id === emptyDefinition.dataset) ?? loadedDatasets[0];
-          applyDefinition(
-            {
-              ...emptyDefinition,
-              dataset: defaultDataset.id,
-              columns: defaultDataset.default_columns,
-              metrics: defaultDataset.metrics.map((metric) => ({
-                operation: metric.operation,
-                field: metric.field ?? null,
-                label: metric.label,
-              })),
-            },
-            "",
-          );
+          applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
         }
 
         if (catalogResult.status === "rejected" || datasetsResult.status === "rejected") {
@@ -134,7 +142,12 @@ export function ReportsWorkspace() {
         const item = savedReports.find(r => r.id === id);
         if (item) applyDefinition(item.definition, item.name);
       } else if (type === 'new') {
-        applyDefinition(emptyDefinition, "");
+        const defaultDataset = datasets.find((item) => item.id === emptyDefinition.dataset) ?? datasets[0];
+        if (defaultDataset) {
+          applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
+        } else {
+          applyDefinition(emptyDefinition, "");
+        }
       }
     }
 
@@ -198,8 +211,9 @@ export function ReportsWorkspace() {
   }
 
   function applyDefinition(nextDefinition: ReportDefinition, nextTitle = "") {
+    const dataset = datasets.find((item) => item.id === nextDefinition.dataset);
     setDefinition({
-      ...nextDefinition,
+      ...(dataset ? buildDefinitionFromDataset(dataset, nextDefinition) : nextDefinition),
       offset: 0,
       limit: nextDefinition.limit || 50,
     });

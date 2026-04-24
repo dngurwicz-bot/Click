@@ -80,26 +80,26 @@ export function ReportDesigner({
   ];
 
   return (
-    <div className="flex h-[calc(100vh-140px)] w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-      <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-slate-950 text-white">
-        <div className="border-b border-white/10 px-5 py-5">
+    <div className="flex h-[calc(100vh-140px)] w-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-[linear-gradient(180deg,#f8fbff_0%,#eef5ff_100%)]">
+        <div className="border-b border-slate-200 px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-sky-200">
-              <Database size={20} />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 shadow-sm">
+              <Database size={19} />
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">CLICK Insights</p>
-              <h2 className="mt-1 text-lg font-semibold text-white">מחולל דוחות מלא</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700/70">CLICK Insights</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-900">מחולל דוחות</h2>
             </div>
           </div>
 
           <div className="mt-5 space-y-2">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">מקור נתונים</label>
+            <label className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">מקור נתונים</label>
             <div className="relative">
               <select
                 value={activeDataset?.id ?? ""}
                 onChange={(e) => handleDatasetChange(e.target.value)}
-                className="h-12 w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-medium text-white outline-none transition focus:border-sky-400 focus:bg-white/10"
+                className="h-12 w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:bg-sky-50"
               >
                 {datasets.map((dataset) => (
                   <option key={dataset.id} value={dataset.id} className="text-slate-900">
@@ -110,27 +110,27 @@ export function ReportDesigner({
               <ChevronDown size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
             </div>
             {activeDataset ? (
-              <p className="text-xs leading-5 text-slate-300">{activeDataset.description}</p>
+              <p className="text-xs leading-5 text-slate-600">{activeDataset.description}</p>
             ) : null}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-b border-white/10 px-5 py-4 text-center">
-          <div className="rounded-xl bg-white/5 px-3 py-3">
-            <div className="text-lg font-semibold text-white">{activeDataset?.fields.length ?? 0}</div>
-            <div className="mt-1 text-[11px] text-slate-400">שדות זמינים</div>
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-200 px-5 py-4 text-center">
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">{activeDataset?.fields.length ?? 0}</div>
+            <div className="mt-1 text-[11px] text-slate-500">שדות זמינים</div>
           </div>
-          <div className="rounded-xl bg-white/5 px-3 py-3">
-            <div className="text-lg font-semibold text-white">{selectedCategories}</div>
-            <div className="mt-1 text-[11px] text-slate-400">קטגוריות</div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">{selectedCategories}</div>
+            <div className="mt-1 text-[11px] text-slate-500">קטגוריות</div>
           </div>
-          <div className="rounded-xl bg-white/5 px-3 py-3">
-            <div className="text-lg font-semibold text-white">{definition.columns.length}</div>
-            <div className="mt-1 text-[11px] text-slate-400">עמודות</div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">{definition.columns.length}</div>
+            <div className="mt-1 text-[11px] text-slate-500">עמודות</div>
           </div>
-          <div className="rounded-xl bg-white/5 px-3 py-3">
-            <div className="text-lg font-semibold text-white">{definition.metrics.length}</div>
-            <div className="mt-1 text-[11px] text-slate-400">מדדים</div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">{definition.metrics.length}</div>
+            <div className="mt-1 text-[11px] text-slate-500">מדדים</div>
           </div>
         </div>
 
@@ -145,7 +145,9 @@ export function ReportDesigner({
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-right text-sm transition ${
-                    isActive ? "bg-sky-400/15 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"
+                    isActive
+                      ? "border border-sky-200 bg-white text-sky-800 shadow-sm"
+                      : "border border-transparent text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900"
                   }`}
                 >
                   <span className="flex items-center gap-3">
@@ -153,7 +155,7 @@ export function ReportDesigner({
                     <span className="font-medium">{tab.label}</span>
                   </span>
                   {tab.badge ? (
-                    <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-sky-300/20 px-2 text-[11px] font-semibold text-sky-100">
+                    <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-sky-100 px-2 text-[11px] font-semibold text-sky-700">
                       {tab.badge}
                     </span>
                   ) : null}

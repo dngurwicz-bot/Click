@@ -8,6 +8,7 @@ from app.database import get_db
 from app.main import app
 from app.middleware.audit import AuditMiddleware
 from app.middleware.auth import CurrentUser, get_current_user
+from app.config import get_settings
 from app.schemas.admin_user import ALL_RESOURCES, DEFAULT_PERMISSIONS
 
 
@@ -107,7 +108,24 @@ def test_audit_path_parser_handles_custom_action_suffix():
     assert explicit_action == "mark_paid"
 
 
-def test_default_permissions_include_billing_resource():
-    assert "billing" in ALL_RESOURCES
-    assert DEFAULT_PERMISSIONS["admin"]["billing"]["can_view"] is True
-    assert DEFAULT_PERMISSIONS["billing"]["billing"]["can_edit"] is True
+def test_audit_path_parser_handles_tenant_hard_delete_suffix():
+    entity_type, entity_id, explicit_action = AuditMiddleware._parse_path(
+        f"/api/admin/tenants/{uuid4()}/hard-delete"
+    )
+
+    assert entity_type == "tenants"
+    assert entity_id is not None
+    assert explicit_action == "delete"
+
+
+def test_permissions_match_billing_feature_flag():
+    settings = get_settings()
+
+    if settings.BILLING_ENABLED:
+        assert "billing" in ALL_RESOURCES
+        assert DEFAULT_PERMISSIONS["admin"]["billing"]["can_view"] is True
+        assert DEFAULT_PERMISSIONS["billing"]["billing"]["can_edit"] is True
+    else:
+        assert "billing" not in ALL_RESOURCES
+        assert "billing" not in DEFAULT_PERMISSIONS["admin"]
+        assert "billing" not in DEFAULT_PERMISSIONS

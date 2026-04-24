@@ -85,6 +85,8 @@ class TenantSubscriptionBase(BaseModel):
     billing_cycle: str = "monthly"
     currency: str = "ILS"
     template_id: Optional[uuid.UUID] = None
+    # Backward-compatible aggregate view fields. The source of truth is
+    # tenant_subscription_modules, not the subscription header row.
     seat_count: int = 0
     selected_module_slugs: list[str] = Field(default_factory=list)
     discount_pct: Decimal = Decimal("0")
@@ -296,3 +298,20 @@ class TenantApplyTemplateRequest(BaseModel):
 class TenantApplySyncRequest(BaseModel):
     template_id: uuid.UUID
     valid_from: Optional[date] = None
+
+
+class TenantDeleteRequest(BaseModel):
+    confirmation_phrase: str
+    delete_logo: bool = True
+    purge_audit_logs: bool = False
+
+
+class TenantDeleteImpactOut(BaseModel):
+    tenant_id: uuid.UUID
+    org_number: int
+    tenant_name: Optional[str] = None
+    tax_id: Optional[str] = None
+    confirmation_phrase: str
+    delete_logo: bool
+    logo_will_be_deleted: bool
+    counts: dict[str, int]

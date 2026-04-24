@@ -4,27 +4,38 @@ import httpx
 import re
 from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from urllib.parse import unquote, urlsplit
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
 
 from app.database import get_db
 from app.config import get_settings
-from app.middleware.auth import require_permission, CurrentUser
+from app.middleware.auth import require_permission, require_super_admin, CurrentUser
 from app.models.admin_user import AdminUser
 from app.models.tenant import (
     Tenant, TenantIdentity, TenantContact, TenantAddress,
     TenantSubscription, TenantSubscriptionModule, TenantStatus,
 )
 from app.models.module import OrgTemplate, OrgTemplateDefault, OrgTemplateModule
-from app.models.billing_engine import BillingContract
+from app.models.audit_log import AuditLog
+from app.models.billing import BillingCharge, Invoice, InvoiceLine, Quote, QuoteLine
+from app.models.billing_engine import (
+    BillingBillRun,
+    BillingChangeEvent,
+    BillingContract,
+    BillingContractItem,
+    BillingDocument,
+    BillingDocumentLine,
+    BillingLedgerEntry,
+)
 from app.services.billing_engine import cycle_bounds, remaining_proration_ratio
 from app.schemas.tenant import (
     TenantCreateRequest, TenantUpdateRequest, TenantOut,
     TenantListItem, TenantIdentityOut, TenantContactOut,
     TenantAddressOut, TenantSubscriptionModuleActionBody, TenantSubscriptionModuleCreate, TenantSubscriptionModuleOut, TenantSubscriptionModuleUpdate,
-    TenantSubscriptionOut, TenantStatusOut, TenantApplySyncRequest, TenantApplyTemplateRequest, TenantSyncPreviewModuleDiff,
-    TenantSyncPreviewOut,
+    TenantSubscriptionOut, TenantStatusOut, TenantApplySyncRequest, TenantApplyTemplateRequest, TenantDeleteImpactOut,
+    TenantDeleteRequest, TenantSyncPreviewModuleDiff, TenantSyncPreviewOut,
 )
 from app.services.temporal import (
     close_and_create, get_active, get_history, update_in_place,
@@ -36,6 +47,7 @@ from app.services.subscription_modules import (
     build_subscription_blueprint,
     calculate_module_totals,
     clone_subscription_modules,
+    derive_subscription_snapshot,
     get_effective_subscription_module,
     get_effective_module_prices,
     get_module_names,
@@ -170,6 +182,141 @@ async def _upload_logo_to_storage(*, content: bytes, content_type: str, storage_
     return f"{settings.SUPABASE_URL}/storage/v1/object/public/{_LOGO_BUCKET}/{object_path}?t={int(datetime.now(timezone.utc).timestamp())}"
 
 
+def _tenant_delete_confirmation_phrase(*, org_number: int, tax_id: str | None) -> str:
+    normalized_tax_id = re.sub(r"\D+", "", tax_id or "")
+    return f"DELETE {org_number} {normalized_tax_id or 'NO-TAX-ID'}"
+
+
+def _extract_storage_object_path(public_url: str | None) -> str | None:
+    if not public_url:
+        return None
+
+    parsed = urlsplit(public_url)
+    prefix = f"/storage/v1/object/public/{_LOGO_BUCKET}/"
+    if prefix not in parsed.path:
+        return None
+
+    _, _, path = parsed.path.partition(prefix)
+    return unquote(path) or None
+
+
+async def _delete_logo_from_storage(public_url: str | None) -> None:
+    object_path = _extract_storage_object_path(public_url)
+    if not object_path:
+        return
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
+        )
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.delete(
+            f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
+            headers={
+                "apikey": settings.SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+            },
+        )
+
+    if response.status_code in (200, 204, 404):
+        return
+
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail={
+            "error": body.get("message") or body.get("error") or "Failed to delete tenant logo",
+            "code": "STORAGE_DELETE_ERROR",
+        },
+    )
+
+
+async def _build_tenant_delete_impact(
+    db: AsyncSession,
+    tenant: Tenant,
+    *,
+    include_audit_logs: bool,
+    delete_logo: bool,
+) -> TenantDeleteImpactOut:
+    identity = await get_active(db, TenantIdentity, tenant.tenant_id)
+
+    subscription_ids = list(
+        (
+            await db.execute(
+                select(TenantSubscription.id).where(TenantSubscription.tenant_id == tenant.tenant_id)
+            )
+        ).scalars().all()
+    )
+    contract_ids = list(
+        (
+            await db.execute(
+                select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id)
+            )
+        ).scalars().all()
+    )
+    invoice_ids = list(
+        (
+            await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    quote_ids = list(
+        (
+            await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    document_ids = list(
+        (
+            await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+
+    counts: dict[str, int] = {
+        "identity_rows": len((await db.execute(select(TenantIdentity.id).where(TenantIdentity.tenant_id == tenant.tenant_id))).scalars().all()),
+        "contact_rows": len((await db.execute(select(TenantContact.id).where(TenantContact.tenant_id == tenant.tenant_id))).scalars().all()),
+        "address_rows": len((await db.execute(select(TenantAddress.id).where(TenantAddress.tenant_id == tenant.tenant_id))).scalars().all()),
+        "status_rows": len((await db.execute(select(TenantStatus.id).where(TenantStatus.tenant_id == tenant.tenant_id))).scalars().all()),
+        "subscription_rows": len(subscription_ids),
+        "subscription_module_rows": len(
+            (
+                await db.execute(
+                    select(TenantSubscriptionModule.id).where(
+                        TenantSubscriptionModule.tenant_subscription_id.in_(subscription_ids)
+                    )
+                )
+            ).scalars().all()
+        ) if subscription_ids else 0,
+        "seat_change_logs": len((await db.execute(select(SeatChangeLog.id).where(SeatChangeLog.tenant_id == tenant.tenant_id))).scalars().all()),
+        "billing_charges": len((await db.execute(select(BillingCharge.id).where(BillingCharge.tenant_id == tenant.tenant_id))).scalars().all()),
+        "invoices": len(invoice_ids),
+        "invoice_lines": len((await db.execute(select(InvoiceLine.id).where(InvoiceLine.invoice_id.in_(invoice_ids)))).scalars().all()) if invoice_ids else 0,
+        "quotes": len(quote_ids),
+        "quote_lines": len((await db.execute(select(QuoteLine.id).where(QuoteLine.quote_id.in_(quote_ids)))).scalars().all()) if quote_ids else 0,
+        "billing_contracts": len(contract_ids),
+        "billing_contract_items": len((await db.execute(select(BillingContractItem.id).where(BillingContractItem.contract_id.in_(contract_ids)))).scalars().all()) if contract_ids else 0,
+        "billing_change_events": len((await db.execute(select(BillingChangeEvent.id).where(BillingChangeEvent.tenant_id == tenant.tenant_id))).scalars().all()),
+        "billing_bill_runs": len((await db.execute(select(BillingBillRun.id).where(BillingBillRun.contract_id.in_(contract_ids)))).scalars().all()) if contract_ids else 0,
+        "billing_documents": len(document_ids),
+        "billing_document_lines": len((await db.execute(select(BillingDocumentLine.id).where(BillingDocumentLine.document_id.in_(document_ids)))).scalars().all()) if document_ids else 0,
+        "billing_ledger_entries": len((await db.execute(select(BillingLedgerEntry.id).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))).scalars().all()),
+        "audit_logs": len((await db.execute(select(AuditLog.id).where(AuditLog.tenant_id == tenant.tenant_id))).scalars().all()) if include_audit_logs else 0,
+    }
+
+    return TenantDeleteImpactOut(
+        tenant_id=tenant.tenant_id,
+        org_number=tenant.org_number,
+        tenant_name=identity.name_he if identity else None,
+        tax_id=identity.tax_id if identity else None,
+        confirmation_phrase=_tenant_delete_confirmation_phrase(org_number=tenant.org_number, tax_id=identity.tax_id if identity else None),
+        delete_logo=delete_logo,
+        logo_will_be_deleted=bool(delete_logo and _extract_storage_object_path(identity.logo_url if identity else None)),
+        counts=counts,
+    )
+
+
 async def _load_user_lookup(db: AsyncSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     if not user_ids:
         return {}
@@ -233,6 +380,32 @@ def _extract_current_data(row: object, field_names: set[str]) -> dict[str, objec
     return {field_name: getattr(row, field_name, None) for field_name in field_names}
 
 
+def _subscription_header_payload(data: dict[str, object]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in data.items()
+        if key not in {"seat_count", "selected_module_slugs"}
+    }
+
+
+def _subscription_payload_from_row(
+    row: TenantSubscription,
+    module_rows: list[TenantSubscriptionModule],
+    user_lookup: dict[uuid.UUID, str],
+) -> dict[str, object]:
+    seat_count, selected_module_slugs = derive_subscription_snapshot(module_rows)
+    payload = {
+        field_name: getattr(row, field_name, None)
+        for field_name in TenantSubscriptionOut.model_fields
+        if field_name not in {"created_by", "updated_by", "seat_count", "selected_module_slugs"}
+    }
+    payload["seat_count"] = seat_count
+    payload["selected_module_slugs"] = selected_module_slugs
+    payload["created_by"] = _resolve_user_label(user_lookup, getattr(row, "created_by", None))
+    payload["updated_by"] = _resolve_user_label(user_lookup, getattr(row, "updated_by", None))
+    return payload
+
+
 async def _ensure_tenant_operation_window(
     db: AsyncSession,
     tenant_id: uuid.UUID,
@@ -255,6 +428,11 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
         _collect_row_user_ids(identity, contact, address, subscription, status_row, *current_subscription_rows),
     )
     latest_at, latest_actor_id = _latest_row_change([identity, contact, address, subscription, status_row, *current_subscription_rows])
+    subscription_payload = (
+        _subscription_payload_from_row(subscription, current_subscription_rows, user_lookup)
+        if subscription is not None
+        else None
+    )
 
     return TenantOut(
         tenant_id=tenant.tenant_id,
@@ -270,7 +448,7 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
         identity=_serialize_temporal_row(identity, TenantIdentityOut, user_lookup),
         contact=_serialize_temporal_row(contact, TenantContactOut, user_lookup),
         address=_serialize_temporal_row(address, TenantAddressOut, user_lookup),
-        subscription=_serialize_temporal_row(subscription, TenantSubscriptionOut, user_lookup),
+        subscription=TenantSubscriptionOut(**subscription_payload) if subscription_payload else None,
         subscription_modules=subscription_modules,
         status=_serialize_temporal_row(status_row, TenantStatusOut, user_lookup),
     )
@@ -342,7 +520,9 @@ async def _materialize_subscription_modules(
     explicit_module_slugs: list[str] | None = None,
 ) -> list[TenantSubscriptionModule]:
     defaults = template_defaults or {}
-    default_seat_count = _parse_int_or_zero(defaults.get("seat_count")) or subscription.seat_count or 0
+    current_rows = await load_subscription_modules(db, subscription.id, as_of=subscription.valid_from)
+    derived_seat_count, _ = derive_subscription_snapshot(current_rows)
+    default_seat_count = _parse_int_or_zero(defaults.get("seat_count")) or derived_seat_count or 0
     blueprint = await build_subscription_blueprint(
         db,
         template_id=subscription.template_id,
@@ -599,7 +779,7 @@ async def create_tenant(
         created_by=actor,
     ))
     subscription = TenantSubscription(
-        **body.subscription.model_dump(),
+        **_subscription_header_payload(body.subscription.model_dump()),
         tenant_id=tenant.tenant_id,
         valid_from=today,
         created_by=actor,
@@ -673,6 +853,123 @@ async def get_tenant(
     return await _build_tenant_out(tenant, db)
 
 
+@router.get("/{tenant_id}/delete-impact", response_model=TenantDeleteImpactOut)
+async def get_tenant_delete_impact(
+    tenant_id: uuid.UUID,
+    purge_audit_logs: bool = False,
+    delete_logo: bool = True,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+    return await _build_tenant_delete_impact(
+        db,
+        tenant,
+        include_audit_logs=purge_audit_logs,
+        delete_logo=delete_logo,
+    )
+
+
+@router.post("/{tenant_id}/hard-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def hard_delete_tenant(
+    tenant_id: uuid.UUID,
+    body: TenantDeleteRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+    identity = await get_active(db, TenantIdentity, tenant.tenant_id)
+
+    impact = await _build_tenant_delete_impact(
+        db,
+        tenant,
+        include_audit_logs=body.purge_audit_logs,
+        delete_logo=body.delete_logo,
+    )
+    if body.confirmation_phrase.strip() != impact.confirmation_phrase:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "נדרש להזין את ביטוי האישור המדויק כדי למחוק את הארגון", "code": "INVALID_CONFIRMATION"},
+        )
+
+    if body.delete_logo and impact.logo_will_be_deleted:
+        await _delete_logo_from_storage(identity.logo_url if identity else None)
+
+    subscription_ids = list(
+        (
+            await db.execute(select(TenantSubscription.id).where(TenantSubscription.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    contract_ids = list(
+        (
+            await db.execute(select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    invoice_ids = list(
+        (
+            await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    quote_ids = list(
+        (
+            await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+    document_ids = list(
+        (
+            await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
+        ).scalars().all()
+    )
+
+    if invoice_ids:
+        await db.execute(
+            sa.update(Quote)
+            .where(Quote.converted_invoice_id.in_(invoice_ids))
+            .values(converted_invoice_id=None)
+        )
+        await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id.in_(invoice_ids)))
+    if quote_ids:
+        await db.execute(delete(QuoteLine).where(QuoteLine.quote_id.in_(quote_ids)))
+    if document_ids:
+        await db.execute(delete(BillingDocumentLine).where(BillingDocumentLine.document_id.in_(document_ids)))
+
+    await db.execute(delete(SeatChangeLog).where(SeatChangeLog.tenant_id == tenant.tenant_id))
+    await db.execute(delete(BillingLedgerEntry).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))
+    await db.execute(delete(BillingChangeEvent).where(BillingChangeEvent.tenant_id == tenant.tenant_id))
+    await db.execute(delete(BillingCharge).where(BillingCharge.tenant_id == tenant.tenant_id))
+    await db.execute(delete(Quote).where(Quote.tenant_id == tenant.tenant_id))
+    await db.execute(delete(BillingDocument).where(BillingDocument.tenant_id == tenant.tenant_id))
+    await db.execute(delete(Invoice).where(Invoice.tenant_id == tenant.tenant_id))
+
+    if contract_ids:
+        await db.execute(delete(BillingBillRun).where(BillingBillRun.contract_id.in_(contract_ids)))
+        await db.execute(delete(BillingContractItem).where(BillingContractItem.contract_id.in_(contract_ids)))
+    await db.execute(delete(BillingContract).where(BillingContract.tenant_id == tenant.tenant_id))
+
+    if subscription_ids:
+        await db.execute(
+            delete(TenantSubscriptionModule).where(TenantSubscriptionModule.tenant_subscription_id.in_(subscription_ids))
+        )
+    await db.execute(delete(TenantSubscription).where(TenantSubscription.tenant_id == tenant.tenant_id))
+    await db.execute(delete(TenantStatus).where(TenantStatus.tenant_id == tenant.tenant_id))
+    await db.execute(delete(TenantAddress).where(TenantAddress.tenant_id == tenant.tenant_id))
+    await db.execute(delete(TenantContact).where(TenantContact.tenant_id == tenant.tenant_id))
+    await db.execute(delete(TenantIdentity).where(TenantIdentity.tenant_id == tenant.tenant_id))
+    if body.purge_audit_logs:
+        await db.execute(delete(AuditLog).where(AuditLog.tenant_id == tenant.tenant_id))
+    await db.execute(delete(Tenant).where(Tenant.tenant_id == tenant.tenant_id))
+
+    request.state.tenant_id = None if body.purge_audit_logs else tenant_id
+    await db.commit()
+
+
 @router.put("/{tenant_id}", response_model=TenantOut)
 async def update_tenant(
     tenant_id: uuid.UUID,
@@ -692,6 +989,8 @@ async def update_tenant(
         if not new_data_obj:
             return
         new_data = new_data_obj.model_dump()
+        if model is TenantSubscription:
+            new_data = _subscription_header_payload(new_data)
         extra_filters = {extra_filter_key: new_data[extra_filter_key]} if extra_filter_key else None
         target_valid_from: date | None = None
         target_valid_to: date | None = None
@@ -932,8 +1231,6 @@ async def apply_template_to_tenant(
         "template_id": template.id,
         "billing_cycle": template.default_billing_cycle,
         "currency": "ILS",
-        "seat_count": _parse_int_or_zero(template_defaults.get("seat_count")),
-        "selected_module_slugs": module_slugs,
         "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
         "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
     }
@@ -1482,8 +1779,6 @@ async def apply_tenant_sync(
             "template_id": template.id,
             "billing_cycle": template.default_billing_cycle,
             "currency": current_subscription.currency,
-            "seat_count": _parse_int_or_zero(template_defaults.get("seat_count")),
-            "selected_module_slugs": [],
             "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
             "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
         },
@@ -1541,7 +1836,22 @@ async def get_tenant_history(
         "identity": [_serialize_temporal_row(r, TenantIdentityOut, user_lookup) for r in identity_rows],
         "contact": [_serialize_temporal_row(r, TenantContactOut, user_lookup) for r in contact_rows],
         "address": [_serialize_temporal_row(r, TenantAddressOut, user_lookup) for r in address_rows],
-        "subscription": [_serialize_temporal_row(r, TenantSubscriptionOut, user_lookup) for r in subscription_rows],
+        "subscription": [
+            TenantSubscriptionOut(
+                **_subscription_payload_from_row(
+                    r,
+                    [
+                        module_row
+                        for module_row in subscription_module_rows
+                        if module_row.tenant_subscription_id == r.id
+                        and module_row.valid_from <= r.valid_from
+                        and (module_row.valid_to is None or module_row.valid_to >= r.valid_from)
+                    ],
+                    user_lookup,
+                )
+            )
+            for r in subscription_rows
+        ],
         "subscription_modules": [_serialize_temporal_row(r, TenantSubscriptionModuleOut, user_lookup) for r in subscription_module_rows],
         "status": [_serialize_temporal_row(r, TenantStatusOut, user_lookup) for r in status_rows],
     }

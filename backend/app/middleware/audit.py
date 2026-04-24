@@ -23,6 +23,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
         "record": "update",
         "apply-template": "apply_template",
         "apply_template": "apply_template",
+        "hard-delete": "delete",
+        "hard_delete": "delete",
     }
 
     @staticmethod

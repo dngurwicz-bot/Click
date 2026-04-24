@@ -63,6 +63,18 @@ AVAILABLE_ENTITIES = [
     ),
 ]
 
+_TENANT_SEAT_COUNT_SUBQUERY = (
+    select(TenantSubscriptionModule.seats)
+    .join(TenantSubscription, TenantSubscription.id == TenantSubscriptionModule.tenant_subscription_id)
+    .where(TenantSubscription.tenant_id == Tenant.tenant_id)
+    .where(TenantSubscription.valid_to.is_(None))
+    .where(TenantSubscriptionModule.valid_to.is_(None))
+    .where(TenantSubscriptionModule.status == "active")
+    .order_by(TenantSubscriptionModule.seats.desc(), TenantSubscriptionModule.valid_from.desc())
+    .limit(1)
+    .scalar_subquery()
+)
+
 _FIELD_MAPPING = {
     "tenants": {
         "tenant_id": Tenant.tenant_id,
@@ -71,7 +83,7 @@ _FIELD_MAPPING = {
         "name_he": TenantIdentity.name_he,
         "tax_id": TenantIdentity.tax_id,
         "status": TenantStatus.status,
-        "seat_count": TenantSubscription.seat_count,
+        "seat_count": _TENANT_SEAT_COUNT_SUBQUERY,
         "next_renewal_at": TenantSubscription.next_renewal_at,
         "billing_cycle": TenantSubscription.billing_cycle,
     },

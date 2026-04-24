@@ -2,7 +2,12 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
-from app.services.subscription_modules import calculate_module_totals, round2, sync_subscription_header
+from app.services.subscription_modules import (
+    calculate_module_totals,
+    derive_subscription_snapshot,
+    round2,
+    sync_subscription_header,
+)
 
 
 def test_round2_handles_none():
@@ -59,3 +64,16 @@ def test_sync_subscription_header_derives_snapshot_fields():
 
     assert subscription.selected_module_slugs == ["core", "docs"]
     assert subscription.seat_count == 15
+
+
+def test_derive_subscription_snapshot_uses_active_rows_only():
+    rows = [
+        SimpleNamespace(id=uuid4(), module_slug="core", seats=12, status="active"),
+        SimpleNamespace(id=uuid4(), module_slug="docs", seats=8, status="active"),
+        SimpleNamespace(id=uuid4(), module_slug="vision", seats=99, status="removed"),
+    ]
+
+    seat_count, module_slugs = derive_subscription_snapshot(rows)
+
+    assert seat_count == 12
+    assert module_slugs == ["core", "docs"]

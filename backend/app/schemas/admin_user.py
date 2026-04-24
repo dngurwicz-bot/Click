@@ -2,9 +2,16 @@ from pydantic import BaseModel, EmailStr
 import uuid
 from datetime import datetime, date
 from typing import Literal, Optional
+from app.config import get_settings
 
+settings = get_settings()
 
-RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
+if settings.BILLING_ENABLED:
+    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
+    ROLE_NAMES = Literal["super_admin", "admin", "support", "billing"]
+else:
+    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+    ROLE_NAMES = Literal["super_admin", "admin", "support"]
 
 # Default permissions per role (applied when creating a user)
 DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
@@ -13,7 +20,6 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "lookups":   {"can_view": True,  "can_edit": True},
         "modules":   {"can_view": True,  "can_edit": False},
         "reports":   {"can_view": True,  "can_edit": True},
-        "billing":   {"can_view": True,  "can_edit": True},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": True,  "can_edit": True},
         "audit":     {"can_view": True,  "can_edit": False},
@@ -23,12 +29,16 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "lookups":   {"can_view": True,  "can_edit": False},
         "modules":   {"can_view": False, "can_edit": False},
         "reports":   {"can_view": True,  "can_edit": False},
-        "billing":   {"can_view": True,  "can_edit": False},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
         "audit":     {"can_view": False, "can_edit": False},
     },
-    "billing": {
+}
+
+if settings.BILLING_ENABLED:
+    DEFAULT_PERMISSIONS["admin"]["billing"] = {"can_view": True, "can_edit": True}
+    DEFAULT_PERMISSIONS["support"]["billing"] = {"can_view": True, "can_edit": False}
+    DEFAULT_PERMISSIONS["billing"] = {
         "tenants":   {"can_view": False, "can_edit": False},
         "lookups":   {"can_view": False, "can_edit": False},
         "modules":   {"can_view": True,  "can_edit": False},
@@ -37,10 +47,11 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
         "audit":     {"can_view": False, "can_edit": False},
-    },
-}
+    }
 
-ALL_RESOURCES = ["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
+ALL_RESOURCES = ["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+if settings.BILLING_ENABLED:
+    ALL_RESOURCES.insert(4, "billing")
 
 
 class PermissionIn(BaseModel):
@@ -61,14 +72,14 @@ class AdminUserCreate(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    role: Literal["super_admin", "admin", "support", "billing"] = "admin"
+    role: ROLE_NAMES = "admin"
     permissions: Optional[list[PermissionIn]] = None  # None = use role defaults
     valid_from: Optional[date] = None
 
 
 class AdminUserUpdate(BaseModel):
     full_name: Optional[str] = None
-    role: Optional[Literal["super_admin", "admin", "support", "billing"]] = None
+    role: Optional[ROLE_NAMES] = None
     is_active: Optional[bool] = None
     permissions: Optional[list[PermissionIn]] = None
     valid_from: Optional[date] = None

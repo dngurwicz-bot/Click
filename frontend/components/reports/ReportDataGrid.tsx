@@ -36,6 +36,8 @@ export function ReportDataGrid({ result, activeDataset, loading }: ReportDataGri
     return activeDataset?.fields.find((f) => f.id === colId)?.label || colId;
   };
 
+  const firstColumns = result.columns.slice(0, 4);
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-white">
       {result.summary.length > 0 && (
@@ -52,6 +54,19 @@ export function ReportDataGrid({ result, activeDataset, loading }: ReportDataGri
       )}
 
       <div className="flex-1 overflow-auto">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-white px-2.5 py-1 font-medium text-slate-600">{activeDataset?.label || "תוצאת דוח"}</span>
+            {firstColumns.map((column) => (
+              <span key={column} className="rounded-full bg-white px-2.5 py-1 text-slate-500">
+                {getColumnLabel(column)}
+              </span>
+            ))}
+            {result.columns.length > firstColumns.length ? (
+              <span className="rounded-full bg-white px-2.5 py-1 text-slate-400">+{result.columns.length - firstColumns.length} עמודות נוספות</span>
+            ) : null}
+          </div>
+        </div>
         <table className="min-w-full border-separate border-spacing-0 text-right text-sm">
           <thead className="sticky top-0 z-10 bg-white shadow-sm">
             <tr>
@@ -78,7 +93,7 @@ export function ReportDataGrid({ result, activeDataset, loading }: ReportDataGri
                   {result.columns.map((column, colIdx) => (
                     <td
                       key={`${rowIdx}-${colIdx}`}
-                      className="whitespace-nowrap border-b border-slate-100 px-4 py-3 text-sm text-slate-700"
+                      className={`whitespace-nowrap border-b border-slate-100 px-4 py-3 text-sm ${colIdx === 0 ? "font-medium text-slate-900" : "text-slate-700"}`}
                     >
                       {row[column] ?? "—"}
                     </td>
