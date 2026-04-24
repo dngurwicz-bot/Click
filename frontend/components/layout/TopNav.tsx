@@ -29,6 +29,7 @@ import { api, canView, getStoredUser, logout, type UserInfo } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
+import { InsightsDropdownTab } from "./InsightsDropdownTab";
 
 interface Module {
   slug: string;
@@ -226,10 +227,14 @@ export function TopNav() {
         </button>
 
         {/* ── Desktop nav tabs ── */}
-        <nav className="hidden h-full min-w-0 flex-1 items-center overflow-x-auto md:flex" style={{ scrollbarWidth: "none" }}>
+        <nav className="hidden h-full min-w-0 flex-1 items-center overflow-visible md:flex" style={{ scrollbarWidth: "none" }}>
           <PriorityTab href="/dashboard" label="ראשי" active={pathname === "/dashboard"} onNavigate={navigateTo} />
           {moduleItems.map((item) => (
-            <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} onNavigate={navigateTo} />
+            item.href === "/modules/insights" ? (
+              <InsightsDropdownTab key={item.href} active={item.active} onNavigate={navigateTo} />
+            ) : (
+              <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} onNavigate={navigateTo} />
+            )
           ))}
         </nav>
 

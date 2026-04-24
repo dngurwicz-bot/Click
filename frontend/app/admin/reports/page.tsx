@@ -1,17 +1,14 @@
 "use client";
 
-import { AdminGrandchildLayout } from "@/components/layout/AdminShell";
+import { Suspense } from "react";
 import { ReportsWorkspace } from "@/components/reports/ReportsWorkspace";
 
 export default function ReportsPage() {
   return (
-    <AdminGrandchildLayout
-      title="CLICK Insights"
-      backHref="/dashboard"
-      backLabel="חזרה לדשבורד"
-      maxWidthClass="max-w-[1500px]"
-    >
-      <ReportsWorkspace />
-    </AdminGrandchildLayout>
+    <div className="flex h-full flex-col">
+      <Suspense fallback={<div className="flex-1 flex items-center justify-center">טוען...</div>}>
+        <ReportsWorkspace />
+      </Suspense>
+    </div>
   );
 }

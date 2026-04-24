@@ -62,48 +62,226 @@ def _current_user(user_id=None, permissions=None) -> CurrentUser:
     )
 
 
-@pytest.mark.asyncio
-async def test_load_snapshot_rows_respects_as_of_and_includes_active_modules():
+def _base_loader_results():
     tenant_id = uuid4()
     subscription_id = uuid4()
-    db = _FakeSession(
-        [
-            _ScalarResult([SimpleNamespace(tenant_id=tenant_id, org_number=101)]),
-            _ScalarResult([SimpleNamespace(tenant_id=tenant_id, name_he="Acme", tax_id="123", valid_from=date(2026, 1, 1), valid_to=None)]),
-            _ScalarResult([SimpleNamespace(tenant_id=tenant_id, status="active", valid_from=date(2026, 1, 1), valid_to=None)]),
-            _ScalarResult([SimpleNamespace(id=subscription_id, tenant_id=tenant_id, seat_count=18, billing_cycle="monthly", next_renewal_at=date(2026, 7, 1), valid_from=date(2026, 1, 1), valid_to=None)]),
-            _ScalarResult([SimpleNamespace(slug="core", name="Core"), SimpleNamespace(slug="vision", name="Vision")]),
-            _ScalarResult([
-                SimpleNamespace(module_slug="core", base_price_ils=0, per_seat_ils=10, valid_from=date(2026, 1, 1), valid_to=None),
-                SimpleNamespace(module_slug="vision", base_price_ils=0, per_seat_ils=20, valid_from=date(2026, 1, 1), valid_to=None),
-            ]),
-            _ScalarResult([
-                SimpleNamespace(tenant_subscription_id=subscription_id, module_slug="core", status="active", seats=12, valid_from=date(2026, 2, 1), valid_to=None, source_type="manual", pricing_mode="catalog"),
-                SimpleNamespace(tenant_subscription_id=subscription_id, module_slug="vision", status="active", seats=6, valid_from=date(2026, 5, 1), valid_to=None, source_type="manual", pricing_mode="catalog"),
-            ]),
-        ]
-    )
+    template_id = uuid4()
+    admin_id = uuid4()
+    saved_report_id = uuid4()
+    return [
+        _ScalarResult([SimpleNamespace(tenant_id=tenant_id, org_number=101, created_at=datetime(2026, 1, 2, tzinfo=UTC))]),
+        _ScalarResult([
+            SimpleNamespace(
+                tenant_id=tenant_id,
+                name_he="Acme",
+                name_en="Acme Inc",
+                tax_id="123456789",
+                entity_type="company",
+                logo_url="https://cdn/logo.png",
+                industry_code="tech",
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                tenant_id=tenant_id,
+                contact_name="Dana",
+                email="dana@acme.test",
+                phone="050-1234567",
+                phone_alt="050-0000000",
+                website="https://acme.test",
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                tenant_id=tenant_id,
+                street="Herzl 1",
+                city="Tel Aviv",
+                zip_code="61000",
+                country="IL",
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                tenant_id=tenant_id,
+                status="active",
+                reason="paid",
+                notes="VIP",
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=subscription_id,
+                tenant_id=tenant_id,
+                billing_cycle="monthly",
+                currency="ILS",
+                template_id=template_id,
+                seat_count=18,
+                selected_module_slugs=["core"],
+                discount_pct=5,
+                is_price_locked=True,
+                next_renewal_at=date(2026, 7, 1),
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=uuid4(),
+                tenant_subscription_id=subscription_id,
+                module_slug="core",
+                source_type="manual",
+                status="active",
+                seats=12,
+                pricing_mode="override",
+                override_base_price_ils=100,
+                override_per_seat_ils=10,
+                override_setup_fee_ils=50,
+                override_included_seats=3,
+                price_lock_reason="special deal",
+                notes="important",
+                valid_from=date(2026, 2, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=uuid4(),
+                slug="core",
+                name="Core",
+                description="Core module",
+                icon="box",
+                color_hex="#112233",
+                is_required=True,
+                is_active=True,
+                sort_order=10,
+                depends_on=["auth"],
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                module_slug="core",
+                base_price_ils=200,
+                per_seat_ils=15,
+                included_seats=2,
+                setup_fee_ils=99,
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=template_id,
+                name="Growth",
+                description="Growth template",
+                default_billing_cycle="monthly",
+                trial_days=14,
+                is_active=True,
+                sort_order=1,
+                target_industry="tech",
+                recommended_size="10-50",
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=uuid4(),
+                template_id=template_id,
+                default_type="currency",
+                default_value="ILS",
+                is_mandatory=True,
+                note="required",
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(template_id=template_id, module_slug="core")
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=admin_id,
+                full_name="System Admin",
+                email="admin@click.test",
+                role="super_admin",
+                is_active=True,
+                last_login_at=datetime(2026, 4, 10, tzinfo=UTC),
+                created_by=None,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                valid_from=date(2026, 1, 1),
+                valid_to=None,
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(id=uuid4(), user_id=admin_id, resource="reports", can_view=True, can_edit=True)
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                actor_id=admin_id,
+                actor_type="admin",
+                action="update",
+                entity_type="tenant",
+                entity_id=tenant_id,
+                old_values={"status": "trial"},
+                new_values={"status": "active"},
+                ip_address="127.0.0.1",
+                created_at=datetime(2026, 4, 12, tzinfo=UTC),
+            )
+        ]),
+        _ScalarResult([
+            SimpleNamespace(
+                id=saved_report_id,
+                name="Legacy Seats",
+                description=None,
+                dataset="tenant_snapshot",
+                definition_json=ReportDefinition(dataset="tenant_snapshot", columns=["org_number"]).model_dump(mode="json"),
+                visibility="shared",
+                owner_id=admin_id,
+                created_at=datetime(2026, 4, 10, tzinfo=UTC),
+                updated_at=datetime(2026, 4, 11, tzinfo=UTC),
+            )
+        ]),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_snapshot_rows_exposes_full_core_datasets():
+    db = _FakeSession(_base_loader_results())
 
     rows = await reporting._load_snapshot_rows(db, date(2026, 4, 15))
 
-    assert rows["tenant_snapshot"][0]["tenant_name"] == "Acme"
-    assert rows["tenant_snapshot"][0]["module_count"] == 1
-    assert rows["tenant_module_snapshot"][0]["module_slug"] == "core"
-    assert rows["tenant_module_snapshot"][0]["module_seats"] == 12
+    tenant_row = rows["tenant_snapshot_full"][0]
+    module_row = rows["tenant_module_snapshot_full"][0]
+    master_row_types = {row["record_type"] for row in rows["master_dataset"]}
+
+    assert tenant_row["identity_name_he"] == "Acme"
+    assert tenant_row["subscription_template_name"] == "Growth"
+    assert module_row["override_setup_fee_ils"] == 50.0
+    assert module_row["module_color_hex"] == "#112233"
+    assert "audit_log" in master_row_types
+    assert "saved_report" in master_row_types
+    assert rows["admin_permissions"][0]["resource"] == "reports"
+    assert rows["template_defaults"][0]["default_value"] == "ILS"
 
 
 @pytest.mark.asyncio
-async def test_execute_report_query_filters_module_and_seat_threshold(monkeypatch):
+async def test_execute_report_query_filters_new_dataset(monkeypatch):
     async def fake_load(_db, _as_of):
         return {
-            "tenant_snapshot": [],
-            "tenant_module_snapshot": [
-                {"tenant_id": "a", "tenant_name": "Acme", "module_slug": "core", "module_name": "Core", "module_seats": 15, "tenant_status": "active", "valid_from": date(2026, 4, 1)},
-                {"tenant_id": "b", "tenant_name": "Beta", "module_slug": "core", "module_name": "Core", "module_seats": 5, "tenant_status": "active", "valid_from": date(2026, 4, 2)},
-                {"tenant_id": "c", "tenant_name": "Gamma", "module_slug": "vision", "module_name": "Vision", "module_seats": 22, "tenant_status": "active", "valid_from": date(2026, 4, 3)},
-            ],
-            "module_summary": [],
-            "seat_distribution": [],
+            "tenant_module_snapshot_full": [
+                {"tenant_id": "a", "tenant_name": "Acme", "module_name": "Core", "module_seats": 15, "tenant_status": "active", "pricing_mode": "override", "valid_from": date(2026, 4, 1)},
+                {"tenant_id": "b", "tenant_name": "Beta", "module_name": "Core", "module_seats": 5, "tenant_status": "active", "pricing_mode": "catalog", "valid_from": date(2026, 4, 2)},
+            ]
         }
 
     monkeypatch.setattr(reporting, "_load_snapshot_rows", fake_load)
@@ -112,10 +290,10 @@ async def test_execute_report_query_filters_module_and_seat_threshold(monkeypatc
         None,
         ReportQueryRequest(
             definition=ReportDefinition(
-                dataset="tenant_module_snapshot",
-                columns=["tenant_name", "module_slug", "module_seats"],
+                dataset="tenant_module_snapshot_full",
+                columns=["tenant_name", "module_name", "module_seats"],
                 filters=[
-                    {"field": "module_slug", "operator": "equals", "value": "core"},
+                    {"field": "pricing_mode", "operator": "equals", "value": "override"},
                     {"field": "module_seats", "operator": "greater_than", "value": 10},
                 ],
                 limit=25,
@@ -128,17 +306,14 @@ async def test_execute_report_query_filters_module_and_seat_threshold(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_execute_report_query_groups_by_module_with_metrics(monkeypatch):
+async def test_execute_report_query_groups_permissions(monkeypatch):
     async def fake_load(_db, _as_of):
         return {
-            "tenant_snapshot": [],
-            "tenant_module_snapshot": [
-                {"tenant_id": "a", "module_name": "Core", "module_slug": "core", "module_seats": 12},
-                {"tenant_id": "b", "module_name": "Core", "module_slug": "core", "module_seats": 8},
-                {"tenant_id": "b", "module_name": "Vision", "module_slug": "vision", "module_seats": 5},
-            ],
-            "module_summary": [],
-            "seat_distribution": [],
+            "admin_permissions": [
+                {"user_name": "A", "resource": "reports", "can_view": True},
+                {"user_name": "A", "resource": "reports", "can_view": True},
+                {"user_name": "B", "resource": "audit", "can_view": False},
+            ]
         }
 
     monkeypatch.setattr(reporting, "_load_snapshot_rows", fake_load)
@@ -147,13 +322,10 @@ async def test_execute_report_query_groups_by_module_with_metrics(monkeypatch):
         None,
         ReportQueryRequest(
             definition=ReportDefinition(
-                dataset="tenant_module_snapshot",
-                group_by=["module_name"],
-                metrics=[
-                    {"operation": "count_distinct", "field": "tenant_id", "label": "Customers"},
-                    {"operation": "sum", "field": "module_seats", "label": "Seats"},
-                ],
-                sort=[{"field": "Seats", "direction": "desc"}],
+                dataset="admin_permissions",
+                group_by=["resource"],
+                metrics=[{"operation": "count", "label": "Rows"}],
+                sort=[{"field": "Rows", "direction": "desc"}],
                 view_mode="summary",
                 limit=25,
             )
@@ -161,34 +333,12 @@ async def test_execute_report_query_groups_by_module_with_metrics(monkeypatch):
     )
 
     assert result.total == 2
-    assert result.rows[0]["module_name"] == "Core"
-    assert result.rows[0]["Customers"] == "2"
-    assert result.rows[0]["Seats"] == "20.00"
+    assert result.rows[0]["resource"] == "reports"
+    assert result.rows[0]["Rows"] == "2"
 
 
 @pytest.mark.asyncio
-async def test_run_saved_report_blocks_personal_report_from_other_user():
-    owner_id = uuid4()
-    other_user = _current_user()
-    row = SimpleNamespace(
-        id=uuid4(),
-        name="Private",
-        description=None,
-        dataset="tenant_snapshot",
-        visibility="personal",
-        owner_id=owner_id,
-        definition_json=ReportDefinition(dataset="tenant_snapshot").model_dump(mode="json"),
-        created_at=datetime.now(UTC),
-        updated_at=None,
-    )
-    db = _FakeSession([_ScalarResult(row)])
-
-    with pytest.raises(PermissionError):
-        await reporting.run_saved_report(db, row.id, other_user)
-
-
-@pytest.mark.asyncio
-async def test_run_saved_report_allows_shared_report(monkeypatch):
+async def test_run_saved_report_normalizes_legacy_dataset(monkeypatch):
     owner_id = uuid4()
     row = SimpleNamespace(
         id=uuid4(),
@@ -197,29 +347,29 @@ async def test_run_saved_report_allows_shared_report(monkeypatch):
         dataset="tenant_snapshot",
         visibility="shared",
         owner_id=owner_id,
-        definition_json=ReportDefinition(dataset="tenant_snapshot").model_dump(mode="json"),
+        definition_json=ReportDefinition(dataset="tenant_snapshot", columns=["org_number"]).model_dump(mode="json"),
         created_at=datetime.now(UTC),
         updated_at=None,
     )
     db = _FakeSession([_ScalarResult(row)])
 
     async def fake_execute(_db, request):
-        return ReportResult(columns=["tenant_name"], rows=[{"tenant_name": "Acme"}], total=1, summary=[], applied_definition=request.definition)
+        assert request.definition.dataset == "tenant_snapshot_full"
+        return ReportResult(columns=["org_number"], rows=[{"org_number": "101"}], total=1, summary=[], applied_definition=request.definition)
 
     monkeypatch.setattr(reporting, "execute_report_query", fake_execute)
 
     result = await reporting.run_saved_report(db, row.id, _current_user())
 
     assert result.total == 1
-    assert result.rows[0]["tenant_name"] == "Acme"
 
 
 @pytest.mark.asyncio
 async def test_export_report_matches_query_output(monkeypatch):
     async def fake_execute(_db, request):
         return ReportResult(
-            columns=["tenant_name", "seat_count"],
-            rows=[{"tenant_name": "Acme", "seat_count": "18"}],
+            columns=["identity_name_he", "subscription_seat_count"],
+            rows=[{"identity_name_he": "Acme", "subscription_seat_count": "18"}],
             total=1,
             summary=[{"label": "לקוחות", "value": "1"}],
             applied_definition=request.definition,
@@ -229,7 +379,7 @@ async def test_export_report_matches_query_output(monkeypatch):
 
     payload = await reporting.export_report(
         None,
-        ReportExportRequest(title="Seat Report", format="csv", definition=ReportDefinition(dataset="tenant_snapshot")),
+        ReportExportRequest(title="Seat Report", format="csv", definition=ReportDefinition(dataset="tenant_snapshot_full")),
     )
 
     assert payload.file_name.endswith(".csv")

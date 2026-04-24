@@ -1,6 +1,7 @@
 import base64
 import csv
 import io
+import json
 import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime
@@ -23,9 +24,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.middleware.auth import CurrentUser
 from app.models.admin_user import AdminUser
-from app.models.module import Module, ModulePrice
+from app.models.admin_user_permission import AdminUserPermission
+from app.models.audit_log import AuditLog
+from app.models.module import Module, ModulePrice, OrgTemplate, OrgTemplateDefault, OrgTemplateModule
 from app.models.saved_report_view import SavedReportView
-from app.models.tenant import Tenant, TenantIdentity, TenantStatus, TenantSubscription, TenantSubscriptionModule
+from app.models.tenant import (
+    Tenant,
+    TenantAddress,
+    TenantContact,
+    TenantIdentity,
+    TenantStatus,
+    TenantSubscription,
+    TenantSubscriptionModule,
+)
 from app.schemas.reporting import (
     ReportCatalogItem,
     ReportCatalogResponse,
@@ -50,11 +61,23 @@ from app.schemas.reporting import (
 FONT_NAME = "NotoSansHebrew"
 FONT_PATH = Path(__file__).resolve().parent.parent / "assets" / "fonts" / "NotoSansHebrew-Regular.ttf"
 TENANT_STATUS_OPTIONS = [
-    ReportFilterOption(value="active", label="Active"),
-    ReportFilterOption(value="trial", label="Trial"),
-    ReportFilterOption(value="suspended", label="Suspended"),
-    ReportFilterOption(value="cancelled", label="Cancelled"),
+    ReportFilterOption(value="active", label="פעיל"),
+    ReportFilterOption(value="trial", label="ניסיון"),
+    ReportFilterOption(value="suspended", label="מושהה"),
+    ReportFilterOption(value="cancelled", label="מבוטל"),
 ]
+DEFAULT_OPERATORS_BY_TYPE = {
+    "string": ["equals", "not_equals", "contains", "is_null", "is_not_null", "in", "not_in"],
+    "number": ["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "is_null", "is_not_null"],
+    "date": ["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "is_null", "is_not_null"],
+    "datetime": ["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "is_null", "is_not_null"],
+    "uuid": ["equals", "not_equals", "is_null", "is_not_null", "in", "not_in"],
+    "boolean": ["equals", "not_equals", "is_null", "is_not_null"],
+}
+LEGACY_DATASET_ALIASES = {
+    "tenant_snapshot": "tenant_snapshot_full",
+    "tenant_module_snapshot": "tenant_module_snapshot_full",
+}
 
 
 def _register_font() -> None:
@@ -69,10 +92,6 @@ def _rtl(text: str | None) -> str:
     return get_display(value) if any("\u0590" <= ch <= "\u05FF" for ch in value) else value
 
 
-def _fmt_int(value: int | float) -> str:
-    return f"{int(value):,}"
-
-
 def _fmt_decimal(value: Decimal | int | float | None) -> str:
     if value is None:
         return "0"
@@ -81,7 +100,14 @@ def _fmt_decimal(value: Decimal | int | float | None) -> str:
     return f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,}"
 
 
+def _serialize_value(value: Any) -> Any:
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return value
+
+
 def _fmt_value(value: Any) -> str:
+    value = _serialize_value(value)
     if value is None:
         return "—"
     if isinstance(value, bool):
@@ -109,116 +135,435 @@ def _metric_label(metric: ReportMetricRequest) -> str:
     if metric.label:
         return metric.label
     if metric.operation == "count":
-        return "Rows"
+        return "כמות רשומות"
     if metric.operation == "count_distinct":
-        return f"Distinct {metric.field or 'value'}"
+        return f"כמות ייחודית: {metric.field or 'value'}"
     return f"{metric.operation.upper()} {metric.field or ''}".strip()
 
 
+def _field(
+    field_id: str,
+    label: str,
+    field_type: str,
+    *,
+    category: str,
+    description: str | None = None,
+    operators: list[str] | None = None,
+    groupable: bool | None = None,
+) -> ReportFieldDefinition:
+    return ReportFieldDefinition(
+        id=field_id,
+        label=label,
+        type=field_type,
+        operators=operators or DEFAULT_OPERATORS_BY_TYPE[field_type],
+        groupable=(field_type in {"string", "date", "datetime", "boolean"} if groupable is None else groupable),
+        category=category,
+        description=description,
+    )
+
+
+TENANT_SNAPSHOT_FIELDS = [
+    _field("tenant_id", "מזהה לקוח", "uuid", category="לקוח"),
+    _field("org_number", "מספר ארגון", "number", category="לקוח", groupable=True),
+    _field("tenant_created_at", "נוצר בתאריך", "datetime", category="לקוח"),
+    _field("identity_name_he", "שם לקוח", "string", category="זהות", groupable=True),
+    _field("identity_name_en", "שם באנגלית", "string", category="זהות"),
+    _field("identity_tax_id", "ח.פ / ע.מ", "string", category="זהות"),
+    _field("identity_entity_type", "סוג ישות", "string", category="זהות", groupable=True),
+    _field("identity_logo_url", "לוגו", "string", category="זהות"),
+    _field("identity_industry_code", "ענף", "string", category="זהות", groupable=True),
+    _field("identity_valid_from", "זהות מתאריך", "date", category="זהות"),
+    _field("identity_valid_to", "זהות עד תאריך", "date", category="זהות"),
+    _field("contact_main_name", "איש קשר ראשי", "string", category="איש קשר"),
+    _field("contact_main_email", "דוא\"ל ראשי", "string", category="איש קשר"),
+    _field("contact_main_phone", "טלפון ראשי", "string", category="איש קשר"),
+    _field("contact_main_phone_alt", "טלפון נוסף", "string", category="איש קשר"),
+    _field("contact_main_website", "אתר", "string", category="איש קשר"),
+    _field("contact_main_valid_from", "איש קשר מתאריך", "date", category="איש קשר"),
+    _field("contact_main_valid_to", "איש קשר עד תאריך", "date", category="איש קשר"),
+    _field("address_main_street", "רחוב", "string", category="כתובת"),
+    _field("address_main_city", "עיר", "string", category="כתובת", groupable=True),
+    _field("address_main_zip_code", "מיקוד", "string", category="כתובת"),
+    _field("address_main_country", "מדינה", "string", category="כתובת", groupable=True),
+    _field("address_main_valid_from", "כתובת מתאריך", "date", category="כתובת"),
+    _field("address_main_valid_to", "כתובת עד תאריך", "date", category="כתובת"),
+    _field("status_value", "סטטוס לקוח", "string", category="סטטוס", groupable=True),
+    _field("status_reason", "סיבת סטטוס", "string", category="סטטוס", groupable=True),
+    _field("status_notes", "הערות סטטוס", "string", category="סטטוס"),
+    _field("status_valid_from", "סטטוס מתאריך", "date", category="סטטוס"),
+    _field("status_valid_to", "סטטוס עד תאריך", "date", category="סטטוס"),
+    _field("subscription_id", "מזהה מנוי", "uuid", category="מנוי"),
+    _field("subscription_billing_cycle", "מחזור חיוב", "string", category="מנוי", groupable=True),
+    _field("subscription_currency", "מטבע", "string", category="מנוי", groupable=True),
+    _field("subscription_template_id", "מזהה תבנית", "uuid", category="מנוי"),
+    _field("subscription_template_name", "שם תבנית", "string", category="מנוי", groupable=True),
+    _field("subscription_seat_count", "מושבים במנוי", "number", category="מנוי"),
+    _field("subscription_selected_module_slugs", "מודולים נבחרים", "string", category="מנוי"),
+    _field("subscription_discount_pct", "אחוז הנחה", "number", category="מנוי"),
+    _field("subscription_is_price_locked", "מחיר נעול", "boolean", category="מנוי", groupable=True),
+    _field("subscription_next_renewal_at", "חידוש הבא", "date", category="מנוי", groupable=True),
+    _field("subscription_valid_from", "מנוי מתאריך", "date", category="מנוי"),
+    _field("subscription_valid_to", "מנוי עד תאריך", "date", category="מנוי"),
+    _field("module_count", "כמות מודולים", "number", category="מנוי"),
+    _field("module_names", "שמות מודולים", "string", category="מנוי"),
+]
+
+TENANT_MODULE_FIELDS = [
+    _field("tenant_id", "מזהה לקוח", "uuid", category="לקוח"),
+    _field("org_number", "מספר ארגון", "number", category="לקוח", groupable=True),
+    _field("tenant_name", "שם לקוח", "string", category="לקוח", groupable=True),
+    _field("tenant_status", "סטטוס לקוח", "string", category="לקוח", groupable=True),
+    _field("subscription_id", "מזהה מנוי", "uuid", category="מנוי"),
+    _field("subscription_template_name", "שם תבנית", "string", category="מנוי", groupable=True),
+    _field("subscription_billing_cycle", "מחזור חיוב", "string", category="מנוי", groupable=True),
+    _field("subscription_currency", "מטבע", "string", category="מנוי", groupable=True),
+    _field("subscription_seat_count", "מושבים במנוי", "number", category="מנוי"),
+    _field("module_assignment_id", "מזהה שיוך מודול", "uuid", category="שיוך מודול"),
+    _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
+    _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
+    _field("module_description", "תיאור מודול", "string", category="מודול"),
+    _field("module_icon", "אייקון מודול", "string", category="מודול"),
+    _field("module_color_hex", "צבע מודול", "string", category="מודול", groupable=True),
+    _field("module_is_required", "מודול חובה", "boolean", category="מודול", groupable=True),
+    _field("module_is_active", "מודול פעיל", "boolean", category="מודול", groupable=True),
+    _field("module_sort_order", "סדר מודול", "number", category="מודול"),
+    _field("module_depends_on", "תלות מודול", "string", category="מודול"),
+    _field("source_type", "מקור שיוך", "string", category="שיוך מודול", groupable=True),
+    _field("module_status", "סטטוס שיוך", "string", category="שיוך מודול", groupable=True),
+    _field("module_seats", "מושבי מודול", "number", category="שיוך מודול"),
+    _field("pricing_mode", "שיטת תמחור", "string", category="שיוך מודול", groupable=True),
+    _field("base_price_ils", "מחיר בסיס קטלוגי", "number", category="תמחור"),
+    _field("per_seat_ils", "מחיר למושב קטלוגי", "number", category="תמחור"),
+    _field("included_seats", "מושבים כלולים", "number", category="תמחור"),
+    _field("setup_fee_ils", "דמי הקמה", "number", category="תמחור"),
+    _field("override_base_price_ils", "מחיר בסיס מותאם", "number", category="תמחור"),
+    _field("override_per_seat_ils", "מחיר למושב מותאם", "number", category="תמחור"),
+    _field("override_setup_fee_ils", "דמי הקמה מותאמים", "number", category="תמחור"),
+    _field("override_included_seats", "מושבים כלולים מותאמים", "number", category="תמחור"),
+    _field("price_lock_reason", "סיבת נעילת מחיר", "string", category="תמחור"),
+    _field("notes", "הערות שיוך", "string", category="שיוך מודול"),
+    _field("valid_from", "שיוך מתאריך", "date", category="שיוך מודול", groupable=True),
+    _field("valid_to", "שיוך עד תאריך", "date", category="שיוך מודול"),
+    _field("next_renewal_at", "חידוש הבא", "date", category="מנוי", groupable=True),
+]
+
+MODULE_CATALOG_FIELDS = [
+    _field("module_id", "מזהה מודול", "uuid", category="מודול"),
+    _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
+    _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
+    _field("module_description", "תיאור", "string", category="מודול"),
+    _field("module_icon", "אייקון", "string", category="מודול"),
+    _field("module_color_hex", "צבע", "string", category="מודול", groupable=True),
+    _field("module_is_required", "חובה", "boolean", category="מודול", groupable=True),
+    _field("module_is_active", "פעיל", "boolean", category="מודול", groupable=True),
+    _field("module_sort_order", "סדר תצוגה", "number", category="מודול"),
+    _field("module_depends_on", "תלוי ב", "string", category="מודול"),
+]
+
+MODULE_PRICING_FIELDS = [
+    _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
+    _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
+    _field("base_price_ils", "מחיר בסיס", "number", category="מחיר"),
+    _field("per_seat_ils", "מחיר למושב", "number", category="מחיר"),
+    _field("included_seats", "מושבים כלולים", "number", category="מחיר"),
+    _field("setup_fee_ils", "דמי הקמה", "number", category="מחיר"),
+    _field("valid_from", "מחיר מתאריך", "date", category="מחיר", groupable=True),
+    _field("valid_to", "מחיר עד תאריך", "date", category="מחיר"),
+    _field("created_at", "מחיר נוצר בתאריך", "datetime", category="מחיר"),
+]
+
+TEMPLATE_CATALOG_FIELDS = [
+    _field("template_id", "מזהה תבנית", "uuid", category="תבנית"),
+    _field("template_name", "שם תבנית", "string", category="תבנית", groupable=True),
+    _field("template_description", "תיאור", "string", category="תבנית"),
+    _field("default_billing_cycle", "מחזור חיוב ברירת מחדל", "string", category="תבנית", groupable=True),
+    _field("trial_days", "ימי ניסיון", "number", category="תבנית"),
+    _field("is_active", "פעילה", "boolean", category="תבנית", groupable=True),
+    _field("sort_order", "סדר תצוגה", "number", category="תבנית"),
+    _field("target_industry", "ענף יעד", "string", category="תבנית", groupable=True),
+    _field("recommended_size", "גודל מומלץ", "string", category="תבנית", groupable=True),
+    _field("valid_from", "תבנית מתאריך", "date", category="תבנית"),
+    _field("valid_to", "תבנית עד תאריך", "date", category="תבנית"),
+    _field("created_at", "נוצרה בתאריך", "datetime", category="תבנית"),
+    _field("module_count", "כמות מודולים", "number", category="תבנית"),
+    _field("default_count", "כמות ברירות מחדל", "number", category="תבנית"),
+]
+
+TEMPLATE_MODULE_FIELDS = [
+    _field("template_id", "מזהה תבנית", "uuid", category="תבנית"),
+    _field("template_name", "שם תבנית", "string", category="תבנית", groupable=True),
+    _field("module_slug", "קוד מודול", "string", category="מודול", groupable=True),
+    _field("module_name", "שם מודול", "string", category="מודול", groupable=True),
+    _field("module_is_required", "מודול חובה", "boolean", category="מודול", groupable=True),
+    _field("module_is_active", "מודול פעיל", "boolean", category="מודול", groupable=True),
+]
+
+TEMPLATE_DEFAULT_FIELDS = [
+    _field("template_id", "מזהה תבנית", "uuid", category="תבנית"),
+    _field("template_name", "שם תבנית", "string", category="תבנית", groupable=True),
+    _field("default_type", "סוג ברירת מחדל", "string", category="ברירת מחדל", groupable=True),
+    _field("default_value", "ערך", "string", category="ברירת מחדל"),
+    _field("is_mandatory", "חובה", "boolean", category="ברירת מחדל", groupable=True),
+    _field("note", "הערה", "string", category="ברירת מחדל"),
+]
+
+ADMIN_USER_FIELDS = [
+    _field("admin_user_id", "מזהה משתמש", "uuid", category="משתמש"),
+    _field("full_name", "שם מלא", "string", category="משתמש", groupable=True),
+    _field("email", "דוא\"ל", "string", category="משתמש"),
+    _field("role", "תפקיד", "string", category="משתמש", groupable=True),
+    _field("is_active", "פעיל", "boolean", category="משתמש", groupable=True),
+    _field("last_login_at", "כניסה אחרונה", "datetime", category="משתמש"),
+    _field("created_by", "נוצר על ידי", "uuid", category="משתמש"),
+    _field("created_by_name", "נוצר על ידי (שם)", "string", category="משתמש", groupable=True),
+    _field("created_at", "נוצר בתאריך", "datetime", category="משתמש"),
+    _field("valid_from", "משתמש מתאריך", "date", category="משתמש"),
+    _field("valid_to", "משתמש עד תאריך", "date", category="משתמש"),
+]
+
+ADMIN_PERMISSION_FIELDS = [
+    _field("permission_id", "מזהה הרשאה", "uuid", category="הרשאה"),
+    _field("user_id", "מזהה משתמש", "uuid", category="הרשאה"),
+    _field("user_name", "שם משתמש", "string", category="הרשאה", groupable=True),
+    _field("user_email", "דוא\"ל משתמש", "string", category="הרשאה"),
+    _field("resource", "משאב", "string", category="הרשאה", groupable=True),
+    _field("can_view", "יכול לצפות", "boolean", category="הרשאה", groupable=True),
+    _field("can_edit", "יכול לערוך", "boolean", category="הרשאה", groupable=True),
+]
+
+AUDIT_FIELDS = [
+    _field("audit_id", "מזהה אירוע", "uuid", category="Audit"),
+    _field("audit_tenant_id", "מזהה לקוח", "uuid", category="Audit"),
+    _field("audit_tenant_name", "שם לקוח", "string", category="Audit", groupable=True),
+    _field("audit_actor_id", "מזהה מבצע", "uuid", category="Audit"),
+    _field("audit_actor_name", "שם מבצע", "string", category="Audit", groupable=True),
+    _field("audit_actor_email", "דוא\"ל מבצע", "string", category="Audit"),
+    _field("audit_actor_type", "סוג מבצע", "string", category="Audit", groupable=True),
+    _field("audit_action", "פעולה", "string", category="Audit", groupable=True),
+    _field("audit_entity_type", "סוג ישות", "string", category="Audit", groupable=True),
+    _field("audit_entity_id", "מזהה ישות", "uuid", category="Audit"),
+    _field("audit_old_values", "ערכים קודמים", "string", category="Audit"),
+    _field("audit_new_values", "ערכים חדשים", "string", category="Audit"),
+    _field("audit_ip_address", "כתובת IP", "string", category="Audit"),
+    _field("audit_created_at", "זמן אירוע", "datetime", category="Audit"),
+]
+
+SAVED_REPORT_FIELDS = [
+    _field("saved_report_id", "מזהה דוח שמור", "uuid", category="דוח שמור"),
+    _field("saved_report_name", "שם דוח", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_description", "תיאור", "string", category="דוח שמור"),
+    _field("saved_report_dataset", "Dataset", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_visibility", "נראות", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_owner_id", "מזהה בעלים", "uuid", category="דוח שמור"),
+    _field("saved_report_owner_name", "בעלים", "string", category="דוח שמור", groupable=True),
+    _field("saved_report_columns_count", "כמות עמודות", "number", category="דוח שמור"),
+    _field("saved_report_filters_count", "כמות סינונים", "number", category="דוח שמור"),
+    _field("saved_report_group_by_count", "כמות קיבוצים", "number", category="דוח שמור"),
+    _field("saved_report_metrics_count", "כמות מדדים", "number", category="דוח שמור"),
+    _field("saved_report_created_at", "נוצר בתאריך", "datetime", category="דוח שמור"),
+    _field("saved_report_updated_at", "עודכן בתאריך", "datetime", category="דוח שמור"),
+]
+
+def _merge_fields(*groups: list[ReportFieldDefinition]) -> list[ReportFieldDefinition]:
+    merged: dict[str, ReportFieldDefinition] = {}
+    for group in groups:
+        for field in group:
+            if field.id not in merged:
+                merged[field.id] = field
+    return list(merged.values())
+
+
+MASTER_FIELDS = _merge_fields(
+    [
+        _field("record_type", "סוג רשומה", "string", category="כללי", groupable=True, description="מאיזה מקור נתונים הגיעה הרשומה"),
+        _field("record_key", "מפתח רשומה", "string", category="כללי", description="מזהה פנימי של הרשומה המאוחדת"),
+        _field("master_created_at", "תאריך רשומה ראשי", "datetime", category="כללי", groupable=True),
+        _field("tenant_org_number", "מספר ארגון", "number", category="לקוח", groupable=True),
+        _field("admin_full_name", "שם משתמש אדמין", "string", category="משתמש", groupable=True),
+        _field("permission_resource", "משאב הרשאה", "string", category="הרשאה", groupable=True),
+        _field("audit_action", "פעולת Audit", "string", category="Audit", groupable=True),
+        _field("saved_report_name", "שם דוח שמור", "string", category="דוח שמור", groupable=True),
+    ],
+    TENANT_SNAPSHOT_FIELDS,
+    TENANT_MODULE_FIELDS,
+    MODULE_CATALOG_FIELDS,
+    MODULE_PRICING_FIELDS,
+    TEMPLATE_CATALOG_FIELDS,
+    TEMPLATE_MODULE_FIELDS,
+    TEMPLATE_DEFAULT_FIELDS,
+    ADMIN_USER_FIELDS,
+    ADMIN_PERMISSION_FIELDS,
+    AUDIT_FIELDS,
+    SAVED_REPORT_FIELDS,
+)
+
+
+def _dataset(
+    dataset_id: str,
+    label: str,
+    description: str,
+    fields: list[ReportFieldDefinition],
+    default_columns: list[str],
+    metrics: list[ReportMetricDefinition],
+) -> ReportDatasetDefinition:
+    return ReportDatasetDefinition(
+        id=dataset_id,
+        label=label,
+        description=description,
+        fields=fields,
+        default_columns=default_columns,
+        groupable_fields=[field.id for field in fields if field.groupable],
+        metrics=metrics,
+    )
+
+
 DATASETS = [
-    ReportDatasetDefinition(
-        id="tenant_snapshot",
-        label="לקוחות",
-        description="שורה אחת לכל לקוח, כולל סטטוס, חידוש, מושבים ומספר מודולים.",
-        fields=[
-            ReportFieldDefinition(id="tenant_id", label="Tenant ID", type="uuid", operators=["equals", "not_equals"]),
-            ReportFieldDefinition(id="org_number", label="מספר ארגון", type="number", operators=["equals", "greater_than", "less_than"], groupable=True),
-            ReportFieldDefinition(id="tenant_name", label="לקוח", type="string", operators=["equals", "contains", "in"], groupable=True),
-            ReportFieldDefinition(id="tax_id", label="ח.פ", type="string", operators=["equals", "contains"]),
-            ReportFieldDefinition(id="tenant_status", label="סטטוס לקוח", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="seat_count", label="מושבים", type="number", operators=["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"]),
-            ReportFieldDefinition(id="module_count", label="כמות מודולים", type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="module_names", label="מודולים", type="string", operators=["contains"]),
-            ReportFieldDefinition(id="billing_cycle", label="מחזור חיוב", type="string", operators=["equals", "not_equals"], groupable=True),
-            ReportFieldDefinition(id="next_renewal_at", label="חידוש הבא", type="date", operators=["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"], groupable=True),
+    _dataset(
+        "master_dataset",
+        "מרכז נתונים מאוחד",
+        "מאגר־על שמרכז את כל שדות הליבה במערכת, כולל כתובות, טלפונים, אנשי קשר, מנויים, מודולים, תבניות, אדמינים ו-Audit.",
+        MASTER_FIELDS,
+        [
+            "record_type",
+            "org_number",
+            "identity_name_he",
+            "contact_main_name",
+            "contact_main_phone",
+            "contact_main_email",
+            "address_main_city",
+            "address_main_street",
+            "module_name",
+            "template_name",
         ],
-        default_columns=["org_number", "tenant_name", "tenant_status", "seat_count", "module_count", "next_renewal_at"],
-        groupable_fields=["tenant_status", "billing_cycle", "next_renewal_at"],
-        metrics=[
+        [ReportMetricDefinition(operation="count", label="כמות רשומות")],
+    ),
+    _dataset(
+        "tenant_snapshot_full",
+        "לקוחות",
+        "שורה אחת לכל לקוח עם זהות, קשר, כתובת, סטטוס ומנוי פעיל במועד הדוח.",
+        TENANT_SNAPSHOT_FIELDS,
+        ["org_number", "identity_name_he", "status_value", "subscription_seat_count", "module_count", "subscription_next_renewal_at"],
+        [
             ReportMetricDefinition(operation="count", label="לקוחות"),
-            ReportMetricDefinition(operation="sum", field="seat_count", label='סה"כ מושבים'),
-            ReportMetricDefinition(operation="avg", field="seat_count", label="ממוצע מושבים"),
+            ReportMetricDefinition(operation="sum", field="subscription_seat_count", label='סה"כ מושבים'),
+            ReportMetricDefinition(operation="avg", field="subscription_discount_pct", label="ממוצע הנחה"),
         ],
     ),
-    ReportDatasetDefinition(
-        id="tenant_module_snapshot",
-        label="לקוחות לפי מודול",
-        description="שורה לכל שיוך לקוח-מודול, כולל תאריך התחלה, סטטוס ומושבים.",
-        fields=[
-            ReportFieldDefinition(id="tenant_id", label="Tenant ID", type="uuid", operators=["equals", "not_equals"]),
-            ReportFieldDefinition(id="org_number", label="מספר ארגון", type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="tenant_name", label="לקוח", type="string", operators=["equals", "contains", "in"], groupable=True),
-            ReportFieldDefinition(id="tenant_status", label="סטטוס לקוח", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="module_slug", label="קוד מודול", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="module_name", label="מודול", type="string", operators=["equals", "contains", "in"], groupable=True),
-            ReportFieldDefinition(id="module_seats", label="מושבי מודול", type="number", operators=["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"]),
-            ReportFieldDefinition(id="subscription_seat_count", label="מושבי לקוח", type="number", operators=["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"]),
-            ReportFieldDefinition(id="valid_from", label="מתאריך", type="date", operators=["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"], groupable=True),
-            ReportFieldDefinition(id="source_type", label="מקור", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="pricing_mode", label="תמחור", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="next_renewal_at", label="חידוש הבא", type="date", operators=["equals", "greater_than", "less_than"], groupable=True),
-        ],
-        default_columns=["tenant_name", "module_name", "module_seats", "tenant_status", "valid_from", "next_renewal_at"],
-        groupable_fields=["module_name", "module_slug", "tenant_status", "source_type", "pricing_mode", "valid_from"],
-        metrics=[
+    _dataset(
+        "tenant_module_snapshot_full",
+        "לקוחות לפי מודול",
+        "שורה לכל שיוך מודול ללקוח עם פרטי מודול, מנוי ותמחור.",
+        TENANT_MODULE_FIELDS,
+        ["tenant_name", "module_name", "module_seats", "tenant_status", "valid_from", "next_renewal_at"],
+        [
             ReportMetricDefinition(operation="count", label="שיוכי מודול"),
             ReportMetricDefinition(operation="count_distinct", field="tenant_id", label="לקוחות"),
             ReportMetricDefinition(operation="sum", field="module_seats", label='סה"כ מושבי מודול'),
-            ReportMetricDefinition(operation="avg", field="module_seats", label="ממוצע מושבי מודול"),
+            ReportMetricDefinition(operation="sum", field="base_price_ils", label='סה"כ מחיר בסיס'),
         ],
     ),
-    ReportDatasetDefinition(
-        id="module_summary",
-        label="סיכום מודולים",
-        description="סיכום אגרגטיבי לפי מודול: כמה לקוחות, כמה מושבים ומתי הוקצה.",
-        fields=[
-            ReportFieldDefinition(id="module_slug", label="קוד מודול", type="string", operators=["equals", "not_equals", "in"], groupable=True),
-            ReportFieldDefinition(id="module_name", label="מודול", type="string", operators=["equals", "contains", "in"], groupable=True),
-            ReportFieldDefinition(id="tenant_count", label="לקוחות", type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="total_seats", label='סה"כ מושבים', type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="avg_seats", label="ממוצע מושבים", type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="first_assigned_at", label="שיוך ראשון", type="date", operators=["equals", "greater_than", "less_than"], groupable=True),
-            ReportFieldDefinition(id="last_assigned_at", label="שיוך אחרון", type="date", operators=["equals", "greater_than", "less_than"], groupable=True),
-        ],
-        default_columns=["module_name", "tenant_count", "total_seats", "avg_seats", "first_assigned_at"],
-        groupable_fields=["module_name", "first_assigned_at", "last_assigned_at"],
-        metrics=[
-            ReportMetricDefinition(operation="count", label="מודולים"),
-            ReportMetricDefinition(operation="sum", field="tenant_count", label='סה"כ לקוחות'),
-            ReportMetricDefinition(operation="sum", field="total_seats", label='סה"כ מושבים'),
+    _dataset(
+        "module_catalog",
+        "קטלוג מודולים",
+        "מודולים פעילים ולא פעילים עם כל שדות הקטלוג וההגדרה.",
+        MODULE_CATALOG_FIELDS,
+        ["module_slug", "module_name", "module_is_active", "module_is_required", "module_sort_order"],
+        [ReportMetricDefinition(operation="count", label="מודולים")],
+    ),
+    _dataset(
+        "module_pricing",
+        "מחירי מודולים",
+        "תמחור מודולים אפקטיבי במועד הדוח.",
+        MODULE_PRICING_FIELDS,
+        ["module_name", "base_price_ils", "per_seat_ils", "included_seats", "setup_fee_ils", "valid_from"],
+        [
+            ReportMetricDefinition(operation="count", label="רשומות מחיר"),
+            ReportMetricDefinition(operation="sum", field="base_price_ils", label='סה"כ מחיר בסיס'),
         ],
     ),
-    ReportDatasetDefinition(
-        id="seat_distribution",
-        label="פילוח מושבים",
-        description="פילוח לקוחות לפי טווחי מושבים.",
-        fields=[
-            ReportFieldDefinition(id="seat_bucket", label="טווח מושבים", type="string", operators=["equals", "in"], groupable=True),
-            ReportFieldDefinition(id="tenant_count", label="לקוחות", type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="total_seats", label='סה"כ מושבים', type="number", operators=["equals", "greater_than", "less_than"]),
-            ReportFieldDefinition(id="avg_seats", label="ממוצע מושבים", type="number", operators=["equals", "greater_than", "less_than"]),
-        ],
-        default_columns=["seat_bucket", "tenant_count", "total_seats", "avg_seats"],
-        groupable_fields=["seat_bucket"],
-        metrics=[
-            ReportMetricDefinition(operation="count", label="טווחים"),
-            ReportMetricDefinition(operation="sum", field="tenant_count", label='סה"כ לקוחות'),
-            ReportMetricDefinition(operation="sum", field="total_seats", label='סה"כ מושבים'),
-        ],
+    _dataset(
+        "template_catalog",
+        "תבניות",
+        "קטלוג התבניות, הגדרות ברירת המחדל וכיסוי מודולים.",
+        TEMPLATE_CATALOG_FIELDS,
+        ["template_name", "default_billing_cycle", "trial_days", "module_count", "default_count", "is_active"],
+        [ReportMetricDefinition(operation="count", label="תבניות")],
+    ),
+    _dataset(
+        "template_modules",
+        "שיוכי מודולים לתבניות",
+        "הקשר בין תבניות למודולים.",
+        TEMPLATE_MODULE_FIELDS,
+        ["template_name", "module_name", "module_is_required", "module_is_active"],
+        [ReportMetricDefinition(operation="count", label="שיוכי תבנית-מודול")],
+    ),
+    _dataset(
+        "template_defaults",
+        "ברירות מחדל של תבניות",
+        "ערכי ברירת מחדל לכל תבנית.",
+        TEMPLATE_DEFAULT_FIELDS,
+        ["template_name", "default_type", "default_value", "is_mandatory"],
+        [ReportMetricDefinition(operation="count", label="ברירות מחדל")],
+    ),
+    _dataset(
+        "admin_users",
+        "משתמשי אדמין",
+        "משתמשי הניהול במערכת וכל שדות הזהות והסטטוס שלהם.",
+        ADMIN_USER_FIELDS,
+        ["full_name", "email", "role", "is_active", "last_login_at"],
+        [ReportMetricDefinition(operation="count", label="משתמשי אדמין")],
+    ),
+    _dataset(
+        "admin_permissions",
+        "הרשאות אדמין",
+        "שורה לכל הרשאת משאב של משתמש אדמין.",
+        ADMIN_PERMISSION_FIELDS,
+        ["user_name", "resource", "can_view", "can_edit"],
+        [ReportMetricDefinition(operation="count", label="הרשאות")],
+    ),
+    _dataset(
+        "audit_logs",
+        "Audit Log",
+        "לוג פעולות מערכת עם שחקן, ישות ושינוי.",
+        AUDIT_FIELDS,
+        ["audit_created_at", "audit_actor_name", "audit_action", "audit_entity_type", "audit_tenant_name"],
+        [ReportMetricDefinition(operation="count", label="אירועי Audit")],
+    ),
+    _dataset(
+        "saved_reports",
+        "דוחות שמורים",
+        "הגדרות הדוחות השמורים של המשתמשים במערכת.",
+        SAVED_REPORT_FIELDS,
+        ["saved_report_name", "saved_report_dataset", "saved_report_visibility", "saved_report_owner_name", "saved_report_updated_at"],
+        [ReportMetricDefinition(operation="count", label="דוחות שמורים")],
     ),
 ]
 
 DATASET_MAP = {dataset.id: dataset for dataset in DATASETS}
-
 CATALOG = [
+    ReportCatalogItem(
+        id="tenant_portfolio",
+        title="פורטפוליו לקוחות",
+        description="תמונת מצב מלאה של לקוחות, מנוי, סטטוס וחידוש.",
+        dataset="tenant_snapshot_full",
+        definition=ReportDefinition(
+            dataset="tenant_snapshot_full",
+            columns=["org_number", "identity_name_he", "status_value", "subscription_seat_count", "module_count", "subscription_next_renewal_at"],
+            sort=[{"field": "subscription_next_renewal_at", "direction": "asc"}],
+            metrics=[
+                {"operation": "count", "label": "לקוחות"},
+                {"operation": "sum", "field": "subscription_seat_count", "label": 'סה"כ מושבים'},
+            ],
+        ),
+    ),
     ReportCatalogItem(
         id="customers_by_module",
         title="לקוחות לפי מודול",
         description="אילו לקוחות מחזיקים כל מודול, מאיזה תאריך ובכמה מושבים.",
-        dataset="tenant_module_snapshot",
+        dataset="tenant_module_snapshot_full",
         definition=ReportDefinition(
-            dataset="tenant_module_snapshot",
-            columns=["tenant_name", "module_name", "module_seats", "valid_from", "tenant_status"],
+            dataset="tenant_module_snapshot_full",
+            columns=["tenant_name", "module_name", "module_seats", "pricing_mode", "valid_from", "tenant_status"],
             sort=[{"field": "valid_from", "direction": "desc"}],
             metrics=[
                 {"operation": "count_distinct", "field": "tenant_id", "label": "לקוחות"},
@@ -227,63 +572,39 @@ CATALOG = [
         ),
     ),
     ReportCatalogItem(
-        id="customers_with_large_seats",
-        title="לקוחות מעל סף מושבים",
-        description="רשימת לקוחות לפי היקף מושבים עם חידוש ומספר מודולים.",
-        dataset="tenant_snapshot",
+        id="module_pricing_watch",
+        title="תמחור מודולים",
+        description="השוואת מחירי קטלוג ודמי הקמה לפי מודול.",
+        dataset="module_pricing",
         definition=ReportDefinition(
-            dataset="tenant_snapshot",
-            columns=["tenant_name", "seat_count", "module_count", "tenant_status", "next_renewal_at"],
-            sort=[{"field": "seat_count", "direction": "desc"}],
-            metrics=[
-                {"operation": "count", "label": "לקוחות"},
-                {"operation": "sum", "field": "seat_count", "label": 'סה"כ מושבים'},
-            ],
+            dataset="module_pricing",
+            columns=["module_name", "base_price_ils", "per_seat_ils", "included_seats", "setup_fee_ils", "valid_from"],
+            sort=[{"field": "module_name", "direction": "asc"}],
+            metrics=[{"operation": "count", "label": "רשומות מחיר"}],
         ),
     ),
     ReportCatalogItem(
-        id="module_customer_map",
-        title="מפת מודולים ללקוחות",
-        description="תצוגת detail מלאה של לקוח-מודול לצוותי CS, מכירות ותפעול.",
-        dataset="tenant_module_snapshot",
+        id="admin_access_matrix",
+        title="מטריצת הרשאות אדמין",
+        description="מי יכול לצפות ולערוך בכל משאב ניהולי.",
+        dataset="admin_permissions",
         definition=ReportDefinition(
-            dataset="tenant_module_snapshot",
-            columns=["org_number", "tenant_name", "module_name", "module_seats", "source_type", "pricing_mode", "valid_from"],
-            sort=[{"field": "tenant_name", "direction": "asc"}],
-            metrics=[
-                {"operation": "count", "label": "שיוכים"},
-                {"operation": "count_distinct", "field": "tenant_id", "label": "לקוחות"},
-            ],
+            dataset="admin_permissions",
+            columns=["user_name", "user_email", "resource", "can_view", "can_edit"],
+            sort=[{"field": "user_name", "direction": "asc"}],
+            metrics=[{"operation": "count", "label": "הרשאות"}],
         ),
     ),
     ReportCatalogItem(
-        id="module_adoption_summary",
-        title="סיכום אימוץ מודולים",
-        description="כמה לקוחות וכמה מושבים יש לכל מודול במועד המבוקש.",
-        dataset="module_summary",
+        id="audit_watchlist",
+        title="Audit Watchlist",
+        description="מעקב אחר פעולות מערכת לפי מבצע, לקוח וישות.",
+        dataset="audit_logs",
         definition=ReportDefinition(
-            dataset="module_summary",
-            columns=["module_name", "tenant_count", "total_seats", "avg_seats", "last_assigned_at"],
-            sort=[{"field": "tenant_count", "direction": "desc"}],
-            metrics=[
-                {"operation": "sum", "field": "tenant_count", "label": 'סה"כ לקוחות'},
-                {"operation": "sum", "field": "total_seats", "label": 'סה"כ מושבים'},
-            ],
-        ),
-    ),
-    ReportCatalogItem(
-        id="renewals_watchlist",
-        title="לקוחות לחידוש קרוב",
-        description="מעקב אחר לקוחות שמתקרבים לחידוש עם נפח מושבים ומודולים.",
-        dataset="tenant_snapshot",
-        definition=ReportDefinition(
-            dataset="tenant_snapshot",
-            columns=["tenant_name", "tenant_status", "seat_count", "module_count", "next_renewal_at"],
-            sort=[{"field": "next_renewal_at", "direction": "asc"}],
-            metrics=[
-                {"operation": "count", "label": "לקוחות"},
-                {"operation": "avg", "field": "seat_count", "label": "ממוצע מושבים"},
-            ],
+            dataset="audit_logs",
+            columns=["audit_created_at", "audit_actor_name", "audit_action", "audit_entity_type", "audit_tenant_name"],
+            sort=[{"field": "audit_created_at", "direction": "desc"}],
+            metrics=[{"operation": "count", "label": "אירועים"}],
         ),
     ),
 ]
@@ -310,10 +631,34 @@ def _pick_temporal(records: list[Any], key_attr: str, as_of: date) -> dict[Any, 
     return selected
 
 
+def _join_text(values: list[Any] | None) -> str | None:
+    if not values:
+        return None
+    return ", ".join(str(value) for value in values if value not in (None, ""))
+
+
+def _resolve_user_label(users: dict[uuid.UUID, AdminUser], user_id: uuid.UUID | None) -> str | None:
+    if user_id is None:
+        return None
+    user = users.get(user_id)
+    if user is None:
+        return str(user_id)
+    return user.full_name or user.email
+
+
+def _normalize_dataset_id(dataset_id: str) -> str:
+    return LEGACY_DATASET_ALIASES.get(dataset_id, dataset_id)
+
+
+def _normalize_definition(definition: ReportDefinition) -> ReportDefinition:
+    normalized_dataset = _normalize_dataset_id(definition.dataset)
+    if normalized_dataset == definition.dataset:
+        return definition
+    return definition.model_copy(update={"dataset": normalized_dataset})
+
+
 async def _load_filter_options(db: AsyncSession) -> ReportFilterOptions:
-    module_result = await db.execute(
-        select(Module).where(Module.is_active == True).order_by(Module.sort_order, Module.name)  # noqa: E712
-    )
+    module_result = await db.execute(select(Module).order_by(Module.sort_order, Module.name))
     modules = module_result.scalars().all()
     return ReportFilterOptions(
         tenant_statuses=TENANT_STATUS_OPTIONS,
@@ -332,23 +677,48 @@ async def get_datasets(db: AsyncSession) -> ReportDatasetsResponse:
 async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[dict[str, Any]]]:
     tenant_result = await db.execute(select(Tenant))
     identity_result = await db.execute(select(TenantIdentity))
+    contact_result = await db.execute(select(TenantContact).where(TenantContact.contact_type == "main"))
+    address_result = await db.execute(select(TenantAddress).where(TenantAddress.addr_type == "main"))
     status_result = await db.execute(select(TenantStatus))
     subscription_result = await db.execute(select(TenantSubscription))
+    subscription_module_result = await db.execute(select(TenantSubscriptionModule))
     module_result = await db.execute(select(Module))
     module_price_result = await db.execute(select(ModulePrice))
-    subscription_module_result = await db.execute(select(TenantSubscriptionModule))
+    template_result = await db.execute(select(OrgTemplate))
+    template_default_result = await db.execute(select(OrgTemplateDefault))
+    template_module_result = await db.execute(select(OrgTemplateModule))
+    admin_user_result = await db.execute(select(AdminUser))
+    admin_permission_result = await db.execute(select(AdminUserPermission))
+    audit_result = await db.execute(select(AuditLog))
+    try:
+        saved_report_result = await db.execute(select(SavedReportView))
+        saved_reports = saved_report_result.scalars().all()
+    except ProgrammingError as exc:
+        if "saved_report_views" in str(exc).lower():
+            saved_reports = []
+        else:
+            raise
 
     tenants = tenant_result.scalars().all()
     identities = _pick_temporal(identity_result.scalars().all(), "tenant_id", as_of)
+    contacts = _pick_temporal(contact_result.scalars().all(), "tenant_id", as_of)
+    addresses = _pick_temporal(address_result.scalars().all(), "tenant_id", as_of)
     statuses = _pick_temporal(status_result.scalars().all(), "tenant_id", as_of)
     subscriptions = _pick_temporal(subscription_result.scalars().all(), "tenant_id", as_of)
     modules = {row.slug: row for row in module_result.scalars().all()}
     prices = _pick_temporal(module_price_result.scalars().all(), "module_slug", as_of)
+    templates = {row.id: row for row in template_result.scalars().all()}
+    template_defaults = template_default_result.scalars().all()
+    template_modules = template_module_result.scalars().all()
+    admin_users = admin_user_result.scalars().all()
+    admin_user_lookup = {row.id: row for row in admin_users}
+    permissions = admin_permission_result.scalars().all()
+    audit_logs = audit_result.scalars().all()
 
     module_rows_by_subscription: dict[uuid.UUID, list[TenantSubscriptionModule]] = defaultdict(list)
     effective_modules: dict[tuple[uuid.UUID, str], TenantSubscriptionModule] = {}
     for row in subscription_module_result.scalars().all():
-        if not _effective(row, as_of) or row.status != "active":
+        if not _effective(row, as_of):
             continue
         key = (row.tenant_subscription_id, row.module_slug)
         current = effective_modules.get(key)
@@ -357,49 +727,378 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
     for row in effective_modules.values():
         module_rows_by_subscription[row.tenant_subscription_id].append(row)
 
+    template_default_counts: dict[uuid.UUID, int] = defaultdict(int)
+    for row in template_defaults:
+        template_default_counts[row.template_id] += 1
+
+    template_module_counts: dict[uuid.UUID, int] = defaultdict(int)
+    for row in template_modules:
+        template_module_counts[row.template_id] += 1
+
+    tenant_name_by_id: dict[uuid.UUID, str] = {}
     tenant_snapshot_rows: list[dict[str, Any]] = []
     tenant_module_rows: list[dict[str, Any]] = []
+    master_rows: list[dict[str, Any]] = []
 
     for tenant in tenants:
         identity = identities.get(tenant.tenant_id)
+        contact = contacts.get(tenant.tenant_id)
+        address = addresses.get(tenant.tenant_id)
         status = statuses.get(tenant.tenant_id)
         subscription = subscriptions.get(tenant.tenant_id)
         subscription_modules = module_rows_by_subscription.get(subscription.id, []) if subscription else []
-        module_names = [modules[row.module_slug].name if row.module_slug in modules else row.module_slug for row in subscription_modules]
-        tenant_snapshot_rows.append(
+        module_names = [
+            modules[row.module_slug].name if row.module_slug in modules else row.module_slug
+            for row in subscription_modules
+        ]
+        template = templates.get(getattr(subscription, "template_id", None)) if subscription else None
+        tenant_name = getattr(identity, "name_he", None) or f"Tenant {tenant.org_number}"
+        tenant_name_by_id[tenant.tenant_id] = tenant_name
+
+        snapshot_row = {
+            "tenant_id": tenant.tenant_id,
+            "org_number": tenant.org_number,
+            "tenant_created_at": tenant.created_at,
+            "identity_name_he": tenant_name,
+            "identity_name_en": getattr(identity, "name_en", None),
+            "identity_tax_id": getattr(identity, "tax_id", None),
+            "identity_entity_type": getattr(identity, "entity_type", None),
+            "identity_logo_url": getattr(identity, "logo_url", None),
+            "identity_industry_code": getattr(identity, "industry_code", None),
+            "identity_valid_from": getattr(identity, "valid_from", None),
+            "identity_valid_to": getattr(identity, "valid_to", None),
+            "contact_main_name": getattr(contact, "contact_name", None),
+            "contact_main_email": getattr(contact, "email", None),
+            "contact_main_phone": getattr(contact, "phone", None),
+            "contact_main_phone_alt": getattr(contact, "phone_alt", None),
+            "contact_main_website": getattr(contact, "website", None),
+            "contact_main_valid_from": getattr(contact, "valid_from", None),
+            "contact_main_valid_to": getattr(contact, "valid_to", None),
+            "address_main_street": getattr(address, "street", None),
+            "address_main_city": getattr(address, "city", None),
+            "address_main_zip_code": getattr(address, "zip_code", None),
+            "address_main_country": getattr(address, "country", None),
+            "address_main_valid_from": getattr(address, "valid_from", None),
+            "address_main_valid_to": getattr(address, "valid_to", None),
+            "status_value": getattr(status, "status", None),
+            "status_reason": getattr(status, "reason", None),
+            "status_notes": getattr(status, "notes", None),
+            "status_valid_from": getattr(status, "valid_from", None),
+            "status_valid_to": getattr(status, "valid_to", None),
+            "subscription_id": getattr(subscription, "id", None),
+            "subscription_billing_cycle": getattr(subscription, "billing_cycle", None),
+            "subscription_currency": getattr(subscription, "currency", None),
+            "subscription_template_id": getattr(subscription, "template_id", None),
+            "subscription_template_name": getattr(template, "name", None),
+            "subscription_seat_count": int(getattr(subscription, "seat_count", 0) or 0),
+            "subscription_selected_module_slugs": _join_text(getattr(subscription, "selected_module_slugs", None)),
+            "subscription_discount_pct": float(getattr(subscription, "discount_pct", 0) or 0),
+            "subscription_is_price_locked": getattr(subscription, "is_price_locked", False),
+            "subscription_next_renewal_at": getattr(subscription, "next_renewal_at", None),
+            "subscription_valid_from": getattr(subscription, "valid_from", None),
+            "subscription_valid_to": getattr(subscription, "valid_to", None),
+            "module_count": len(subscription_modules),
+            "module_names": _join_text(module_names),
+        }
+        tenant_snapshot_rows.append(snapshot_row)
+        master_rows.append(
             {
-                "tenant_id": tenant.tenant_id,
-                "org_number": tenant.org_number,
-                "tenant_name": getattr(identity, "name_he", None) or f"Tenant {tenant.org_number}",
-                "tax_id": getattr(identity, "tax_id", None),
-                "tenant_status": getattr(status, "status", None) or "unknown",
-                "seat_count": int(getattr(subscription, "seat_count", 0) or 0),
-                "module_count": len(subscription_modules),
-                "module_names": ", ".join(module_names),
-                "billing_cycle": getattr(subscription, "billing_cycle", None),
-                "next_renewal_at": getattr(subscription, "next_renewal_at", None),
+                "record_type": "tenant_snapshot",
+                "record_key": str(tenant.tenant_id),
+                "master_created_at": tenant.created_at,
+                "tenant_org_number": tenant.org_number,
+                **snapshot_row,
             }
         )
+
         for row in subscription_modules:
+            module = modules.get(row.module_slug)
             price = prices.get(row.module_slug)
-            tenant_module_rows.append(
+            module_row = {
+                "tenant_id": tenant.tenant_id,
+                "org_number": tenant.org_number,
+                "tenant_name": tenant_name,
+                "tenant_status": getattr(status, "status", None),
+                "subscription_id": getattr(subscription, "id", None),
+                "subscription_template_name": getattr(template, "name", None),
+                "subscription_billing_cycle": getattr(subscription, "billing_cycle", None),
+                "subscription_currency": getattr(subscription, "currency", None),
+                "subscription_seat_count": int(getattr(subscription, "seat_count", 0) or 0),
+                "module_assignment_id": row.id,
+                "module_slug": row.module_slug,
+                "module_name": getattr(module, "name", row.module_slug),
+                "module_description": getattr(module, "description", None),
+                "module_icon": getattr(module, "icon", None),
+                "module_color_hex": getattr(module, "color_hex", None),
+                "module_is_required": getattr(module, "is_required", None),
+                "module_is_active": getattr(module, "is_active", None),
+                "module_sort_order": getattr(module, "sort_order", None),
+                "module_depends_on": _join_text(getattr(module, "depends_on", None)),
+                "source_type": row.source_type,
+                "module_status": row.status,
+                "module_seats": int(row.seats or 0),
+                "pricing_mode": row.pricing_mode,
+                "base_price_ils": float(getattr(price, "base_price_ils", 0) or 0),
+                "per_seat_ils": float(getattr(price, "per_seat_ils", 0) or 0),
+                "included_seats": int(getattr(price, "included_seats", 0) or 0),
+                "setup_fee_ils": float(getattr(price, "setup_fee_ils", 0) or 0),
+                "override_base_price_ils": float(getattr(row, "override_base_price_ils", 0) or 0),
+                "override_per_seat_ils": float(getattr(row, "override_per_seat_ils", 0) or 0),
+                "override_setup_fee_ils": float(getattr(row, "override_setup_fee_ils", 0) or 0),
+                "override_included_seats": int(getattr(row, "override_included_seats", 0) or 0) if getattr(row, "override_included_seats", None) is not None else None,
+                "price_lock_reason": getattr(row, "price_lock_reason", None),
+                "notes": getattr(row, "notes", None),
+                "valid_from": row.valid_from,
+                "valid_to": row.valid_to,
+                "next_renewal_at": getattr(subscription, "next_renewal_at", None),
+            }
+            tenant_module_rows.append(module_row)
+            master_rows.append(
                 {
-                    "tenant_id": tenant.tenant_id,
-                    "org_number": tenant.org_number,
-                    "tenant_name": getattr(identity, "name_he", None) or f"Tenant {tenant.org_number}",
-                    "tenant_status": getattr(status, "status", None) or "unknown",
-                    "module_slug": row.module_slug,
-                    "module_name": modules[row.module_slug].name if row.module_slug in modules else row.module_slug,
-                    "module_seats": int(row.seats or 0),
-                    "subscription_seat_count": int(getattr(subscription, "seat_count", 0) or 0),
-                    "valid_from": row.valid_from,
-                    "source_type": row.source_type,
-                    "pricing_mode": row.pricing_mode,
-                    "next_renewal_at": getattr(subscription, "next_renewal_at", None),
-                    "base_price_ils": getattr(price, "base_price_ils", None),
-                    "per_seat_ils": getattr(price, "per_seat_ils", None),
+                    "record_type": "tenant_module",
+                    "record_key": str(row.id),
+                    "master_created_at": row.valid_from or tenant.created_at,
+                    "tenant_org_number": tenant.org_number,
+                    **snapshot_row,
+                    **module_row,
                 }
             )
+
+    module_catalog_rows: list[dict[str, Any]] = []
+    module_pricing_rows: list[dict[str, Any]] = []
+    for module in modules.values():
+        module_catalog_rows.append(
+            {
+                "module_id": module.id,
+                "module_slug": module.slug,
+                "module_name": module.name,
+                "module_description": module.description,
+                "module_icon": module.icon,
+                "module_color_hex": module.color_hex,
+                "module_is_required": module.is_required,
+                "module_is_active": module.is_active,
+                "module_sort_order": module.sort_order,
+                "module_depends_on": _join_text(module.depends_on),
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "module",
+                "record_key": module.slug,
+                **module_catalog_rows[-1],
+            }
+        )
+    for slug, price in prices.items():
+        module = modules.get(slug)
+        module_pricing_rows.append(
+            {
+                "module_slug": slug,
+                "module_name": getattr(module, "name", slug),
+                "base_price_ils": float(getattr(price, "base_price_ils", 0) or 0),
+                "per_seat_ils": float(getattr(price, "per_seat_ils", 0) or 0),
+                "included_seats": int(getattr(price, "included_seats", 0) or 0),
+                "setup_fee_ils": float(getattr(price, "setup_fee_ils", 0) or 0),
+                "valid_from": getattr(price, "valid_from", None),
+                "valid_to": getattr(price, "valid_to", None),
+                "created_at": getattr(price, "created_at", None),
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "module_price",
+                "record_key": slug,
+                "master_created_at": getattr(price, "created_at", None),
+                **module_pricing_rows[-1],
+            }
+        )
+
+    template_catalog_rows: list[dict[str, Any]] = []
+    for template in templates.values():
+        template_catalog_rows.append(
+            {
+                "template_id": template.id,
+                "template_name": template.name,
+                "template_description": template.description,
+                "default_billing_cycle": template.default_billing_cycle,
+                "trial_days": template.trial_days,
+                "is_active": template.is_active,
+                "sort_order": template.sort_order,
+                "target_industry": template.target_industry,
+                "recommended_size": template.recommended_size,
+                "valid_from": template.valid_from,
+                "valid_to": template.valid_to,
+                "created_at": template.created_at,
+                "module_count": template_module_counts.get(template.id, 0),
+                "default_count": template_default_counts.get(template.id, 0),
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "template",
+                "record_key": str(template.id),
+                "master_created_at": template.created_at,
+                **template_catalog_rows[-1],
+            }
+        )
+
+    template_module_rows: list[dict[str, Any]] = []
+    for row in template_modules:
+        template = templates.get(row.template_id)
+        module = modules.get(row.module_slug)
+        template_module_rows.append(
+            {
+                "template_id": row.template_id,
+                "template_name": getattr(template, "name", str(row.template_id)),
+                "module_slug": row.module_slug,
+                "module_name": getattr(module, "name", row.module_slug),
+                "module_is_required": getattr(module, "is_required", None),
+                "module_is_active": getattr(module, "is_active", None),
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "template_module",
+                "record_key": f"{row.template_id}:{row.module_slug}",
+                **template_module_rows[-1],
+            }
+        )
+
+    template_default_rows: list[dict[str, Any]] = []
+    for row in template_defaults:
+        template = templates.get(row.template_id)
+        template_default_rows.append(
+            {
+                "template_id": row.template_id,
+                "template_name": getattr(template, "name", str(row.template_id)),
+                "default_type": row.default_type,
+                "default_value": row.default_value,
+                "is_mandatory": row.is_mandatory,
+                "note": row.note,
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "template_default",
+                "record_key": str(row.id),
+                **template_default_rows[-1],
+            }
+        )
+
+    admin_user_rows: list[dict[str, Any]] = []
+    for user in admin_users:
+        admin_user_rows.append(
+            {
+                "admin_user_id": user.id,
+                "full_name": user.full_name,
+                "email": user.email,
+                "role": user.role,
+                "is_active": user.is_active,
+                "last_login_at": user.last_login_at,
+                "created_by": user.created_by,
+                "created_by_name": _resolve_user_label(admin_user_lookup, user.created_by),
+                "created_at": user.created_at,
+                "valid_from": user.valid_from,
+                "valid_to": user.valid_to,
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "admin_user",
+                "record_key": str(user.id),
+                "master_created_at": user.created_at,
+                "admin_full_name": user.full_name,
+                **admin_user_rows[-1],
+            }
+        )
+
+    admin_permission_rows: list[dict[str, Any]] = []
+    for row in permissions:
+        user = admin_user_lookup.get(row.user_id)
+        admin_permission_rows.append(
+            {
+                "permission_id": row.id,
+                "user_id": row.user_id,
+                "user_name": getattr(user, "full_name", None),
+                "user_email": getattr(user, "email", None),
+                "resource": row.resource,
+                "can_view": row.can_view,
+                "can_edit": row.can_edit,
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "admin_permission",
+                "record_key": str(row.id),
+                "admin_full_name": getattr(user, "full_name", None),
+                "permission_resource": row.resource,
+                **admin_permission_rows[-1],
+            }
+        )
+
+    audit_rows: list[dict[str, Any]] = []
+    for row in audit_logs:
+        actor = admin_user_lookup.get(row.actor_id)
+        audit_rows.append(
+            {
+                "audit_id": row.id,
+                "audit_tenant_id": row.tenant_id,
+                "audit_tenant_name": tenant_name_by_id.get(row.tenant_id) if row.tenant_id else None,
+                "audit_actor_id": row.actor_id,
+                "audit_actor_name": getattr(actor, "full_name", None),
+                "audit_actor_email": getattr(actor, "email", None),
+                "audit_actor_type": row.actor_type,
+                "audit_action": row.action,
+                "audit_entity_type": row.entity_type,
+                "audit_entity_id": row.entity_id,
+                "audit_old_values": _serialize_value(row.old_values),
+                "audit_new_values": _serialize_value(row.new_values),
+                "audit_ip_address": row.ip_address,
+                "audit_created_at": row.created_at,
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "audit_log",
+                "record_key": str(row.id),
+                "master_created_at": row.created_at,
+                "identity_name_he": tenant_name_by_id.get(row.tenant_id) if row.tenant_id else None,
+                "audit_action": row.action,
+                "audit_actor_email": getattr(actor, "email", None),
+                **audit_rows[-1],
+            }
+        )
+
+    saved_report_rows: list[dict[str, Any]] = []
+    for row in saved_reports:
+        definition = _normalize_definition(ReportDefinition.model_validate(row.definition_json))
+        owner = admin_user_lookup.get(row.owner_id)
+        saved_report_rows.append(
+            {
+                "saved_report_id": row.id,
+                "saved_report_name": row.name,
+                "saved_report_description": row.description,
+                "saved_report_dataset": definition.dataset,
+                "saved_report_visibility": row.visibility,
+                "saved_report_owner_id": row.owner_id,
+                "saved_report_owner_name": getattr(owner, "full_name", None),
+                "saved_report_columns_count": len(definition.columns),
+                "saved_report_filters_count": len(definition.filters),
+                "saved_report_group_by_count": len(definition.group_by),
+                "saved_report_metrics_count": len(definition.metrics),
+                "saved_report_created_at": row.created_at,
+                "saved_report_updated_at": row.updated_at,
+            }
+        )
+        master_rows.append(
+            {
+                "record_type": "saved_report",
+                "record_key": str(row.id),
+                "master_created_at": row.updated_at or row.created_at,
+                "saved_report_name": row.name,
+                "saved_report_visibility": row.visibility,
+                **saved_report_rows[-1],
+            }
+        )
 
     grouped_modules: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in tenant_module_rows:
@@ -408,6 +1107,7 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
     module_summary_rows = []
     for slug, rows in grouped_modules.items():
         seats = [int(item["module_seats"] or 0) for item in rows]
+        assigned_dates = [item["valid_from"] for item in rows if item["valid_from"]]
         module_summary_rows.append(
             {
                 "module_slug": slug,
@@ -415,34 +1115,44 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
                 "tenant_count": len({item["tenant_id"] for item in rows}),
                 "total_seats": sum(seats),
                 "avg_seats": round(sum(seats) / len(seats), 2) if seats else 0,
-                "first_assigned_at": min(item["valid_from"] for item in rows if item["valid_from"]),
-                "last_assigned_at": max(item["valid_from"] for item in rows if item["valid_from"]),
+                "first_assigned_at": min(assigned_dates) if assigned_dates else None,
+                "last_assigned_at": max(assigned_dates) if assigned_dates else None,
             }
         )
 
     seat_distribution_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in tenant_snapshot_rows:
-        seat_distribution_groups[_seat_bucket(int(row["seat_count"] or 0))].append(row)
+        seat_distribution_groups[_seat_bucket(int(row["subscription_seat_count"] or 0))].append(row)
 
-    bucket_order = {"0-10": 1, "11-25": 2, "26-50": 3, "51-100": 4, "101+": 5}
     seat_distribution_rows = []
     for bucket, rows in seat_distribution_groups.items():
-        seats = [int(item["seat_count"] or 0) for item in rows]
+        seats = [int(item["subscription_seat_count"] or 0) for item in rows]
         seat_distribution_rows.append(
             {
                 "seat_bucket": bucket,
                 "tenant_count": len(rows),
                 "total_seats": sum(seats),
                 "avg_seats": round(sum(seats) / len(seats), 2) if seats else 0,
-                "bucket_order": bucket_order[bucket],
             }
         )
 
     return {
-        "tenant_snapshot": tenant_snapshot_rows,
-        "tenant_module_snapshot": tenant_module_rows,
+        "master_dataset": master_rows,
+        "tenant_snapshot_full": tenant_snapshot_rows,
+        "tenant_module_snapshot_full": tenant_module_rows,
+        "module_catalog": module_catalog_rows,
+        "module_pricing": module_pricing_rows,
+        "template_catalog": template_catalog_rows,
+        "template_modules": template_module_rows,
+        "template_defaults": template_default_rows,
+        "admin_users": admin_user_rows,
+        "admin_permissions": admin_permission_rows,
+        "audit_logs": audit_rows,
+        "saved_reports": saved_report_rows,
         "module_summary": module_summary_rows,
         "seat_distribution": seat_distribution_rows,
+        "tenant_snapshot": tenant_snapshot_rows,
+        "tenant_module_snapshot": tenant_module_rows,
     }
 
 
@@ -467,6 +1177,10 @@ def _coerce_filter_value(field_type: str, value: Any) -> Any:
         return date.fromisoformat(value[:10])
     if field_type == "uuid" and isinstance(value, str) and value:
         return uuid.UUID(value)
+    if field_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "כן"}
     return value
 
 
@@ -535,12 +1249,10 @@ def _metric_value(rows: list[dict[str, Any]], metric: ReportMetricRequest) -> An
 
 
 def _build_summary(rows: list[dict[str, Any]], definition: ReportDefinition) -> list[ReportMetricValue]:
-    metric_requests = definition.metrics
-    if not metric_requests:
-        metric_requests = [
-            ReportMetricRequest(operation=metric.operation, field=metric.field, label=metric.label)
-            for metric in DATASET_MAP[definition.dataset].metrics
-        ]
+    metric_requests = definition.metrics or [
+        ReportMetricRequest(operation=metric.operation, field=metric.field, label=metric.label)
+        for metric in DATASET_MAP[definition.dataset].metrics
+    ]
     return [ReportMetricValue(label=_metric_label(metric), value=_fmt_value(_metric_value(rows, metric))) for metric in metric_requests]
 
 
@@ -573,11 +1285,12 @@ def _project_rows(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[s
 
 
 async def execute_report_query(db: AsyncSession, request: ReportQueryRequest) -> ReportResult:
-    definition = request.definition
+    definition = _normalize_definition(request.definition)
     if definition.dataset not in DATASET_MAP:
         raise ValueError("Unknown dataset")
     if definition.limit < 1:
         raise ValueError("Limit must be positive")
+
     as_of = definition.as_of_date or date.today()
     source_rows = (await _load_snapshot_rows(db, as_of))[definition.dataset]
     filtered_rows = _apply_filters(source_rows, definition)
@@ -696,12 +1409,12 @@ async def export_report(db: AsyncSession, request: ReportExportRequest) -> Repor
 
 
 def _saved_to_out(row: SavedReportView, owner_name: str | None) -> SavedReportViewOut:
-    definition = ReportDefinition.model_validate(row.definition_json)
+    definition = _normalize_definition(ReportDefinition.model_validate(row.definition_json))
     return SavedReportViewOut(
         id=row.id,
         name=row.name,
         description=row.description,
-        dataset=row.dataset,
+        dataset=definition.dataset,
         visibility=row.visibility,
         owner_id=row.owner_id,
         owner_name=owner_name,
@@ -727,13 +1440,14 @@ async def list_saved_reports(db: AsyncSession, current_user: CurrentUser) -> lis
 
 
 async def create_saved_report(db: AsyncSession, body: SavedReportViewCreate, current_user: CurrentUser) -> SavedReportViewOut:
-    if body.definition.dataset not in DATASET_MAP:
+    definition = _normalize_definition(body.definition)
+    if definition.dataset not in DATASET_MAP:
         raise ValueError("Unknown dataset")
     row = SavedReportView(
         name=body.name,
         description=body.description,
-        dataset=body.definition.dataset,
-        definition_json=body.definition.model_dump(mode="json"),
+        dataset=definition.dataset,
+        definition_json=definition.model_dump(mode="json"),
         visibility=body.visibility,
         owner_id=current_user.id,
     )
@@ -763,10 +1477,11 @@ async def update_saved_report(
     if body.visibility is not None:
         row.visibility = body.visibility
     if body.definition is not None:
-        if body.definition.dataset not in DATASET_MAP:
+        definition = _normalize_definition(body.definition)
+        if definition.dataset not in DATASET_MAP:
             raise ValueError("Unknown dataset")
-        row.dataset = body.definition.dataset
-        row.definition_json = body.definition.model_dump(mode="json")
+        row.dataset = definition.dataset
+        row.definition_json = definition.model_dump(mode="json")
     row.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(row)
@@ -781,5 +1496,5 @@ async def run_saved_report(db: AsyncSession, report_id: uuid.UUID, current_user:
         raise ValueError("Saved report not found")
     if row.visibility != "shared" and row.owner_id != current_user.id:
         raise PermissionError("Saved report is not available")
-    definition = ReportDefinition.model_validate(row.definition_json)
+    definition = _normalize_definition(ReportDefinition.model_validate(row.definition_json))
     return await execute_report_query(db, ReportQueryRequest(title=row.name, definition=definition))

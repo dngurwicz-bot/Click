@@ -5,7 +5,7 @@ import uuid
 from pydantic import BaseModel, Field
 
 
-ReportFieldType = Literal["string", "number", "date", "datetime", "uuid"]
+ReportFieldType = Literal["string", "number", "date", "datetime", "uuid", "boolean"]
 ReportFilterOperator = Literal[
     "equals",
     "not_equals",
@@ -31,6 +31,8 @@ class ReportFieldDefinition(BaseModel):
     type: ReportFieldType
     operators: list[ReportFilterOperator]
     groupable: bool = False
+    category: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ReportMetricDefinition(BaseModel):

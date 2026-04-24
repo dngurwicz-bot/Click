@@ -9,12 +9,14 @@ import { useWorkspace } from "./WorkspaceShell";
 /** Priority-style screen title bar */
 export function AdminTitleBar({
   title,
+  titleNode,
   backHref,
   backLabel,
   onRefresh,
   utilitySlot,
 }: {
   title: string;
+  titleNode?: React.ReactNode;
   backHref?: string;
   backLabel?: string;
   onRefresh?: () => void;
@@ -75,7 +77,7 @@ export function AdminTitleBar({
             <span className="text-slate-300 text-xs">›</span>
           </>
         )}
-        <h1 className="text-sm font-semibold text-slate-800">{title}</h1>
+        {titleNode ? titleNode : <h1 className="text-sm font-semibold text-slate-800">{title}</h1>}
       </div>
     </div>
   );
@@ -182,6 +184,7 @@ export function AdminStatusBar({
 /** Grandchild page layout wrapper */
 export function AdminGrandchildLayout({
   title,
+  titleNode,
   backHref,
   backLabel,
   onRefresh,
@@ -189,6 +192,7 @@ export function AdminGrandchildLayout({
   maxWidthClass = "max-w-4xl",
 }: {
   title: string;
+  titleNode?: React.ReactNode;
   backHref: string;
   backLabel: string;
   onRefresh?: () => void;
@@ -199,6 +203,7 @@ export function AdminGrandchildLayout({
     <>
       <AdminTitleBar
         title={title}
+        titleNode={titleNode}
         backHref={backHref}
         backLabel={backLabel}
         onRefresh={onRefresh}
