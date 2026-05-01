@@ -70,3 +70,6 @@ class OrgTemplateModule(Base):
 
     template_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("org_templates.id", ondelete="CASCADE"), primary_key=True)
     module_slug: Mapped[str] = mapped_column(String, ForeignKey("modules.slug", ondelete="CASCADE"), primary_key=True)
+    # Per-module seat default — overrides the template-level seat_count default.
+    # NULL means "use the template-level default".
+    seats_default: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)

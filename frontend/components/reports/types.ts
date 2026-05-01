@@ -1,5 +1,5 @@
 export type ReportViewMode = "detail" | "summary";
-export type ReportFormat = "csv" | "pdf";
+export type ReportFormat = "csv" | "xlsx" | "html" | "pdf";
 export type Visibility = "personal" | "shared";
 
 export interface FilterOption {
@@ -39,6 +39,8 @@ export interface ReportDefinition {
   filters: Array<{ field: string; operator: string; value: string | number | null }>;
   sort: Array<{ field: string; direction: "asc" | "desc" }>;
   as_of_date: string | null;
+  date_from: string | null;  // range mode: תחילת הטווח
+  date_to: string | null;    // range mode: סוף הטווח
   group_by: string[];
   metrics: Array<{ operation: string; field?: string | null; label?: string | null }>;
   limit: number;
@@ -61,6 +63,7 @@ export interface ReportResult {
   total: number;
   summary: Array<{ label: string; value: string }>;
   applied_definition: ReportDefinition;
+  execution_time_ms?: number;
 }
 
 export interface SavedReportView {
@@ -79,6 +82,8 @@ export const emptyDefinition: ReportDefinition = {
   filters: [],
   sort: [],
   as_of_date: null,
+  date_from: null,
+  date_to: null,
   group_by: [],
   metrics: [],
   limit: 25,

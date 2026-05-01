@@ -168,38 +168,37 @@ export function CardPage({
         }
       />
 
-      {/* ── Parent Content (static) OR Form Tabs ──────────────────── */}
-      {parentContent ? (
+      {/* ── Parent Content (static) ───────────────────────────────── */}
+      {parentContent && (
         <div className="bg-white border-b border-slate-200 shrink-0">
           {parentContent}
         </div>
-      ) : (
-        <>
-          {/* Form Tabs */}
-          {formTabs.length > 0 && (
-            <div className="bg-white border-b border-slate-200 flex items-end px-3 shrink-0 gap-0.5">
-              {formTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveFormTab(tab.id)}
-                  className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
-                    ${activeFormTab === tab.id
-                      ? "border-brand-500 text-brand-600"
-                      : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                    }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Form Content */}
-          {currentFormTab && (
-            <div className="bg-white border-b border-slate-200 shrink-0">
-              {currentFormTab.content}
-            </div>
-          )}
-        </>
+      )}
+
+      {/* Form Tabs */}
+      {formTabs.length > 0 && (
+        <div className="bg-white border-b border-slate-200 flex items-end px-3 shrink-0 gap-0.5">
+          {formTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveFormTab(tab.id)}
+              className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
+                ${activeFormTab === tab.id
+                  ? "border-brand-500 text-brand-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+                }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Form Content */}
+      {currentFormTab && (
+        <div className="bg-white border-b border-slate-200 shrink-0">
+          {currentFormTab.content}
+        </div>
       )}
 
       {pageTemporalFilterEnabled && (

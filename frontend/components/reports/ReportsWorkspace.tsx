@@ -192,21 +192,19 @@ export function ReportsWorkspace() {
     }
   }
 
-  async function saveReport(visibility: Visibility) {
-    const name = window.prompt("שם לדוח השמור");
-    if (!name?.trim()) return;
+  async function saveReport(name: string, description: string, visibility: Visibility) {
     try {
       const payload = await api.post<SavedReportView>("/api/insights/reports/saved", {
         name: name.trim(),
-        description: title.trim() || null,
+        description: description.trim() || title.trim() || null,
         visibility,
         definition,
       });
       setSavedReports((prev) => [payload, ...prev.filter((item) => item.id !== payload.id)]);
-      alert("הדוח נשמר בהצלחה!");
     } catch (err: unknown) {
       const message = err instanceof ApiRequestError ? err.message : "שמירת הדוח נכשלה.";
       setError(message);
+      throw new Error(message);
     }
   }
 

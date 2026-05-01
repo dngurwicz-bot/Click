@@ -1,5 +1,6 @@
 import base64
 import csv
+import html as html_module
 import io
 import json
 import uuid
@@ -8,6 +9,10 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from bidi.algorithm import get_display
 from reportlab.lib import colors
@@ -431,7 +436,19 @@ def _merge_fields(*groups: list[ReportFieldDefinition]) -> list[ReportFieldDefin
     return list(merged.values())
 
 
+# Period / range mode fields — injected into datasets when date_from+date_to are set
+PERIOD_FIELDS = [
+    _field("period_valid_from", "תחילת תקופה", "date", category="תקופה", groupable=True,
+           description="תאריך תחילת התוקף שבו הרשומה היתה פעילה"),
+    _field("period_valid_to", "סיום תקופה", "date", category="תקופה", groupable=True,
+           description="תאריך סוף התוקף שבו הרשומה היתה פעילה (ריק = פעיל עד עיד)"),
+    _field("period_duration_days", "אורך תקופה (ימים)", "number", category="תקופה",
+           description="כמה ימים הרשומה היתה פעילה בתוך הטווח הנבחר"),
+]
+PERIOD_FIELD_IDS = {f.id for f in PERIOD_FIELDS}
+
 MASTER_FIELDS = _merge_fields(
+    PERIOD_FIELDS,
     [
         _field("record_type", "סוג רשומה", "string", category="כללי", groupable=True, description="מאיזה מקור נתונים הגיעה הרשומה"),
         _field("record_key", "מפתח רשומה", "string", category="כללי", description="מזהה פנימי של הרשומה המאוחדת"),
@@ -1407,15 +1424,273 @@ def _project_rows(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[s
     return [{column: row.get(column) for column in columns} for row in rows]
 
 
+
+def _is_active_in_range(record: Any, date_from: date, date_to: date) -> bool:
+    """True if the record's validity window overlaps the requested range."""
+    valid_from: date | None = getattr(record, "valid_from", None)
+    valid_to: date | None = getattr(record, "valid_to", None)
+    # Starts before range ends AND ends after range starts (or open-ended)
+    if valid_from and valid_from > date_to:
+        return False
+    if valid_to and valid_to <= date_from:
+        return False
+    return True
+
+
+def _period_duration(valid_from: date | None, valid_to: date | None, date_from: date, date_to: date) -> int:
+    """Days the record was active inside the requested range."""
+    start = max(valid_from or date.min, date_from)
+    end = min(valid_to or date.max, date_to)
+    return max(0, (end - start).days)
+
+
+async def _load_range_rows(db: AsyncSession, date_from: date, date_to: date, dataset_id: str) -> list[dict[str, Any]]:
+    """
+    Range mode: return one row per *version* of each entity that was active during
+    [date_from, date_to].  Adds period_valid_from / period_valid_to / period_duration_days.
+    Supported for tenant-centric datasets (tenant_snapshot_full, tenant_module_snapshot_full,
+    master_dataset).  Falls back to as_of snapshot for other datasets.
+    """
+    if dataset_id not in {
+        "tenant_snapshot_full", "tenant_module_snapshot_full", "master_dataset",
+    }:
+        # For non-temporal datasets just snapshot at date_to
+        snapshot = await _load_snapshot_rows(db, date_to)
+        rows = snapshot[dataset_id]
+        # attach period fields
+        for row in rows:
+            row["period_valid_from"] = date_from
+            row["period_valid_to"] = date_to
+            row["period_duration_days"] = (date_to - date_from).days
+        return rows
+
+    # ── load all raw records ──────────────────────────────────────────────────
+    tenant_result = await db.execute(select(Tenant))
+    identity_result = await db.execute(select(TenantIdentity))
+    contact_result = await db.execute(select(TenantContact).where(TenantContact.contact_type == "main"))
+    address_result = await db.execute(select(TenantAddress).where(TenantAddress.addr_type == "main"))
+    status_result = await db.execute(select(TenantStatus))
+    subscription_result = await db.execute(select(TenantSubscription))
+    subscription_module_result = await db.execute(select(TenantSubscriptionModule))
+    module_result = await db.execute(select(Module))
+    module_price_result = await db.execute(select(ModulePrice))
+    template_result = await db.execute(select(OrgTemplate))
+    template_default_result = await db.execute(select(OrgTemplateDefault))
+    template_module_result = await db.execute(select(OrgTemplateModule))
+    admin_user_result = await db.execute(select(AdminUser))
+
+    tenants = {t.tenant_id: t for t in tenant_result.scalars().all()}
+    modules = {m.slug: m for m in module_result.scalars().all()}
+    templates = {t.id: t for t in template_result.scalars().all()}
+    prices_all = module_price_result.scalars().all()
+    template_defaults = template_default_result.scalars().all()
+    template_modules = template_module_result.scalars().all()
+    admin_users = {u.id: u for u in admin_user_result.scalars().all()}
+
+    template_default_counts: dict[uuid.UUID, int] = defaultdict(int)
+    for row in template_defaults:
+        template_default_counts[row.template_id] += 1
+    template_module_counts: dict[uuid.UUID, int] = defaultdict(int)
+    for row in template_modules:
+        template_module_counts[row.template_id] += 1
+
+    # index helpers
+    def _best_price(slug: str, as_of: date) -> Any:
+        candidates = [p for p in prices_all if p.module_slug == slug and _effective(p, as_of)]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda p: getattr(p, "valid_from", date.min) or date.min)
+
+    # ── collect all subscription versions active in range ─────────────────────
+    subscriptions_in_range = [
+        s for s in subscription_result.scalars().all()
+        if _is_active_in_range(s, date_from, date_to)
+    ]
+
+    # All identities / contacts / addresses / statuses — keyed by (tenant_id, valid_from)
+    all_identities = identity_result.scalars().all()
+    all_contacts = contact_result.scalars().all()
+    all_addresses = address_result.scalars().all()
+    all_statuses = status_result.scalars().all()
+
+    def _pick_for_date(records: list[Any], tenant_id: uuid.UUID, as_of: date) -> Any | None:
+        candidates = [
+            r for r in records
+            if getattr(r, "tenant_id", None) == tenant_id and _effective(r, as_of)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda r: getattr(r, "valid_from", date.min) or date.min)
+
+    # ── all subscription modules active in range ──────────────────────────────
+    all_sub_modules = subscription_module_result.scalars().all()
+
+    # derive (tenant_id -> [(sub, [active_modules_in_period])])
+    result_rows: list[dict[str, Any]] = []
+
+    if dataset_id in {"tenant_snapshot_full", "master_dataset"}:
+        for sub in subscriptions_in_range:
+            tenant = tenants.get(sub.tenant_id)
+            if not tenant:
+                continue
+            # Use midpoint of overlap to pick contextual records
+            overlap_start = max(sub.valid_from or date_from, date_from)
+            overlap_end = min(sub.valid_to or date_to, date_to)
+            mid = overlap_start + (overlap_end - overlap_start) / 2
+
+            identity = _pick_for_date(all_identities, sub.tenant_id, mid)
+            contact = _pick_for_date(all_contacts, sub.tenant_id, mid)
+            address = _pick_for_date(all_addresses, sub.tenant_id, mid)
+            status = _pick_for_date(all_statuses, sub.tenant_id, mid)
+            template = templates.get(getattr(sub, "template_id", None))
+
+            # Effective modules for this subscription in this period
+            sub_modules = [
+                m for m in all_sub_modules
+                if m.tenant_subscription_id == sub.id and _is_active_in_range(m, overlap_start, overlap_end)
+            ]
+            derived_seat_count, derived_module_slugs = derive_subscription_snapshot(sub_modules)
+            module_names = [
+                modules[m.module_slug].name if m.module_slug in modules else m.module_slug
+                for m in sub_modules
+            ]
+
+            tenant_name = getattr(identity, "name_he", None) or f"Tenant {tenant.org_number}"
+            duration_days = _period_duration(sub.valid_from, sub.valid_to, date_from, date_to)
+
+            row: dict[str, Any] = {
+                "period_valid_from": overlap_start,
+                "period_valid_to": overlap_end if sub.valid_to else None,
+                "period_duration_days": duration_days,
+                "record_type": "tenant_snapshot",
+                "record_key": str(sub.tenant_id),
+                "master_created_at": tenant.created_at,
+                "tenant_org_number": tenant.org_number,
+                "tenant_id": tenant.tenant_id,
+                "org_number": tenant.org_number,
+                "tenant_created_at": tenant.created_at,
+                "identity_name_he": tenant_name,
+                "identity_name_en": getattr(identity, "name_en", None),
+                "identity_tax_id": getattr(identity, "tax_id", None),
+                "identity_entity_type": getattr(identity, "entity_type", None),
+                "identity_industry_code": getattr(identity, "industry_code", None),
+                "identity_valid_from": getattr(identity, "valid_from", None),
+                "identity_valid_to": getattr(identity, "valid_to", None),
+                "contact_main_name": getattr(contact, "contact_name", None),
+                "contact_main_email": getattr(contact, "email", None),
+                "contact_main_phone": getattr(contact, "phone", None),
+                "contact_main_website": getattr(contact, "website", None),
+                "address_main_street": getattr(address, "street", None),
+                "address_main_city": getattr(address, "city", None),
+                "address_main_zip_code": getattr(address, "zip_code", None),
+                "address_main_country": getattr(address, "country", None),
+                "status_value": getattr(status, "status", None),
+                "status_reason": getattr(status, "reason", None),
+                "status_notes": getattr(status, "notes", None),
+                "status_valid_from": getattr(status, "valid_from", None),
+                "status_valid_to": getattr(status, "valid_to", None),
+                "subscription_id": sub.id,
+                "subscription_billing_cycle": getattr(sub, "billing_cycle", None),
+                "subscription_currency": getattr(sub, "currency", None),
+                "subscription_template_id": getattr(sub, "template_id", None),
+                "subscription_template_name": getattr(template, "name", None),
+                "subscription_seat_count": derived_seat_count,
+                "subscription_selected_module_slugs": _join_text(derived_module_slugs),
+                "subscription_discount_pct": float(getattr(sub, "discount_pct", 0) or 0),
+                "subscription_is_price_locked": getattr(sub, "is_price_locked", False),
+                "subscription_next_renewal_at": getattr(sub, "next_renewal_at", None),
+                "subscription_valid_from": sub.valid_from,
+                "subscription_valid_to": sub.valid_to,
+                "module_count": len(sub_modules),
+                "module_names": _join_text(module_names),
+            }
+            result_rows.append(row)
+
+    elif dataset_id == "tenant_module_snapshot_full":
+        for mod_row in all_sub_modules:
+            if not _is_active_in_range(mod_row, date_from, date_to):
+                continue
+            # find parent subscription
+            sub = next((s for s in subscriptions_in_range if s.id == mod_row.tenant_subscription_id), None)
+            if sub is None:
+                # subscription may have expired; still include it
+                sub_all = [s for s in subscription_result.scalars().all() if s.id == mod_row.tenant_subscription_id]
+                sub = sub_all[0] if sub_all else None
+            if sub is None:
+                continue
+            tenant = tenants.get(sub.tenant_id)
+            if not tenant:
+                continue
+            overlap_start = max(mod_row.valid_from or date_from, date_from)
+            overlap_end = min(mod_row.valid_to or date_to, date_to)
+            mid = overlap_start + (overlap_end - overlap_start) / 2
+            identity = _pick_for_date(all_identities, sub.tenant_id, mid)
+            status = _pick_for_date(all_statuses, sub.tenant_id, mid)
+            module = modules.get(mod_row.module_slug)
+            price = _best_price(mod_row.module_slug, mid)
+            template = templates.get(getattr(sub, "template_id", None))
+            tenant_name = getattr(identity, "name_he", None) or f"Tenant {tenant.org_number}"
+
+            row = {
+                "period_valid_from": overlap_start,
+                "period_valid_to": overlap_end if mod_row.valid_to else None,
+                "period_duration_days": _period_duration(mod_row.valid_from, mod_row.valid_to, date_from, date_to),
+                "tenant_id": tenant.tenant_id,
+                "org_number": tenant.org_number,
+                "tenant_name": tenant_name,
+                "tenant_status": getattr(status, "status", None),
+                "subscription_id": sub.id,
+                "subscription_template_name": getattr(template, "name", None),
+                "subscription_billing_cycle": getattr(sub, "billing_cycle", None),
+                "subscription_currency": getattr(sub, "currency", None),
+                "subscription_seat_count": 0,
+                "subscription_next_renewal_at": getattr(sub, "next_renewal_at", None),
+                "module_assignment_id": mod_row.id,
+                "tenant_subscription_id": mod_row.tenant_subscription_id,
+                "module_slug": mod_row.module_slug,
+                "module_name": getattr(module, "name", mod_row.module_slug),
+                "module_description": getattr(module, "description", None),
+                "module_is_required": getattr(module, "is_required", None),
+                "module_is_active": getattr(module, "is_active", None),
+                "module_sort_order": getattr(module, "sort_order", None),
+                "source_type": mod_row.source_type,
+                "module_status": mod_row.status,
+                "module_seats": int(mod_row.seats or 0),
+                "pricing_mode": mod_row.pricing_mode,
+                "base_price_ils": float(getattr(price, "base_price_ils", 0) or 0),
+                "per_seat_ils": float(getattr(price, "per_seat_ils", 0) or 0),
+                "included_seats": int(getattr(price, "included_seats", 0) or 0),
+                "setup_fee_ils": float(getattr(price, "setup_fee_ils", 0) or 0),
+                "override_base_price_ils": float(getattr(mod_row, "override_base_price_ils", 0) or 0),
+                "override_per_seat_ils": float(getattr(mod_row, "override_per_seat_ils", 0) or 0),
+                "override_setup_fee_ils": float(getattr(mod_row, "override_setup_fee_ils", 0) or 0),
+                "notes": getattr(mod_row, "notes", None),
+                "valid_from": mod_row.valid_from,
+                "valid_to": mod_row.valid_to,
+                "next_renewal_at": getattr(sub, "next_renewal_at", None),
+            }
+            result_rows.append(row)
+
+    # Sort by period_valid_from desc so newest first
+    result_rows.sort(key=lambda r: (r.get("period_valid_from") or date.min), reverse=True)
+    return result_rows
+
+
 async def execute_report_query(db: AsyncSession, request: ReportQueryRequest) -> ReportResult:
+
     definition = _normalize_definition(request.definition)
     if definition.dataset not in DATASET_MAP:
         raise ValueError("Unknown dataset")
     if definition.limit < 1:
         raise ValueError("Limit must be positive")
 
-    as_of = definition.as_of_date or date.today()
-    source_rows = (await _load_snapshot_rows(db, as_of))[definition.dataset]
+    # ── Range mode: date_from + date_to both set ──────────────────────────────
+    if definition.date_from and definition.date_to:
+        source_rows = await _load_range_rows(db, definition.date_from, definition.date_to, definition.dataset)
+    else:
+        as_of = definition.as_of_date or date.today()
+        source_rows = (await _load_snapshot_rows(db, as_of))[definition.dataset]
+
     filtered_rows = _apply_filters(source_rows, definition)
     filtered_rows = _apply_sort(filtered_rows, definition)
     summary = _build_summary(filtered_rows, definition)
@@ -1463,6 +1738,253 @@ def _render_csv(title: str | None, result: ReportResult) -> str:
     for row in result.rows:
         writer.writerow([row.get(column, "") for column in result.columns])
     return output.getvalue()
+
+
+def _render_xlsx(title: str | None, result: ReportResult) -> bytes:
+    """Generate a professional Excel (.xlsx) file with styled headers and columns."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (title or "דוח")[:31]  # Excel sheet name limit
+    ws.sheet_view.rightToLeft = True
+
+    # Style definitions
+    title_font = Font(name="Arial", bold=True, size=14, color="0F172A")
+    header_font = Font(name="Arial", bold=True, size=9, color="FFFFFF")
+    header_fill = PatternFill(fill_type="solid", fgColor="1E40AF")  # Deep blue
+    summary_label_font = Font(name="Arial", bold=True, size=9, color="374151")
+    summary_fill = PatternFill(fill_type="solid", fgColor="EFF6FF")
+    alt_row_fill = PatternFill(fill_type="solid", fgColor="F8FAFC")
+    border_side = Side(style="thin", color="CBD5E1")
+    cell_border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True, readingOrder=2)
+    right_align = Alignment(horizontal="right", vertical="center", wrap_text=False, readingOrder=2)
+
+    current_row = 1
+
+    # Title row
+    ws.cell(row=current_row, column=1, value=title or "CLICK Reports").font = title_font
+    ws.row_dimensions[current_row].height = 24
+    current_row += 1
+
+    # Meta rows
+    ws.cell(row=current_row, column=1, value="הופק ב:").font = Font(name="Arial", size=8, color="64748B")
+    ws.cell(row=current_row, column=2, value=datetime.now(UTC).strftime("%Y-%m-%d %H:%M"))
+    current_row += 1
+    ws.cell(row=current_row, column=1, value="מקור נתונים:").font = Font(name="Arial", size=8, color="64748B")
+    ws.cell(row=current_row, column=2, value=result.applied_definition.dataset)
+    current_row += 1
+    ws.cell(row=current_row, column=1, value="סה\"כ שורות:").font = Font(name="Arial", size=8, color="64748B")
+    ws.cell(row=current_row, column=2, value=result.total)
+    current_row += 2  # blank row
+
+    # Summary section
+    if result.summary:
+        ws.cell(row=current_row, column=1, value="סיכום").font = Font(name="Arial", bold=True, size=10, color="1E40AF")
+        current_row += 1
+        for metric in result.summary:
+            lbl_cell = ws.cell(row=current_row, column=1, value=metric.label)
+            lbl_cell.font = summary_label_font
+            lbl_cell.fill = summary_fill
+            lbl_cell.alignment = right_align
+            val_cell = ws.cell(row=current_row, column=2, value=metric.value)
+            val_cell.fill = summary_fill
+            val_cell.alignment = right_align
+            current_row += 1
+        current_row += 1  # blank row
+
+    # Header row
+    if result.columns:
+        for col_idx, col_name in enumerate(result.columns, start=1):
+            cell = ws.cell(row=current_row, column=col_idx, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = cell_border
+            cell.alignment = center_align
+        ws.row_dimensions[current_row].height = 20
+        header_row = current_row
+        current_row += 1
+
+        # Data rows
+        for row_idx, row in enumerate(result.rows):
+            is_alt = row_idx % 2 == 1
+            for col_idx, col_name in enumerate(result.columns, start=1):
+                cell = ws.cell(row=current_row, column=col_idx, value=row.get(col_name, ""))
+                cell.border = cell_border
+                cell.alignment = right_align
+                if is_alt:
+                    cell.fill = alt_row_fill
+            current_row += 1
+
+        # Auto-size columns (estimate)
+        for col_idx, col_name in enumerate(result.columns, start=1):
+            col_letter = get_column_letter(col_idx)
+            max_len = max(
+                len(col_name),
+                *(len(str(row.get(col_name, ""))) for row in result.rows[:50]) if result.rows else [0],
+            )
+            ws.column_dimensions[col_letter].width = min(max(max_len + 2, 8), 40)
+
+        # Freeze header row
+        ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
+        # Auto filter
+        if result.rows:
+            ws.auto_filter.ref = f"A{header_row}:{get_column_letter(len(result.columns))}{header_row}"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _render_html(title: str | None, result: ReportResult, dataset_label: str = "") -> str:
+    """Generate a standalone, styled HTML report with RTL support."""
+    report_title = html_module.escape(title or "CLICK Reports")
+    generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+
+    # Build summary cards
+    summary_html = ""
+    if result.summary:
+        cards = "".join(
+            f'<div class="summary-card"><div class="summary-value">{html_module.escape(m.value)}</div>'
+            f'<div class="summary-label">{html_module.escape(m.label)}</div></div>'
+            for m in result.summary
+        )
+        summary_html = f'<div class="summary-grid">{cards}</div>'
+
+    # Build table
+    header_cells = "".join(f"<th>{html_module.escape(col)}</th>" for col in result.columns)
+    row_html_parts = []
+    for idx, row in enumerate(result.rows):
+        cls = "alt" if idx % 2 == 1 else ""
+        cells = "".join(
+            f'<td>{html_module.escape(str(row.get(col, "—")))}</td>' for col in result.columns
+        )
+        row_html_parts.append(f'<tr class="{cls}"><td class="row-num">{idx + 1}</td>{cells}</tr>')
+    rows_html = "\n".join(row_html_parts)
+
+    num_col_header = '<th class="row-num">#</th>'
+
+    return f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{report_title}</title>
+<style>
+  *, *::before, *::after {{ box-sizing: border-box; }}
+  body {{
+    font-family: 'Segoe UI', Arial, sans-serif;
+    direction: rtl;
+    text-align: right;
+    background: #f8fafc;
+    color: #0f172a;
+    margin: 0;
+    padding: 24px;
+  }}
+  .report-header {{
+    background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+    color: white;
+    padding: 24px 32px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(30,64,175,0.2);
+  }}
+  .report-header h1 {{ margin: 0 0 4px; font-size: 22px; font-weight: 700; }}
+  .report-meta {{ font-size: 12px; opacity: 0.8; display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }}
+  .report-meta span {{ display: flex; align-items: center; gap: 4px; }}
+  .summary-grid {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }}
+  .summary-card {{
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 20px;
+    min-width: 140px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }}
+  .summary-value {{ font-size: 24px; font-weight: 700; color: #1e40af; }}
+  .summary-label {{ font-size: 11px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }}
+  .table-wrapper {{
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }}
+  thead {{
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }}
+  thead tr {{
+    background: #1e40af;
+    color: white;
+  }}
+  th {{
+    padding: 10px 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }}
+  td {{
+    padding: 9px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    white-space: nowrap;
+  }}
+  tr:hover td {{ background: #eff6ff; }}
+  tr.alt td {{ background: #f8fafc; }}
+  tr.alt:hover td {{ background: #eff6ff; }}
+  .row-num {{
+    color: #94a3b8;
+    font-size: 11px;
+    text-align: center;
+    min-width: 36px;
+  }}
+  .report-footer {{
+    margin-top: 20px;
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+  }}
+  @media print {{
+    body {{ background: white; padding: 8px; }}
+    .report-header {{ background: #1e40af !important; -webkit-print-color-adjust: exact; }}
+  }}
+</style>
+</head>
+<body>
+<div class="report-header">
+  <h1>{report_title}</h1>
+  <div class="report-meta">
+    <span>&#128197; הופק ב: {generated_at}</span>
+    <span>&#128202; מקור: {html_module.escape(dataset_label or result.applied_definition.dataset)}</span>
+    <span>&#128203; סה&quot;כ: {result.total:,} שורות</span>
+  </div>
+</div>
+{summary_html}
+<div class="table-wrapper">
+  <table>
+    <thead><tr>{num_col_header}{header_cells}</tr></thead>
+    <tbody>
+{rows_html}
+    </tbody>
+  </table>
+</div>
+<div class="report-footer">CLICK HR &mdash; מחולל דוחות &mdash; {generated_at}</div>
+</body>
+</html>"""
 
 
 def _render_pdf(title: str | None, result: ReportResult) -> bytes:
@@ -1516,12 +2038,32 @@ def _render_pdf(title: str | None, result: ReportResult) -> bytes:
 async def export_report(db: AsyncSession, request: ReportExportRequest) -> ReportExportResponse:
     result = await execute_report_query(db, ReportQueryRequest(title=request.title, definition=request.definition))
     safe_name = (request.title or request.definition.dataset).lower().replace(" ", "-").replace("/", "-")
+    # For xlsx and html we need all rows — re-run with high limit
+    if request.format in ("xlsx", "html"):
+        export_def = request.definition.model_copy(update={"limit": 5000, "offset": 0})
+        result = await execute_report_query(db, ReportQueryRequest(title=request.title, definition=export_def))
+    dataset_label = DATASET_MAP.get(request.definition.dataset, None)
+    dataset_label_str = dataset_label.label if dataset_label else request.definition.dataset
     if request.format == "csv":
         raw = _render_csv(request.title, result)
         return ReportExportResponse(
             file_name=f"{safe_name}.csv",
             mime_type="text/csv; charset=utf-8",
             content_base64=base64.b64encode(raw.encode("utf-8-sig")).decode("ascii"),
+        )
+    if request.format == "xlsx":
+        raw_bytes = _render_xlsx(request.title, result)
+        return ReportExportResponse(
+            file_name=f"{safe_name}.xlsx",
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content_base64=base64.b64encode(raw_bytes).decode("ascii"),
+        )
+    if request.format == "html":
+        raw_html = _render_html(request.title, result, dataset_label_str)
+        return ReportExportResponse(
+            file_name=f"{safe_name}.html",
+            mime_type="text/html; charset=utf-8",
+            content_base64=base64.b64encode(raw_html.encode("utf-8")).decode("ascii"),
         )
     raw = _render_pdf(request.title, result)
     return ReportExportResponse(

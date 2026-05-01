@@ -7,6 +7,12 @@ from decimal import Decimal
 from app.services.pricing_policy import pricing_policy_note, pricing_summary_text
 
 
+class TemplateModuleEntry(BaseModel):
+    """A module assigned to a template, with an optional per-module seat default."""
+    module_slug: str
+    seats_default: Optional[int] = None  # None → fall back to template-level seat_count
+
+
 class TemplateModulePricing(BaseModel):
     module_slug: str
     module_name: str
@@ -71,7 +77,10 @@ class TemplateOut(BaseModel):
     valid_from: date
     valid_to: Optional[date] = None
     created_at: Optional[datetime] = None
+    # Legacy flat list (backward-compatible)
     module_slugs: list[str] = []
+    # Rich list with per-module seat defaults
+    modules: list[TemplateModuleEntry] = []
     seat_count: int = 0
     discount_pct: Decimal = Decimal("0")
     is_price_locked: bool = False
@@ -92,7 +101,9 @@ class TemplateCreate(BaseModel):
     recommended_size: Optional[str] = None
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
+    # Supports both legacy (list[str]) and rich (list[TemplateModuleEntry]) formats
     module_slugs: list[str] = []
+    modules: list[TemplateModuleEntry] = []
     seat_count: int = 0
     discount_pct: Decimal = Decimal("0")
     is_price_locked: bool = False
@@ -113,6 +124,7 @@ class TemplateActionBody(BaseModel):
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
     module_slugs: Optional[list[str]] = None
+    modules: Optional[list[TemplateModuleEntry]] = None
     seat_count: Optional[int] = None
     discount_pct: Optional[Decimal] = None
     is_price_locked: Optional[bool] = None

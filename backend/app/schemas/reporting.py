@@ -22,7 +22,7 @@ ReportFilterOperator = Literal[
 ReportMetricOperation = Literal["count", "sum", "avg", "count_distinct"]
 ReportViewMode = Literal["detail", "summary"]
 ReportVisibility = Literal["personal", "shared"]
-ReportFormat = Literal["csv", "pdf"]
+ReportFormat = Literal["csv", "pdf", "xlsx", "html"]
 
 
 class ReportFieldDefinition(BaseModel):
@@ -74,6 +74,8 @@ class ReportDefinition(BaseModel):
     filters: list[ReportFilter] = Field(default_factory=list)
     sort: list[ReportSort] = Field(default_factory=list)
     as_of_date: Optional[date] = None
+    date_from: Optional[date] = None   # range mode: תחילת הטווח
+    date_to: Optional[date] = None     # range mode: סוף הטווח
     group_by: list[str] = Field(default_factory=list)
     metrics: list[ReportMetricRequest] = Field(default_factory=list)
     limit: int = 50

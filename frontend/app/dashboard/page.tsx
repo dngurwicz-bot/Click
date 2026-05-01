@@ -1,275 +1,249 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { isLoggedIn, getStoredUser, api, canEdit, canView, type UserInfo } from "@/lib/api";
-import { AdminTitleBar } from "@/components/layout/AdminShell";
-import { useWorkspace } from "@/components/layout/WorkspaceShell";
 import {
-  Building2, Package, Users, Activity,
-  TrendingUp, ChevronLeft, Clock,
+  ChevronLeft,
+  LayoutGrid,
+  Sparkles,
 } from "lucide-react";
 
-interface Stats {
-  active_tenants: number;
-  total_modules: number;
-  admin_users: number;
-}
-
-interface AuditLogItem {
-  id: string;
-  actor_id: string;
-  action: string;
-  entity_type: string;
-  actor_name?: string | null;
-  actor_email?: string | null;
-  created_at: string;
-}
+import { AdminTitleBar } from "@/components/layout/AdminShell";
+import {
+  DashboardScreenContextMenu,
+  ScreenExplanationModal,
+  type ScreenMenuState,
+} from "@/components/layout/DashboardScreenContextMenu";
+import { useWorkspace } from "@/components/layout/WorkspaceShell";
+import { api, getStoredUser, isLoggedIn, type UserInfo } from "@/lib/api";
+import {
+  getVisibleDashboardScreens,
+  readPinnedDashboardScreenIds,
+  subscribeToPinnedDashboardScreens,
+  togglePinnedDashboardScreen,
+  type DashboardScreen,
+  type ModuleNavItem,
+} from "@/lib/dashboardScreens";
 
 const roleLabel: Record<string, string> = {
   super_admin: "Super Admin",
-  admin:       "מנהל מערכת",
-  support:     "תמיכה",
-  billing:     "כספים",
+  admin: "מנהל מערכת",
+  support: "תמיכה",
+  billing: "כספים",
 };
 
-/* ── KPI card ── */
-function KpiCard({
-  label, value, icon: Icon, accent, sub,
+function DashboardScreenCard({
+  screen,
+  onContextMenu,
 }: {
-  label: string;
-  value: number | string;
-  icon: React.ElementType;
-  accent: string;
-  sub?: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 hover:shadow-sm transition-all duration-200">
-      <div className="flex items-start justify-between mb-3">
-        <div className={`p-2 rounded-lg ${accent} shrink-0`}>
-          <Icon size={15} className="text-white" />
-        </div>
-        {sub && (
-          <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
-            {sub}
-          </span>
-        )}
-      </div>
-      <p className="text-2xl font-bold text-slate-900 leading-none mb-1">{value}</p>
-      <p className="text-xs font-medium text-slate-500">{label}</p>
-    </div>
-  );
-}
-
-/* ── Quick action row ── */
-function QuickAction({
-  href, label, icon: Icon, desc,
-}: {
-  href: string;
-  label: string;
-  icon: React.ElementType;
-  desc: string;
+  screen: DashboardScreen;
+  onContextMenu: (screen: DashboardScreen, event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const router = useRouter();
   const workspace = useWorkspace();
+  const Icon = screen.icon;
 
   return (
     <button
       type="button"
+      onContextMenu={(event) => onContextMenu(screen, event)}
       onClick={() => {
-        if (workspace) workspace.navigateTo(href);
-        else router.push(href);
+        if (workspace) workspace.navigateTo(screen.href);
+        else router.push(screen.href);
       }}
-      className="flex w-full items-center justify-between px-3 py-2.5 rounded-lg border border-slate-200
-                 bg-white hover:border-brand-200 hover:bg-brand-50/50 transition-all duration-150 group text-right"
+      className="group flex items-center gap-3.5 rounded-2xl border border-slate-200 bg-white p-3.5 text-right transition-all hover:border-brand-200 hover:shadow-sm hover:bg-slate-50"
     >
-      <div className="flex items-center gap-2.5">
-        <div className="p-1.5 rounded-md bg-slate-100 group-hover:bg-brand-100 transition-colors shrink-0">
-          <Icon size={13} className="text-slate-500 group-hover:text-brand-600 transition-colors" />
-        </div>
-        <div>
-          <p className="text-xs font-semibold text-slate-700 group-hover:text-brand-700 transition-colors leading-tight">
-            {label}
-          </p>
-          <p className="text-[10px] text-slate-400 leading-tight mt-0.5">{desc}</p>
-        </div>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition-colors group-hover:bg-brand-50 group-hover:text-brand-600">
+        <Icon size={18} />
       </div>
-      <ChevronLeft size={13} className="text-slate-300 group-hover:text-brand-400 transition-colors shrink-0" />
+
+      <div className="flex-1 overflow-hidden">
+        <div className="truncate text-[13px] font-semibold text-slate-800">{screen.label}</div>
+        <div className="truncate text-xs text-slate-500">{screen.shortDescription}</div>
+      </div>
+
+      <div className="shrink-0 text-slate-300 transition-colors group-hover:text-brand-500">
+        <ChevronLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
+      </div>
     </button>
   );
 }
 
-/* ── Page ── */
 export default function DashboardPage() {
   const router = useRouter();
-  const [user,  setUser]  = useState<UserInfo | null>(null);
-  const [stats, setStats] = useState<Stats>({ active_tenants: 0, total_modules: 0, admin_users: 0 });
-  const [auditRows, setAuditRows] = useState<AuditLogItem[]>([]);
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [modules, setModules] = useState<ModuleNavItem[]>([]);
+  const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
+  const [screenMenu, setScreenMenu] = useState<ScreenMenuState | null>(null);
+  const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
   const [loading, setLoading] = useState(true);
 
   const today = new Date().toLocaleDateString("he-IL", {
     weekday: "long",
-    year:    "numeric",
-    month:   "long",
-    day:     "numeric",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 
-  function loadStats() {
+  const visibleScreens = useMemo(
+    () => getVisibleDashboardScreens({ modules, user }),
+    [modules, user],
+  );
+
+  const pinnedScreens = useMemo(() => {
+    const screenMap = new Map(visibleScreens.map((screen) => [screen.id, screen]));
+    return pinnedScreenIds
+      .map((screenId) => screenMap.get(screenId))
+      .filter((screen): screen is DashboardScreen => Boolean(screen));
+  }, [pinnedScreenIds, visibleScreens]);
+
+  const isPinned = screenMenu ? pinnedScreenIds.includes(screenMenu.screen.id) : false;
+
+  function openScreenMenu(screen: DashboardScreen, event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setScreenMenu({
+      screen,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
+  function loadDashboard() {
     const nextUser = getStoredUser();
     if (nextUser) setUser(nextUser);
 
     const requests: Promise<unknown>[] = [
-      canView("tenants") ? api.get<unknown[]>("/api/admin/tenants") : Promise.resolve([]),
-      canView("modules") ? api.get<unknown[]>("/api/admin/modules") : Promise.resolve([]),
-      canView("users") ? api.get<unknown[]>("/api/admin/users") : Promise.resolve([]),
-      canView("audit") ? api.get<AuditLogItem[]>("/api/admin/audit?limit=5") : Promise.resolve([]),
+      api.get<ModuleNavItem[]>("/api/admin/modules").catch(() => [] as ModuleNavItem[]),
     ];
 
     setLoading(true);
     Promise.all(requests)
-      .then(([tenants, modules, users, audit]) => {
-        setStats({
-          active_tenants: Array.isArray(tenants) ? tenants.length : 0,
-          total_modules:  Array.isArray(modules) ? modules.length : 0,
-          admin_users:    Array.isArray(users)   ? users.length   : 0,
-        });
-        setAuditRows(Array.isArray(audit) ? audit : []);
+      .then(([modulesData]) => {
+        const nextModules = Array.isArray(modulesData) ? modulesData : [];
+        setModules(nextModules);
       })
       .catch(() => {
-        setAuditRows([]);
+        setModules([]);
       })
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    if (!isLoggedIn()) { router.replace("/login"); return; }
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
+
     setUser(getStoredUser());
-    loadStats();
+    loadDashboard();
   }, [router]);
 
-  // Show spinner while loading user from localStorage (avoids blank page)
+  useEffect(() => {
+    setPinnedScreenIds(readPinnedDashboardScreenIds(visibleScreens));
+    return subscribeToPinnedDashboardScreens(() => {
+      setPinnedScreenIds(readPinnedDashboardScreenIds(visibleScreens));
+    });
+  }, [visibleScreens]);
+
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setScreenMenu(null);
+        setExplanationScreen(null);
+      }
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-dashboard-context-menu="true"]')) {
+        return;
+      }
+      setScreenMenu(null);
+    }
+
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, []);
+
   if (!user && loading) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
-        <main className="flex-1 flex items-center justify-center">
-          <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <main className="flex flex-1 items-center justify-center">
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
         </main>
       </div>
     );
   }
 
-  // User not found after load → redirect handled by useEffect, show nothing
   if (!user) return null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
-
-      {/* ── Title Bar ── */}
       <AdminTitleBar
         title={`שלום, ${user.full_name.split(" ")[0]}`}
-        onRefresh={loadStats}
-        utilitySlot={
-          <span className="mr-2 text-[10px] text-slate-400">{today}</span>
-        }
+        onRefresh={loadDashboard}
+        utilitySlot={<span className="mr-2 text-[10px] text-slate-400">{today}</span>}
       />
 
-      {/* ── Main ── */}
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-screen-lg px-4 py-5 space-y-5">
-
-          {/* KPI row */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp size={13} className="text-slate-400" />
-              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">סקירה כללית</h2>
+        <div className="mx-auto max-w-screen-xl space-y-6 px-4 py-5">
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <LayoutGrid size={15} className="text-brand-500" />
+              <h2 className="text-sm font-semibold text-slate-700">כניסה מהירה למסכים שלי</h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <KpiCard label="ארגונים פעילים" value={loading ? "—" : stats.active_tenants} icon={Building2} accent="bg-brand-500" sub="פעיל" />
-              <KpiCard label="מודולים במערכת"  value={loading ? "—" : stats.total_modules}  icon={Package}   accent="bg-violet-500" />
-              <KpiCard label="משתמשי מנהל"     value={loading ? "—" : stats.admin_users}    icon={Users}     accent="bg-sky-500" />
-            </div>
-          </section>
 
-          {/* Bottom grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-            {/* Quick actions */}
-            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-500" />
-                <h3 className="text-xs font-semibold text-slate-700">פעולות מהירות</h3>
-              </div>
-              <div className="p-3 space-y-2">
-                {canEdit("tenants") && <QuickAction href="/admin/tenants/new" label="ארגון חדש" desc="הוספת לקוח חדש למערכת" icon={Building2} />}
-                {canView("users") && <QuickAction href="/admin/users" label="ניהול משתמשים" desc="הרשאות ומשתמשי מנהל" icon={Users} />}
-                {canView("modules") && <QuickAction href="/admin/modules" label="מודולים ומחירון" desc="הגדרות פרייסינג" icon={Package} />}
-                {canView("reports") && <QuickAction href="/admin/reports" label="Insights & Reports" desc="דוחות גמישים וניתוח נתונים" icon={TrendingUp} />}
-                {!canEdit("tenants") && !canView("users") && !canView("modules") && !canView("reports") && (
-                  <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
-                    אין כרגע פעולות מהירות זמינות לפי ההרשאות שלך.
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Activity log */}
-            <section className="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
-              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                  <h3 className="text-xs font-semibold text-slate-700">פעילות אחרונה</h3>
+            {pinnedScreens.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <LayoutGrid size={22} />
                 </div>
-                <span className="flex items-center gap-1 text-[10px] text-slate-400">
-                  <Clock size={10} />היום
-                </span>
+                <div className="text-lg font-semibold text-slate-800">הדשבורד שלך מוכן להתאמה אישית</div>
+                <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-500">
+                  כרגע אין מסכים שמוגדרים לכניסה מהירה. עבור עם העכבר על סרגל הניווט, לחץ קליק ימני על שם המסך הרצוי ובחר
+                  &nbsp;"הוסף לדשבורד".
+                </p>
               </div>
-
-              {/* Table head */}
-              <div className="grid grid-cols-3 px-4 py-2 bg-slate-50 border-b border-slate-100">
-                {["פעולה", "משתמש", "תאריך"].map((h) => (
-                  <span key={h} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                    {h}
-                  </span>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {pinnedScreens.map((screen) => (
+                  <DashboardScreenCard key={screen.id} screen={screen} onContextMenu={openScreenMenu} />
                 ))}
               </div>
+            )}
+          </section>
 
-              {auditRows.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-10 text-center">
-                  <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center mb-2.5">
-                    <Activity size={16} className="text-slate-400" />
-                  </div>
-                  <p className="text-xs font-medium text-slate-500">
-                    {canView("audit") ? "אין פעילות אחרונה" : "אין גישה ללוג פעילות"}
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    {canView("audit") ? "פעולות במערכת יופיעו כאן" : "בקש הרשאת Audit כדי לראות פעולות מערכת"}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {auditRows.map((row) => (
-                    <div key={row.id} className="grid grid-cols-3 px-4 py-2.5 text-xs">
-                      <span className="font-medium text-slate-700">{row.action} / {row.entity_type}</span>
-                      <span className="text-slate-500">{row.actor_name || row.actor_email || row.actor_id || "—"}</span>
-                      <span className="text-slate-400">{new Date(row.created_at).toLocaleString("he-IL")}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-          </div>
-
-          {/* Role badge */}
           <div className="flex justify-start">
-            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-full px-3 py-1.5">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider">תפקיד</span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400">תפקיד</span>
               <span className="text-xs font-semibold text-brand-600">{roleLabel[user.role] ?? user.role}</span>
             </div>
           </div>
-
         </div>
       </main>
+
+      <DashboardScreenContextMenu
+        menu={screenMenu}
+        isPinned={isPinned}
+        onTogglePin={() => {
+          if (!screenMenu) return;
+          const next = togglePinnedDashboardScreen(screenMenu.screen.id, visibleScreens);
+          setPinnedScreenIds(next);
+          setScreenMenu(null);
+        }}
+        onExplain={() => {
+          if (!screenMenu) return;
+          setExplanationScreen(screenMenu.screen);
+          setScreenMenu(null);
+        }}
+        onClose={() => setScreenMenu(null)}
+      />
+
+      <ScreenExplanationModal screen={explanationScreen} onClose={() => setExplanationScreen(null)} />
     </div>
   );
 }

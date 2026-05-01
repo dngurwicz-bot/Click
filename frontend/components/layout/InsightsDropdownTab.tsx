@@ -1,11 +1,21 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
 import { ChevronDown, FileText, Save, Share2 } from "lucide-react";
-import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { getStaticScreen, type DashboardScreen } from "@/lib/dashboardScreens";
 import { ReportCatalogItem, SavedReportView } from "../reports/types";
 
-export function InsightsDropdownTab({ active, onNavigate }: { active: boolean, onNavigate: (href: string) => void }) {
+export function InsightsDropdownTab({
+  active,
+  onNavigate,
+  onScreenContextMenu,
+  insightsScreen,
+}: {
+  active: boolean;
+  onNavigate: (href: string) => void;
+  onScreenContextMenu?: (screen: DashboardScreen, event: ReactMouseEvent<HTMLButtonElement>) => void;
+  insightsScreen?: DashboardScreen | null;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
@@ -55,6 +65,7 @@ export function InsightsDropdownTab({ active, onNavigate }: { active: boolean, o
       <button
         type="button"
         onClick={handleOpen}
+        onContextMenu={insightsScreen && onScreenContextMenu ? (event) => onScreenContextMenu(insightsScreen, event) : undefined}
         className={`relative flex h-full items-center gap-1.5 whitespace-nowrap px-4 text-sm transition-colors ${
           active ? "text-brand-600 font-medium" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
         }`}
@@ -75,6 +86,10 @@ export function InsightsDropdownTab({ active, onNavigate }: { active: boolean, o
                 onNavigate("/admin/reports?new=true");
                 window.dispatchEvent(new CustomEvent('load-report', { detail: { type: 'new' } }));
               }}
+              onContextMenu={onScreenContextMenu ? (event) => {
+                const screen = getStaticScreen("insights:new_report");
+                if (screen) onScreenContextMenu(screen, event);
+              } : undefined}
               className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
             >
               <div className="flex h-5 w-5 items-center justify-center rounded-sm bg-brand-50 text-brand-600 shrink-0">

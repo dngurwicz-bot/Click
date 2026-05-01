@@ -56,6 +56,7 @@ def _effective_window_clause(as_of: date):
 
 
 async def load_template_module_slugs(db: AsyncSession, template_id: uuid.UUID | None) -> list[str]:
+    """Return a flat list of module slugs for a template (backward-compatible)."""
     if not template_id:
         return []
     result = await db.execute(
@@ -63,6 +64,22 @@ async def load_template_module_slugs(db: AsyncSession, template_id: uuid.UUID | 
         .where(OrgTemplateModule.template_id == template_id)
     )
     return [row[0] for row in result.all()]
+
+
+async def load_template_modules_with_seats(
+    db: AsyncSession,
+    template_id: uuid.UUID | None,
+) -> list[tuple[str, int | None]]:
+    """Return (module_slug, seats_default) tuples for a template.
+    seats_default is None when no per-module override is set.
+    """
+    if not template_id:
+        return []
+    result = await db.execute(
+        sa.select(OrgTemplateModule.module_slug, OrgTemplateModule.seats_default)
+        .where(OrgTemplateModule.template_id == template_id)
+    )
+    return [(row.module_slug, row.seats_default) for row in result.all()]
 
 
 async def load_subscription_modules(
@@ -145,14 +162,38 @@ async def build_subscription_blueprint(
     *,
     template_id: uuid.UUID | None,
     default_seat_count: int,
+    existing_seats: dict[str, int] | None = None,
 ) -> list[BlueprintModule]:
+    """Build the module blueprint for a subscription.
+
+    Seat count priority per module (highest to lowest):
+      1. OrgTemplateModule.seats_default  (per-module override in the template)
+      2. template-level default_seat_count (from OrgTemplateDefault['seat_count'])
+      3. existing_seats[module_slug]       (what the tenant already has — option C: take max)
+      4. 0
+
+    When existing_seats is provided (apply-template / sync flows), we take the
+    MAX between the template-derived value and the existing value so a tenant
+    never loses seats they already had.
+    """
     blueprint: dict[str, BlueprintModule] = {}
 
-    for module_slug in await load_template_module_slugs(db, template_id):
+    for module_slug, seats_default in await load_template_modules_with_seats(db, template_id):
+        # Determine what the template wants for this module
+        template_seats = seats_default if seats_default is not None else default_seat_count
+        template_seats = max(template_seats, 0)
+
+        # Option C: take max(template, existing) so tenants never lose seats
+        if existing_seats is not None:
+            current = existing_seats.get(module_slug, 0)
+            effective_seats = max(template_seats, current)
+        else:
+            effective_seats = template_seats
+
         blueprint[module_slug] = BlueprintModule(
             module_slug=module_slug,
             source_type="template",
-            seats=max(default_seat_count, 0),
+            seats=effective_seats,
         )
 
     return [blueprint[key] for key in sorted(blueprint)]

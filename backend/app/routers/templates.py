@@ -10,7 +10,7 @@ from app.middleware.auth import require_permission, CurrentUser
 from app.models.module import OrgTemplate, OrgTemplateModule, OrgTemplateDefault, Module, ModulePrice
 from app.schemas.template import (
     TemplateOut, TemplateCreate, TemplateActionBody,
-    TemplateModulePricing, TemplatePricingSummary,
+    TemplateModuleEntry, TemplateModulePricing, TemplatePricingSummary,
 )
 
 router = APIRouter(prefix="/api/admin/templates", tags=["templates"])
@@ -33,18 +33,39 @@ async def _load_module_slugs(db: AsyncSession, template_id: uuid.UUID) -> list[s
     return [r[0] for r in res.all()]
 
 
+async def _load_module_entries(db: AsyncSession, template_id: uuid.UUID) -> list[TemplateModuleEntry]:
+    """Load the rich module list (slug + per-module seats_default) for a template."""
+    res = await db.execute(
+        select(OrgTemplateModule.module_slug, OrgTemplateModule.seats_default)
+        .where(OrgTemplateModule.template_id == template_id)
+    )
+    return [
+        TemplateModuleEntry(module_slug=row.module_slug, seats_default=row.seats_default)
+        for row in res.all()
+    ]
+
+
 async def _load_effective_module_slugs(db: AsyncSession, template: OrgTemplate) -> list[str]:
     return await _load_module_slugs(db, template.id)
 
 
-async def _save_module_slugs(db: AsyncSession, template_id: uuid.UUID, slugs: list[str]) -> None:
+async def _save_module_entries(
+    db: AsyncSession,
+    template_id: uuid.UUID,
+    entries: list[TemplateModuleEntry],
+) -> None:
+    """Replace the module list for a template, preserving per-module seats_default."""
     await db.execute(
         delete(OrgTemplateModule)
         .where(OrgTemplateModule.template_id == template_id)
         .execution_options(synchronize_session=False)
     )
-    for s in slugs:
-        db.add(OrgTemplateModule(template_id=template_id, module_slug=s))
+    for entry in entries:
+        db.add(OrgTemplateModule(
+            template_id=template_id,
+            module_slug=entry.module_slug,
+            seats_default=entry.seats_default,
+        ))
 
 
 async def _load_template_defaults(db: AsyncSession, template_id: uuid.UUID) -> dict[str, str]:
@@ -191,11 +212,14 @@ def _build_pricing_summary(
 
 async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> TemplateOut:
     out = TemplateOut.model_validate(template)
-    out.module_slugs = await _load_effective_module_slugs(db, template)
+    module_entries = await _load_module_entries(db, template.id)
+    out.modules = module_entries
+    out.module_slugs = [e.module_slug for e in module_entries]  # backward-compat
     defaults = await _load_template_defaults(db, template.id)
     out.seat_count = _default_seat_count(defaults)
     out.discount_pct = _default_discount_pct(defaults)
     out.is_price_locked = _default_price_locked(defaults)
+    # Pricing uses the template-level seat_count as the baseline
     out.module_pricing = await _build_module_pricing(db, out.module_slugs, out.seat_count)
     out.pricing_summary = _build_pricing_summary(
         out.module_pricing,
@@ -205,8 +229,18 @@ async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> Templa
     )
     return out
 
+def _resolve_module_entries(
+    body_modules: list[TemplateModuleEntry] | None,
+    body_module_slugs: list[str],
+) -> list[TemplateModuleEntry]:
+    """Return the canonical module entry list from a Create/ActionBody.
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+    Priority: body.modules (rich, with seats_default) > body.module_slugs (legacy flat)
+    """
+    if body_modules:
+        return body_modules
+    # Legacy flat list — convert, preserving no per-module override
+    return [TemplateModuleEntry(module_slug=s, seats_default=None) for s in body_module_slugs]
 
 @router.get("", response_model=list[TemplateOut])
 async def list_templates(
@@ -243,7 +277,7 @@ async def create_template(
     db.add(new_template)
     await db.flush()
     await db.refresh(new_template)
-    await _save_module_slugs(db, new_template.id, body.module_slugs)
+    await _save_module_entries(db, new_template.id, _resolve_module_entries(body.modules, body.module_slugs))
     await _save_template_defaults(
         db,
         new_template.id,
@@ -281,8 +315,8 @@ async def update_template(
     if body.valid_to is not None:
         template.valid_to = body.valid_to
 
-    # TemplateCreate.module_slugs defaults to [] — treat as "replace with provided list"
-    await _save_module_slugs(db, template_id, body.module_slugs)
+    # TemplateCreate.module_slugs/modules defaults to [] — treat as "replace with provided list"
+    await _save_module_entries(db, template_id, _resolve_module_entries(body.modules, body.module_slugs))
     await _save_template_defaults(
         db,
         template_id,
@@ -442,8 +476,9 @@ async def template_record_action(
                 .values(**field_vals)
                 .execution_options(synchronize_session=False)
             )
-            if body.module_slugs is not None:
-                await _save_module_slugs(db, template_id, body.module_slugs)
+            if body.modules is not None or body.module_slugs is not None:
+                entries = _resolve_module_entries(body.modules, body.module_slugs or [])
+                await _save_module_entries(db, template_id, entries)
             current_defaults = await _load_template_defaults(db, template_id)
             await _save_template_defaults(
                 db,
@@ -474,12 +509,12 @@ async def template_record_action(
             db.add(new_row)
             await db.flush()
             await db.refresh(new_row)
-            # Copy module_slugs from old row unless new ones are provided
-            if body.module_slugs is not None:
-                slugs_to_copy = body.module_slugs
+            # Copy modules from old row unless new ones are provided
+            if body.modules is not None or body.module_slugs is not None:
+                entries_to_copy = _resolve_module_entries(body.modules, body.module_slugs or [])
             else:
-                slugs_to_copy = await _load_module_slugs(db, template_id)
-            await _save_module_slugs(db, new_row.id, slugs_to_copy)
+                entries_to_copy = await _load_module_entries(db, template_id)
+            await _save_module_entries(db, new_row.id, entries_to_copy)
             anchor_defaults = await _load_template_defaults(db, template_id)
             await _save_template_defaults(
                 db,
@@ -518,7 +553,7 @@ async def template_record_action(
         db.add(new_row)
         await db.flush()
         await db.refresh(new_row)
-        await _save_module_slugs(db, new_row.id, body.module_slugs or [])
+        await _save_module_entries(db, new_row.id, _resolve_module_entries(body.modules, body.module_slugs or []))
         await _save_template_defaults(
             db,
             new_row.id,
@@ -651,7 +686,12 @@ async def template_record_action(
         db.add(new_row)
         await db.flush()
         await db.refresh(new_row)
-        await _save_module_slugs(db, new_row.id, body.module_slugs or [])
+        # Copy modules from anchor unless body provides explicit ones
+        if body.modules is not None or body.module_slugs is not None:
+            entries_for_new = _resolve_module_entries(body.modules, body.module_slugs or [])
+        else:
+            entries_for_new = await _load_module_entries(db, template_id)
+        await _save_module_entries(db, new_row.id, entries_for_new)
         anchor_defaults = await _load_template_defaults(db, template_id)
         await _save_template_defaults(
             db,

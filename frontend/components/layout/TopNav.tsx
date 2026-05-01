@@ -1,77 +1,44 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Ban,
-  BarChart3,
   Bell,
-  Building2,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
-  FileText,
-  Home,
-  List,
   LogOut,
   Menu,
-  Package,
-  Quote,
-  Receipt,
   Search,
   Settings,
-  Users,
-  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { api, canView, getStoredUser, logout, type UserInfo } from "@/lib/api";
+
+import { api, getStoredUser, logout, type UserInfo } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
+import {
+  ADMIN_SCREEN_IDS,
+  BILLING_SCREEN_IDS,
+  getStaticScreen,
+  getVisibleDashboardScreens,
+  readPinnedDashboardScreenIds,
+  subscribeToPinnedDashboardScreens,
+  togglePinnedDashboardScreen,
+  type DashboardScreen,
+  type ModuleNavItem,
+} from "@/lib/dashboardScreens";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
 import { InsightsDropdownTab } from "./InsightsDropdownTab";
+import {
+  DashboardScreenContextMenu,
+  ScreenExplanationModal,
+  type ScreenMenuState,
+} from "./DashboardScreenContextMenu";
 
-interface Module {
-  slug: string;
-  name: string;
-  is_active: boolean;
-  sort_order: number;
-}
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
+interface NavItem extends DashboardScreen {
   active: boolean;
 }
-
-const ADMIN_LINKS = [
-  { href: "/admin/tenants", label: "ארגונים", icon: Building2 },
-  { href: "/admin/lookups", label: "רשימות", icon: List },
-  { href: "/admin/modules", label: "מודולים", icon: Package },
-  ...(BILLING_ENABLED ? [{ href: "/admin/billing", label: "חיובים", icon: Receipt }] : []),
-  { href: "/admin/users", label: "משתמשים", icon: Users },
-  { href: "/admin/templates", label: "תבניות", icon: FileText },
-  { href: "/admin/audit", label: "Audit", icon: ClipboardList },
-];
-
-const RESOURCE_FOR_LINK: Record<string, string> = {
-  "/admin/tenants": "tenants",
-  "/admin/lookups": "lookups",
-  "/admin/modules": "modules",
-  "/admin/billing": "billing",
-  "/admin/users": "users",
-  "/admin/templates": "templates",
-  "/admin/audit": "audit",
-};
-
-const BILLING_SUB_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/admin/billing/overview", label: "סקירה", icon: BarChart3 },
-  { href: "/admin/billing/quotes", label: "הצעות מחיר", icon: Quote },
-  { href: "/admin/billing/charges", label: "חיובים", icon: Wallet },
-  { href: "/admin/billing/invoices", label: "חשבוניות", icon: FileText },
-  { href: "/admin/billing/settings", label: "הגדרות מנפיק", icon: Ban },
-];
 
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
 
@@ -97,13 +64,17 @@ export function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
   const workspace = useWorkspace();
+  const rootRef = useRef<HTMLDivElement>(null);
+
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [modules, setModules] = useState<Module[]>([]);
+  const [modules, setModules] = useState<ModuleNavItem[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [screenMenu, setScreenMenu] = useState<ScreenMenuState | null>(null);
+  const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
+  const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
 
   useEffect(() => {
     setUser(getStoredUser());
@@ -111,16 +82,27 @@ export function TopNav() {
 
   useEffect(() => {
     api
-      .get<Module[]>("/api/admin/modules")
-      .then((data) =>
-        setModules(
-          data
-            .filter((module) => module.is_active)
-            .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
-        ),
-      )
+      .get<ModuleNavItem[]>("/api/admin/modules")
+      .then((data) => setModules(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
+
+  const visibleScreens = useMemo(
+    () => getVisibleDashboardScreens({ modules, user }),
+    [modules, user],
+  );
+
+  const visibleScreenMap = useMemo(
+    () => new Map(visibleScreens.map((screen) => [screen.id, screen])),
+    [visibleScreens],
+  );
+
+  useEffect(() => {
+    setPinnedScreenIds(readPinnedDashboardScreenIds(visibleScreens));
+    return subscribeToPinnedDashboardScreens(() => {
+      setPinnedScreenIds(readPinnedDashboardScreenIds(visibleScreens));
+    });
+  }, [visibleScreens]);
 
   useEffect(() => {
     function handleOutside(event: MouseEvent) {
@@ -128,6 +110,7 @@ export function TopNav() {
         setAdminOpen(false);
         setBillingOpen(false);
         setUserOpen(false);
+        setScreenMenu(null);
       }
     }
 
@@ -137,6 +120,8 @@ export function TopNav() {
         setBillingOpen(false);
         setUserOpen(false);
         setMobileOpen(false);
+        setScreenMenu(null);
+        setExplanationScreen(null);
       }
     }
 
@@ -153,6 +138,7 @@ export function TopNav() {
     setBillingOpen(false);
     setUserOpen(false);
     setMobileOpen(false);
+    setScreenMenu(null);
   }, [pathname]);
 
   function handleLogout() {
@@ -165,6 +151,7 @@ export function TopNav() {
     setBillingOpen(false);
     setUserOpen(false);
     setMobileOpen(false);
+    setScreenMenu(null);
 
     if (workspace) {
       workspace.navigateTo(href);
@@ -174,74 +161,110 @@ export function TopNav() {
     router.push(href);
   }
 
+  function openScreenMenu(screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) {
+    event.preventDefault();
+    setScreenMenu({
+      screen,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }
+
   const isAdmin = Boolean(user && ADMIN_ROLES.includes(user.role));
+  const dashboardScreen = getStaticScreen("dashboard");
+  const insightsScreen = visibleScreenMap.get("module:insights") ?? null;
 
   const adminItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
 
-    return ADMIN_LINKS.filter(({ href }) => {
-      if (user?.role === "super_admin") return true;
-      const resource = RESOURCE_FOR_LINK[href];
-      return resource ? canView(resource) : false;
-    }).map(({ href, label, icon }) => ({
-      href,
-      label,
-      icon,
-      active: Boolean(pathname?.startsWith(href)),
-    }));
-  }, [isAdmin, pathname, user?.role]);
+    return ADMIN_SCREEN_IDS
+      .map((screenId) => visibleScreenMap.get(screenId))
+      .filter((screen): screen is DashboardScreen => Boolean(screen))
+      .map((screen) => ({
+        ...screen,
+        active: screen.id === "admin:billing"
+          ? Boolean(pathname?.startsWith("/admin/billing"))
+          : Boolean(pathname?.startsWith(screen.href)),
+      }));
+  }, [isAdmin, pathname, visibleScreenMap]);
+
+  const billingItems = useMemo<NavItem[]>(() => {
+    if (!BILLING_ENABLED) return [];
+
+    return BILLING_SCREEN_IDS
+      .map((screenId) => visibleScreenMap.get(screenId))
+      .filter((screen): screen is DashboardScreen => Boolean(screen))
+      .map((screen) => ({
+        ...screen,
+        active: Boolean(pathname?.startsWith(screen.href)),
+      }));
+  }, [pathname, visibleScreenMap]);
 
   const moduleItems = useMemo<NavItem[]>(
     () =>
-      modules.map((module) => ({
-        href: `/modules/${module.slug}`,
-        label: module.name,
-        icon: Package,
-        active: Boolean(pathname?.startsWith(`/modules/${module.slug}`)),
-      })),
-    [modules, pathname],
+      visibleScreens
+        .filter((screen) => screen.navGroup === "module" && !screen.hideFromNav)
+        .map((screen) => ({
+          ...screen,
+          active: Boolean(pathname?.startsWith(screen.href)),
+        })),
+    [pathname, visibleScreens],
   );
+
+  const isPinned = screenMenu ? pinnedScreenIds.includes(screenMenu.screen.id) : false;
 
   return (
     <header
       ref={rootRef}
-      className="sticky top-0 z-40 bg-white border-b border-slate-200"
+      className="sticky top-0 z-40 border-b border-slate-200 bg-white"
       style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.04)" }}
     >
-      {/* ── Single unified bar ── */}
       <div className="flex h-[52px] items-center gap-0 px-0">
-
-        {/* Logo zone */}
         <div className="flex h-full shrink-0 items-center border-l border-slate-100 px-4">
           <Logo href="/dashboard" size="sm" variant="dark" />
         </div>
 
-        {/* Mobile hamburger */}
         <button
           type="button"
-          onClick={() => setMobileOpen((v) => !v)}
+          onClick={() => setMobileOpen((value) => !value)}
           className="mr-1 inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 md:hidden"
           aria-label="פתח תפריט"
         >
           {mobileOpen ? <X size={16} /> : <Menu size={16} />}
         </button>
 
-        {/* ── Desktop nav tabs ── */}
         <nav className="hidden h-full min-w-0 flex-1 items-center overflow-visible md:flex" style={{ scrollbarWidth: "none" }}>
-          <PriorityTab href="/dashboard" label="ראשי" active={pathname === "/dashboard"} onNavigate={navigateTo} />
+          {dashboardScreen && (
+            <PriorityTab
+              screen={dashboardScreen}
+              active={pathname === dashboardScreen.href}
+              onNavigate={navigateTo}
+              onScreenContextMenu={openScreenMenu}
+            />
+          )}
+
           {moduleItems.map((item) => (
             item.href === "/modules/insights" ? (
-              <InsightsDropdownTab key={item.href} active={item.active} onNavigate={navigateTo} />
+              <InsightsDropdownTab
+                key={item.href}
+                active={item.active}
+                onNavigate={navigateTo}
+                onScreenContextMenu={openScreenMenu}
+                insightsScreen={insightsScreen}
+              />
             ) : (
-              <PriorityTab key={item.href} href={item.href} label={item.label} active={item.active} onNavigate={navigateTo} />
+              <PriorityTab
+                key={item.href}
+                screen={item}
+                active={item.active}
+                onNavigate={navigateTo}
+                onScreenContextMenu={openScreenMenu}
+              />
             )
           ))}
         </nav>
 
-        {/* Right-side actions */}
         <div className="flex h-full shrink-0 items-center gap-1 px-3">
-
-          {/* Search */}
           <button
             type="button"
             className="hidden h-8 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 text-right text-xs text-slate-400 transition hover:border-slate-300 hover:bg-white md:flex"
@@ -251,7 +274,6 @@ export function TopNav() {
             <span>חיפוש...</span>
           </button>
 
-          {/* Mobile search */}
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 md:hidden"
@@ -259,7 +281,6 @@ export function TopNav() {
             <Search size={15} />
           </button>
 
-          {/* Bell */}
           <button
             type="button"
             className="relative inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100"
@@ -269,12 +290,11 @@ export function TopNav() {
             <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand-500" />
           </button>
 
-          {/* Admin dropdown */}
           {isAdmin && adminItems.length > 0 && (
             <div className="relative hidden md:block">
               <button
                 type="button"
-                onClick={() => setAdminOpen((v) => !v)}
+                onClick={() => setAdminOpen((value) => !value)}
                 className={`flex h-8 items-center gap-1 rounded px-2.5 text-xs font-medium transition ${
                   adminOpen || pathname?.startsWith("/admin/")
                     ? "bg-brand-50 text-brand-700"
@@ -293,18 +313,19 @@ export function TopNav() {
                   </div>
                   <div className="py-1">
                     {adminItems.map((item) =>
-                      item.href === "/admin/billing" ? (
+                      item.id === "admin:billing" ? (
                         <BillingMenuGroup
-                          key={item.href}
+                          key={item.id}
                           item={item}
+                          subItems={billingItems}
                           open={billingOpen}
-                          onToggle={() => setBillingOpen((v) => !v)}
-                          pathname={pathname}
+                          onToggle={() => setBillingOpen((value) => !value)}
                           onNavigate={navigateTo}
+                          onScreenContextMenu={openScreenMenu}
                         />
                       ) : (
-                        <AdminMenuLink key={item.href} item={item} onNavigate={navigateTo} />
-                      )
+                        <AdminMenuLink key={item.id} item={item} onNavigate={navigateTo} onScreenContextMenu={openScreenMenu} />
+                      ),
                     )}
                   </div>
                 </div>
@@ -312,15 +333,13 @@ export function TopNav() {
             </div>
           )}
 
-          {/* Divider */}
           <div className="mx-1 h-5 w-px bg-slate-200" />
 
-          {/* User */}
           {user && (
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setUserOpen((v) => !v)}
+                onClick={() => setUserOpen((value) => !value)}
                 className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs transition hover:bg-slate-100"
               >
                 <UserAvatar name={user.full_name} />
@@ -353,7 +372,6 @@ export function TopNav() {
         </div>
       </div>
 
-      {/* ── Mobile drawer ── */}
       {mobileOpen && (
         <div className="md:hidden">
           <button
@@ -369,16 +387,18 @@ export function TopNav() {
             </div>
 
             <div className="space-y-4 p-4">
-              <div>
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ראשי</div>
-                <MobileLink href="/dashboard" label="ראשי" icon={Home} active={pathname === "/dashboard"} onNavigate={navigateTo} />
-              </div>
+              {dashboardScreen && (
+                <div>
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ראשי</div>
+                  <MobileLink item={{ ...dashboardScreen, active: pathname === dashboardScreen.href }} onNavigate={navigateTo} />
+                </div>
+              )}
 
               {moduleItems.length > 0 && (
                 <div>
                   <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">מודולים</div>
                   <div className="space-y-0.5">
-                    {moduleItems.map((item) => <MobileLink key={item.href} {...item} onNavigate={navigateTo} />)}
+                    {moduleItems.map((item) => <MobileLink key={item.id} item={item} onNavigate={navigateTo} />)}
                   </div>
                 </div>
               )}
@@ -388,18 +408,18 @@ export function TopNav() {
                   <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ניהול</div>
                   <div className="space-y-0.5">
                     {adminItems.map((item) =>
-                      item.href === "/admin/billing" ? (
+                      item.id === "admin:billing" ? (
                         <MobileBillingGroup
-                          key={item.href}
+                          key={item.id}
                           item={item}
+                          subItems={billingItems}
                           open={billingOpen}
-                          onToggle={() => setBillingOpen((v) => !v)}
-                          pathname={pathname}
+                          onToggle={() => setBillingOpen((value) => !value)}
                           onNavigate={navigateTo}
                         />
                       ) : (
-                        <MobileLink key={item.href} {...item} onNavigate={navigateTo} />
-                      )
+                        <MobileLink key={item.id} item={item} onNavigate={navigateTo} />
+                      ),
                     )}
                   </div>
                 </div>
@@ -408,46 +428,73 @@ export function TopNav() {
           </div>
         </div>
       )}
+
+      <DashboardScreenContextMenu
+        menu={screenMenu}
+        isPinned={isPinned}
+        onTogglePin={() => {
+          if (!screenMenu) return;
+          const next = togglePinnedDashboardScreen(screenMenu.screen.id, visibleScreens);
+          setPinnedScreenIds(next);
+          setScreenMenu(null);
+        }}
+        onExplain={() => {
+          if (!screenMenu) return;
+          setExplanationScreen(screenMenu.screen);
+          setScreenMenu(null);
+        }}
+        onClose={() => setScreenMenu(null)}
+      />
+
+      <ScreenExplanationModal screen={explanationScreen} onClose={() => setExplanationScreen(null)} />
     </header>
   );
 }
 
-/** Priority-style flat tab with bottom-border active indicator */
 function PriorityTab({
-  href,
-  label,
+  screen,
   active,
   onNavigate,
+  onScreenContextMenu,
 }: {
-  href: string;
-  label: string;
+  screen: DashboardScreen;
   active: boolean;
   onNavigate: (href: string) => void;
+  onScreenContextMenu: (screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onNavigate(href)}
+      onClick={() => onNavigate(screen.href)}
+      onContextMenu={(event) => onScreenContextMenu(screen, event)}
       className={`relative flex h-full items-center whitespace-nowrap px-4 text-sm transition-colors ${
         active
-          ? "text-brand-600 font-medium"
-          : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+          ? "font-medium text-brand-600"
+          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
       }`}
     >
-      {label}
-      {active && (
-        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />
-      )}
+      {screen.label}
+      {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />}
     </button>
   );
 }
 
-function AdminMenuLink({ item, onNavigate }: { item: NavItem; onNavigate: (href: string) => void }) {
+function AdminMenuLink({
+  item,
+  onNavigate,
+  onScreenContextMenu,
+}: {
+  item: NavItem;
+  onNavigate: (href: string) => void;
+  onScreenContextMenu: (screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) => void;
+}) {
   const Icon = item.icon;
+
   return (
     <button
       type="button"
       onClick={() => onNavigate(item.href)}
+      onContextMenu={(event) => onScreenContextMenu(item, event)}
       className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
         item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
       }`}
@@ -459,85 +506,88 @@ function AdminMenuLink({ item, onNavigate }: { item: NavItem; onNavigate: (href:
 }
 
 function MobileLink({
-  href,
-  label,
-  icon: Icon,
-  active,
+  item,
   onNavigate,
 }: {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
+  item: NavItem;
   onNavigate: (href: string) => void;
 }) {
+  const Icon = item.icon as LucideIcon;
+
   return (
     <button
       type="button"
-      onClick={() => onNavigate(href)}
+      onClick={() => onNavigate(item.href)}
       className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
-        active
-          ? "bg-brand-50 text-brand-700 font-medium"
+        item.active
+          ? "bg-brand-50 font-medium text-brand-700"
           : "text-slate-700 hover:bg-slate-50"
       }`}
     >
-      <Icon size={14} className={active ? "text-brand-500" : "text-slate-400"} />
-      {label}
+      <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
+      {item.label}
     </button>
   );
 }
 
 function BillingMenuGroup({
   item,
+  subItems,
   open,
   onToggle,
-  pathname,
   onNavigate,
+  onScreenContextMenu,
 }: {
   item: NavItem;
+  subItems: NavItem[];
   open: boolean;
   onToggle: () => void;
-  pathname: string | null;
   onNavigate: (href: string) => void;
+  onScreenContextMenu: (screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   if (!BILLING_ENABLED) return null;
+
   const Icon = item.icon;
-  const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={onToggle}
+        onContextMenu={(event) => onScreenContextMenu(item, event)}
         className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
-          isBillingActive ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
+          item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
         }`}
       >
-        <Icon size={13} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
+        <Icon size={13} className={item.active ? "text-brand-500" : "text-slate-400"} />
         <span className="flex-1 text-right">{item.label}</span>
         <ChevronRight size={11} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
+
       {open && (
         <div className="absolute right-full top-0 z-50 mr-1 min-w-[190px] overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             חיובים
           </div>
           <div className="py-1">
-            {BILLING_SUB_ITEMS.map(({ href, label, icon: SubIcon }) => {
-              const subActive = pathname === href;
-            return (
-              <button
-                key={href}
-                type="button"
-                onClick={() => onNavigate(href)}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
-                  subActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <SubIcon size={12} className={`${subActive ? "text-brand-500" : "text-slate-400"} shrink-0`} />
-                {label}
-              </button>
-            );
-          })}
+            {subItems.map((item) => {
+              const SubIcon = item.icon;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onNavigate(item.href)}
+                  onContextMenu={(event) => onScreenContextMenu(item, event)}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+                    item.active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <SubIcon size={12} className={`${item.active ? "text-brand-500" : "text-slate-400"} shrink-0`} />
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -547,48 +597,54 @@ function BillingMenuGroup({
 
 function MobileBillingGroup({
   item,
+  subItems,
   open,
   onToggle,
-  pathname,
   onNavigate,
 }: {
   item: NavItem;
+  subItems: NavItem[];
   open: boolean;
   onToggle: () => void;
-  pathname: string | null;
   onNavigate: (href: string) => void;
 }) {
   if (!BILLING_ENABLED) return null;
+
   const Icon = item.icon;
-  const isBillingActive = Boolean(pathname?.startsWith("/admin/billing"));
+
   return (
     <div>
       <button
         type="button"
         onClick={onToggle}
         className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
-          isBillingActive ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-700 hover:bg-slate-50"
+          item.active ? "bg-brand-50 font-medium text-brand-700" : "text-slate-700 hover:bg-slate-50"
         }`}
       >
-        <Icon size={14} className={isBillingActive ? "text-brand-500" : "text-slate-400"} />
+        <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
         <span className="flex-1 text-right">{item.label}</span>
         <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
+
       {open && (
-        <div className="border-r-2 border-brand-200 mr-4 mt-0.5 space-y-0.5">
-          {BILLING_SUB_ITEMS.map(({ href, label, icon: SubIcon }) => (
-            <button
-              key={href}
-              type="button"
-              onClick={() => onNavigate(href)}
-              className={`flex w-full items-center gap-2 rounded px-3 py-2 text-sm transition ${
-                pathname === href ? "bg-brand-50 text-brand-700 font-medium" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              <SubIcon size={13} className={`${pathname === href ? "text-brand-500" : "text-slate-400"} shrink-0`} />
-              {label}
-            </button>
-          ))}
+        <div className="mr-4 mt-0.5 space-y-0.5 border-r-2 border-brand-200">
+          {subItems.map((item) => {
+            const SubIcon = item.icon;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onNavigate(item.href)}
+                className={`flex w-full items-center gap-2 rounded px-3 py-2 text-sm transition ${
+                  item.active ? "bg-brand-50 font-medium text-brand-700" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <SubIcon size={13} className={`${item.active ? "text-brand-500" : "text-slate-400"} shrink-0`} />
+                {item.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

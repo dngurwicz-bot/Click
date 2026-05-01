@@ -121,14 +121,16 @@ async def _ensure_public_logo_bucket() -> None:
             },
             json={"id": _LOGO_BUCKET, "name": _LOGO_BUCKET, "public": True},
         )
-    if response.status_code in (200, 201):
-        return
-    if response.status_code == 409:
+    if response.status_code in (200, 201, 409):
         return
     try:
         body = response.json()
     except ValueError:
         body = {}
+        
+    if body.get("message") == "The resource already exists" or body.get("error") == "Duplicate":
+        return
+
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail={
@@ -518,26 +520,53 @@ async def _materialize_subscription_modules(
     actor_id: uuid.UUID | None,
     template_defaults: dict[str, str] | None = None,
     explicit_module_slugs: list[str] | None = None,
+    existing_seats: dict[str, int] | None = None,
 ) -> list[TenantSubscriptionModule]:
+    """Create/replace subscription module rows from the template blueprint.
+
+    Seat-count priority (per module):
+      1. OrgTemplateModule.seats_default (per-module template override)
+      2. template_defaults['seat_count'] if > 0 (template-level default)
+      3. existing_seats[slug] if present (what the tenant already has)
+      4. 0
+
+    existing_seats enables Option-C behaviour: take max(template, existing)
+    so tenants never lose seats when a template is applied.
+    """
     defaults = template_defaults or {}
-    current_rows = await load_subscription_modules(db, subscription.id, as_of=subscription.valid_from)
-    derived_seat_count, _ = derive_subscription_snapshot(current_rows)
-    default_seat_count = _parse_int_or_zero(defaults.get("seat_count")) or derived_seat_count or 0
+
+    # Determine the template-level seat default, with clear priority:
+    # template['seat_count'] > 0 wins; otherwise fall back to the existing
+    # snapshot so we do not silently zero-out a live tenant's seats.
+    template_seat_count = _parse_int_or_zero(defaults.get("seat_count"))
+    if template_seat_count > 0:
+        default_seat_count = template_seat_count
+    elif existing_seats:
+        # Fall back to the max of existing seats to preserve tenant state
+        default_seat_count = max(existing_seats.values(), default=0)
+    else:
+        # Last resort: use whatever the current subscription rows say
+        current_rows = await load_subscription_modules(db, subscription.id, as_of=subscription.valid_from)
+        derived_seat_count, _ = derive_subscription_snapshot(current_rows)
+        default_seat_count = derived_seat_count
+
     blueprint = await build_subscription_blueprint(
         db,
         template_id=subscription.template_id,
         default_seat_count=default_seat_count,
+        existing_seats=existing_seats,
     )
 
     if explicit_module_slugs:
         known = {item.module_slug for item in blueprint}
         for module_slug in explicit_module_slugs:
             if module_slug not in known:
+                extra_seats = (existing_seats or {}).get(module_slug, default_seat_count)
                 blueprint.append(
                     BlueprintModule(
                         module_slug=module_slug,
                         source_type="manual",
-                        seats=default_seat_count,
+                        seats=extra_seats,
                     )
                 )
     rows = await replace_subscription_modules(
@@ -566,18 +595,23 @@ async def _preview_template_sync(
     template_defaults = await _load_template_defaults(db, template.id)
     proposed_discount = Decimal(template_defaults.get("discount_pct", "0"))
     proposed_price_locked = template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"}
+
+    # Build existing seat map for Option-C (take max of template vs existing)
+    current_rows = await load_subscription_modules(db, current_subscription.id, as_of=effective_from)
+    existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_rows}
+
     proposed_blueprint = await build_subscription_blueprint(
         db,
         template_id=template.id,
         default_seat_count=_parse_int_or_zero(template_defaults.get("seat_count")),
+        existing_seats=existing_seats,
     )
-    current_rows = await load_subscription_modules(db, current_subscription.id, as_of=effective_from)
-    current_map = {row.module_slug: row for row in current_rows}
+    current_rows_map = {row.module_slug: row for row in current_rows}
     proposed_map = {row.module_slug: row for row in proposed_blueprint}
 
-    all_slugs = sorted(set(current_map) | set(proposed_map))
+    all_slugs = sorted(set(current_rows_map) | set(proposed_map))
     names = await get_module_names(db, all_slugs)
-    current_prices = await get_effective_module_prices(db, list(current_map), as_of=effective_from)
+    current_prices = await get_effective_module_prices(db, list(current_rows_map), as_of=effective_from)
     proposed_prices = await get_effective_module_prices(db, list(proposed_map), as_of=effective_from)
 
     diffs: list[TenantSyncPreviewModuleDiff] = []
@@ -587,7 +621,7 @@ async def _preview_template_sync(
     proposed_setup_total = Decimal("0")
 
     for slug in all_slugs:
-        current_row = current_map.get(slug)
+        current_row = current_rows_map.get(slug)
         proposed_row = proposed_map.get(slug)
         if current_row:
             monthly, setup = calculate_module_totals(current_row, current_prices.get(slug))
@@ -1235,8 +1269,10 @@ async def apply_template_to_tenant(
         "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
     }
 
-    current_subscription = await get_active(db, TenantSubscription, tenant_id)
+    # Build existing seat map so apply-template uses Option-C (take max)
     if current_subscription:
+        current_module_rows = await load_subscription_modules(db, current_subscription.id)
+        existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
         new_subscription = await close_and_create(
             db,
             TenantSubscription,
@@ -1252,6 +1288,7 @@ async def apply_template_to_tenant(
             actor_id=current_user.id,
         )
     else:
+        existing_seats = {}
         new_subscription = TenantSubscription(
             **subscription_payload,
             tenant_id=tenant_id,
@@ -1267,6 +1304,7 @@ async def apply_template_to_tenant(
         actor_id=current_user.id,
         template_defaults=template_defaults,
         explicit_module_slugs=module_slugs,
+        existing_seats=existing_seats,
     )
 
     await db.commit()
@@ -1771,6 +1809,10 @@ async def apply_tenant_sync(
     effective_from = body.valid_from or date.today()
     await _ensure_tenant_operation_window(db, tenant_id, effective_from)
     template_defaults = await _load_template_defaults(db, template.id)
+    # Build existing seat map for Option-C (take max of template vs existing)
+    current_module_rows = await load_subscription_modules(db, current_subscription.id)
+    existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
+
     new_subscription = await close_and_create(
         db,
         TenantSubscription,
@@ -1798,6 +1840,7 @@ async def apply_tenant_sync(
         actor_id=current_user.id,
         template_defaults=template_defaults,
         explicit_module_slugs=module_slugs,
+        existing_seats=existing_seats,
     )
     await db.commit()
     return await _build_tenant_out(tenant, db)
