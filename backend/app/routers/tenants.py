@@ -1270,6 +1270,7 @@ async def apply_template_to_tenant(
     }
 
     # Build existing seat map so apply-template uses Option-C (take max)
+    current_subscription = await get_active(db, TenantSubscription, tenant_id)
     if current_subscription:
         current_module_rows = await load_subscription_modules(db, current_subscription.id)
         existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
@@ -1632,11 +1633,6 @@ async def _execute_subscription_module_action(
             rec_to = row.valid_to
 
             if rec_to is not None and rec_to < effective_from:
-                await db.execute(
-                    delete(TenantSubscriptionModule)
-                    .where(TenantSubscriptionModule.id == row.id)
-                    .execution_options(synchronize_session=False)
-                )
                 continue
 
             if new_valid_to is not None and rec_from > new_valid_to:

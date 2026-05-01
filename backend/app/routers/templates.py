@@ -10,7 +10,7 @@ from app.middleware.auth import require_permission, CurrentUser
 from app.models.module import OrgTemplate, OrgTemplateModule, OrgTemplateDefault, Module, ModulePrice
 from app.schemas.template import (
     TemplateOut, TemplateCreate, TemplateActionBody,
-    TemplateModuleEntry, TemplateModulePricing, TemplatePricingSummary,
+    TemplateActionResult, TemplateModuleEntry, TemplateModulePricing, TemplatePricingSummary,
 )
 
 router = APIRouter(prefix="/api/admin/templates", tags=["templates"])
@@ -84,6 +84,15 @@ async def _delete_template_defaults(db: AsyncSession, template_id: uuid.UUID) ->
     )
 
 
+async def _delete_template_dependents(db: AsyncSession, template_id: uuid.UUID) -> None:
+    await _delete_template_defaults(db, template_id)
+    await db.execute(
+        delete(OrgTemplateModule)
+        .where(OrgTemplateModule.template_id == template_id)
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def _save_template_defaults(
     db: AsyncSession,
     template_id: uuid.UUID,
@@ -132,9 +141,10 @@ def _default_price_locked(defaults: dict[str, str]) -> bool:
 
 async def _build_module_pricing(
     db: AsyncSession,
-    module_slugs: list[str],
-    seat_count: int,
+    module_entries: list[TemplateModuleEntry],
+    template_seat_count: int,
 ) -> list[TemplateModulePricing]:
+    module_slugs = [entry.module_slug for entry in module_entries]
     if not module_slugs:
         return []
 
@@ -156,9 +166,14 @@ async def _build_module_pricing(
         price_map.setdefault(price.module_slug, price)
 
     items: list[TemplateModulePricing] = []
+    seat_by_slug = {
+        entry.module_slug: max(entry.seats_default if entry.seats_default is not None else template_seat_count, 0)
+        for entry in module_entries
+    }
     for slug in module_slugs:
         module = module_map.get(slug)
         price = price_map.get(slug)
+        seat_count = seat_by_slug.get(slug, template_seat_count)
         included_seats = price.included_seats if price else 0
         billable_seats = max(seat_count - included_seats, 0)
         base_price = price.base_price_ils if price else Decimal("0")
@@ -219,8 +234,7 @@ async def _build_template_out(db: AsyncSession, template: OrgTemplate) -> Templa
     out.seat_count = _default_seat_count(defaults)
     out.discount_pct = _default_discount_pct(defaults)
     out.is_price_locked = _default_price_locked(defaults)
-    # Pricing uses the template-level seat_count as the baseline
-    out.module_pricing = await _build_module_pricing(db, out.module_slugs, out.seat_count)
+    out.module_pricing = await _build_module_pricing(db, module_entries, out.seat_count)
     out.pricing_summary = _build_pricing_summary(
         out.module_pricing,
         seat_count=out.seat_count,
@@ -341,7 +355,7 @@ async def delete_template(
     if not template:
         raise HTTPException(status_code=404, detail={"error": "Template not found", "code": "NOT_FOUND"})
 
-    await _delete_template_defaults(db, template_id)
+    await _delete_template_dependents(db, template_id)
     await db.execute(
         delete(OrgTemplate)
         .where(OrgTemplate.id == template_id)
@@ -372,7 +386,7 @@ async def get_template(
     return [await _build_template_out(db, row) for row in history]
 
 
-@router.put("/{template_id}/record", response_model=TemplateOut)
+@router.put("/{template_id}/record", response_model=TemplateOut | TemplateActionResult)
 async def template_record_action(
     template_id: uuid.UUID,
     body: TemplateActionBody,
@@ -401,14 +415,14 @@ async def template_record_action(
 
     # ── Action: delete — hard-delete this specific row ───────────────────────
     if action == "delete":
-        await _delete_template_defaults(db, template_id)
+        await _delete_template_dependents(db, template_id)
         await db.execute(
             delete(OrgTemplate)
             .where(OrgTemplate.id == template_id)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        return {"ok": True}
+        return TemplateActionResult(action="delete")
 
     # ── Action: close — set valid_to on this row ─────────────────────────────
     if action == "close":
@@ -628,7 +642,9 @@ async def template_record_action(
                 )
                 db.add(right_row)
                 row_defaults = await _load_template_defaults(db, rec_id)
+                row_module_entries = await _load_module_entries(db, rec_id)
                 await db.flush()
+                await _save_module_entries(db, right_row.id, row_module_entries)
                 await _save_template_defaults(
                     db,
                     right_row.id,
@@ -663,7 +679,7 @@ async def template_record_action(
 
             else:
                 # COMPLETELY WITHIN new period → delete
-                await _delete_template_defaults(db, rec_id)
+                await _delete_template_dependents(db, rec_id)
                 await db.execute(
                     delete(OrgTemplate)
                     .where(OrgTemplate.id == rec_id)

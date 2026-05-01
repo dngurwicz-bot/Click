@@ -1,4 +1,4 @@
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -44,10 +44,10 @@ class ModuleUpdate(BaseModel):
 
 
 class ModulePriceBase(BaseModel):
-    base_price_ils: Decimal = Decimal("0")
-    per_seat_ils: Decimal = Decimal("0")
-    included_seats: int = 0
-    setup_fee_ils: Decimal = Decimal("0")
+    base_price_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    per_seat_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    included_seats: int = Field(default=0, ge=0)
+    setup_fee_ils: Decimal = Field(default=Decimal("0"), ge=0)
     valid_from: date
 
     @computed_field
@@ -83,10 +83,10 @@ class ModulePriceActionBody(BaseModel):
     """Temporal action body for module price management."""
     action: str = "add"          # "update" | "add" | "set" | "delete" | "close"
     price_id: Optional[uuid.UUID] = None  # row identifier for "update" action
-    base_price_ils: Decimal = Decimal("0")
-    per_seat_ils: Decimal = Decimal("0")
-    included_seats: int = 0
-    setup_fee_ils: Decimal = Decimal("0")
+    base_price_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    per_seat_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    included_seats: int = Field(default=0, ge=0)
+    setup_fee_ils: Decimal = Field(default=Decimal("0"), ge=0)
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
 
@@ -119,10 +119,10 @@ class MarketPriceAnchor(BaseModel):
 
 
 class RecommendedModulePrice(BaseModel):
-    base_price_ils: Decimal = Decimal("0")
-    per_seat_ils: Decimal = Decimal("0")
-    included_seats: int = 0
-    setup_fee_ils: Decimal = Decimal("0")
+    base_price_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    per_seat_ils: Decimal = Field(default=Decimal("0"), ge=0)
+    included_seats: int = Field(default=0, ge=0)
+    setup_fee_ils: Decimal = Field(default=Decimal("0"), ge=0)
 
     @computed_field
     @property

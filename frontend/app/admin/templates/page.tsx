@@ -30,11 +30,22 @@ interface TemplateOut {
   valid_to: string | null;
   created_at: string;
   module_slugs: string[];
+  modules?: TemplateModuleEntry[];
   seat_count: number;
   discount_pct: string;
   is_price_locked: boolean;
   module_pricing: TemplateModulePricing[];
   pricing_summary: TemplatePricingSummary | null;
+}
+
+interface TemplateModuleEntry {
+  module_slug: string;
+  seats_default?: number | null;
+}
+
+interface TemplateModuleFormEntry {
+  module_slug: string;
+  seats_default: string;
 }
 
 interface ModulePriceOut {
@@ -114,15 +125,33 @@ const BILLING_CYCLE_LABELS: Record<string, string> = {
   quarterly: "רבעוני",
 };
 
-function buildPricingPreview(selectedModules: string[], modules: ModuleOption[], seatCount: number, discountPct: number): TemplatePricingSummary {
-  const rows = selectedModules.map((slug) => {
+function moduleEntriesFromTemplate(template?: TemplateOut): TemplateModuleFormEntry[] {
+  if (!template) return [];
+  const richEntries = template.modules?.length
+    ? template.modules
+    : (template.module_slugs ?? []).map((module_slug) => ({ module_slug, seats_default: null }));
+  return richEntries.map((entry) => ({
+    module_slug: entry.module_slug,
+    seats_default: entry.seats_default == null ? "" : String(entry.seats_default),
+  }));
+}
+
+function effectiveSeatCount(entry: TemplateModuleFormEntry, fallbackSeatCount: number): number {
+  const parsed = entry.seats_default === "" ? fallbackSeatCount : parseInt(entry.seats_default, 10);
+  return Math.max(Number.isFinite(parsed) ? parsed : fallbackSeatCount, 0);
+}
+
+function buildPricingPreview(selectedEntries: TemplateModuleFormEntry[], modules: ModuleOption[], seatCount: number, discountPct: number): TemplatePricingSummary {
+  const rows = selectedEntries.map((entry) => {
+    const slug = entry.module_slug;
     const matchedModule = modules.find((m) => m.slug === slug);
     const price = matchedModule?.current_price;
     const base = parseFloat(price?.base_price_ils ?? "0");
     const perSeat = parseFloat(price?.per_seat_ils ?? "0");
     const setup = parseFloat(price?.setup_fee_ils ?? "0");
     const included = price?.included_seats ?? 0;
-    const billableSeats = Math.max(seatCount - included, 0);
+    const moduleSeatCount = effectiveSeatCount(entry, seatCount);
+    const billableSeats = Math.max(moduleSeatCount - included, 0);
     return {
       recurring: base + (perSeat * billableSeats),
       setup,
@@ -139,7 +168,7 @@ function buildPricingPreview(selectedModules: string[], modules: ModuleOption[],
     seat_count: seatCount,
     discount_pct: String(discountPct),
     is_price_locked: false,
-    modules_count: selectedModules.length,
+    modules_count: selectedEntries.length,
     recurring_before_discount_ils: recurringBefore.toFixed(2),
     recurring_after_discount_ils: recurringAfter.toFixed(2),
     setup_before_discount_ils: setupBefore.toFixed(2),
@@ -149,9 +178,10 @@ function buildPricingPreview(selectedModules: string[], modules: ModuleOption[],
   };
 }
 
-function buildPricingRows(selectedModules: string[], modules: ModuleOption[], seatCount: number) {
-  return selectedModules
-    .map((slug) => {
+function buildPricingRows(selectedEntries: TemplateModuleFormEntry[], modules: ModuleOption[], seatCount: number) {
+  return selectedEntries
+    .map((entry) => {
+      const slug = entry.module_slug;
       const matchedModule = modules.find((item) => item.slug === slug);
       if (!matchedModule) return null;
       const price = matchedModule.current_price;
@@ -159,7 +189,8 @@ function buildPricingRows(selectedModules: string[], modules: ModuleOption[], se
       const perSeat = parseFloat(price?.per_seat_ils ?? "0");
       const setup = parseFloat(price?.setup_fee_ils ?? "0");
       const included = price?.included_seats ?? 0;
-      const billableSeats = Math.max(seatCount - included, 0);
+      const moduleSeatCount = effectiveSeatCount(entry, seatCount);
+      const billableSeats = Math.max(moduleSeatCount - included, 0);
       return {
         slug,
         name: matchedModule.name,
@@ -168,6 +199,7 @@ function buildPricingRows(selectedModules: string[], modules: ModuleOption[], se
         perSeat,
         setup,
         included,
+        seatCount: moduleSeatCount,
         billableSeats,
         recurring: base + (perSeat * billableSeats),
       };
@@ -208,7 +240,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
   const [saving,         setSaving]         = useState(false);
   const [error,          setError]          = useState<string | null>(null);
   const [dropdownOpen,   setDropdownOpen]   = useState(false);
-  const [selectedModules, setSelectedModules] = useState<string[]>(editRow?.module_slugs ?? []);
+  const [selectedModuleEntries, setSelectedModuleEntries] = useState<TemplateModuleFormEntry[]>(() => moduleEntriesFromTemplate(editRow));
   const [seatCount, setSeatCount] = useState<string>(String(editRow?.seat_count ?? 0));
   const [discountPct, setDiscountPct] = useState<string>(editRow?.discount_pct ?? "0");
   const [isPriceLocked, setIsPriceLocked] = useState<boolean>(editRow?.is_price_locked ?? false);
@@ -224,11 +256,11 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
       default_billing_cycle: "monthly", trial_days: "30",
       is_active: true, sort_order: "10", target_industry: "", recommended_size: "",
     });
-    setValidFrom(""); setError(null); setDropdownOpen(false); setSelectedModules([]);
+    setValidFrom(""); setError(null); setDropdownOpen(false); setSelectedModuleEntries([]);
     setSeatCount("0"); setDiscountPct("0"); setIsPriceLocked(false);
   }
   function switchToSetMode()    {
-    setMode("set"); setValidTo(""); setError(null); setDropdownOpen(false); setSelectedModules(editRow?.module_slugs ?? []);
+    setMode("set"); setValidTo(""); setError(null); setDropdownOpen(false); setSelectedModuleEntries(moduleEntriesFromTemplate(editRow));
     setSeatCount(String(editRow?.seat_count ?? 0)); setDiscountPct(editRow?.discount_pct ?? "0"); setIsPriceLocked(editRow?.is_price_locked ?? false);
   }
   function switchToUpdateMode() {
@@ -246,12 +278,38 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
     setValidFrom(toInput(editRow?.valid_from) || today);
     setValidTo(toInput(editRow?.valid_to));
     setError(null);
+    setSelectedModuleEntries(moduleEntriesFromTemplate(editRow));
     setSeatCount(String(editRow?.seat_count ?? 0));
     setDiscountPct(editRow?.discount_pct ?? "0");
     setIsPriceLocked(editRow?.is_price_locked ?? false);
   }
   function switchToDeleteMode() { setMode("delete"); setError(null); setDropdownOpen(false); }
   function switchToCloseMode()  { setMode("close");  setValidTo(""); setError(null); setDropdownOpen(false); }
+
+  const selectedModuleSlugs = selectedModuleEntries.map((entry) => entry.module_slug);
+
+  function selectAllModules() {
+    setSelectedModuleEntries((prev) => {
+      const bySlug = new Map(prev.map((entry) => [entry.module_slug, entry]));
+      return modules.map((module) => bySlug.get(module.slug) ?? { module_slug: module.slug, seats_default: "" });
+    });
+  }
+
+  function toggleModule(slug: string, checked: boolean) {
+    setSelectedModuleEntries((prev) => {
+      if (checked) {
+        if (prev.some((entry) => entry.module_slug === slug)) return prev;
+        return [...prev, { module_slug: slug, seats_default: "" }];
+      }
+      return prev.filter((entry) => entry.module_slug !== slug);
+    });
+  }
+
+  function setModuleSeatDefault(slug: string, value: string) {
+    setSelectedModuleEntries((prev) => prev.map((entry) => (
+      entry.module_slug === slug ? { ...entry, seats_default: value } : entry
+    )));
+  }
 
   function buildBody(action: TemplateMode) {
     return {
@@ -267,7 +325,11 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
       recommended_size:      form.recommended_size || null,
       ...(validFrom ? { valid_from: validFrom } : {}),
       valid_to: validTo || null,
-      module_slugs: selectedModules,
+      module_slugs: selectedModuleSlugs,
+      modules: selectedModuleEntries.map((entry) => ({
+        module_slug: entry.module_slug,
+        seats_default: entry.seats_default === "" ? null : Math.max(parseInt(entry.seats_default, 10) || 0, 0),
+      })),
       seat_count: parseInt(seatCount) || 0,
       discount_pct: parseFloat(discountPct) || 0,
       is_price_locked: isPriceLocked,
@@ -275,13 +337,13 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
   }
 
   const pricingPreview = buildPricingPreview(
-    selectedModules,
+    selectedModuleEntries,
     modules,
     Math.max(parseInt(seatCount) || 0, 0),
     Math.max(parseFloat(discountPct) || 0, 0),
   );
   const previewRows = buildPricingRows(
-    selectedModules,
+    selectedModuleEntries,
     modules,
     Math.max(parseInt(seatCount) || 0, 0),
   );
@@ -488,7 +550,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                         <p className="text-[11px] text-slate-500">הערכים כאן יועתקו לארגון ויזינו את החיובים בפועל.</p>
                       </div>
                       <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700">
-                        {selectedModules.length} מודולים
+                        {selectedModuleEntries.length} מודולים
                       </span>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
@@ -541,7 +603,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                       </div>
                       <button
                         type="button"
-                        onClick={() => setSelectedModules(modules.map((module) => module.slug))}
+                        onClick={selectAllModules}
                         className="text-[11px] font-medium text-brand-700 hover:underline"
                       >
                         בחר הכל
@@ -552,7 +614,8 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                         <p className="col-span-full rounded-lg border border-dashed border-slate-300 py-6 text-center text-xs text-slate-400">אין מודולים זמינים</p>
                       )}
                       {modules.map((module) => {
-                        const selected = selectedModules.includes(module.slug);
+                        const entry = selectedModuleEntries.find((item) => item.module_slug === module.slug);
+                        const selected = Boolean(entry);
                         const currentPrice = module.current_price;
                         return (
                           <label
@@ -564,8 +627,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                                 type="checkbox"
                                 checked={selected}
                                 onChange={(e) => {
-                                  if (e.target.checked) setSelectedModules((prev) => [...prev, module.slug]);
-                                  else setSelectedModules((prev) => prev.filter((slug) => slug !== module.slug));
+                                  toggleModule(module.slug, e.target.checked);
                                 }}
                                 className="mt-1 rounded border-slate-300"
                               />
@@ -586,6 +648,21 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                                   </>
                                 ) : (
                                   <div className="mt-2 text-[11px] text-amber-600">אין מחיר פעיל למודול זה</div>
+                                )}
+                                {selected && (
+                                  <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-600">
+                                    <span className="shrink-0">מושבים למודול</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={entry?.seats_default ?? ""}
+                                      onChange={(e) => setModuleSeatDefault(module.slug, e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      placeholder={String(Math.max(parseInt(seatCount) || 0, 0))}
+                                      className="w-20 rounded border border-slate-300 px-2 py-1 text-left text-[11px] focus:border-blue-400 focus:outline-none"
+                                    />
+                                    <span className="text-slate-400">ריק = ברירת מחדל</span>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -852,6 +929,7 @@ export default function AdminTemplatesPage() {
 
   function loadTemplates() {
     setLoading(true);
+    setLoadError(null);
     api.get<TemplateOut[]>("/api/admin/templates")
       .then(setTemplates)
       .catch((e: { error?: string; status?: number }) => {

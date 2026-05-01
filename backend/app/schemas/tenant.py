@@ -87,9 +87,9 @@ class TenantSubscriptionBase(BaseModel):
     template_id: Optional[uuid.UUID] = None
     # Backward-compatible aggregate view fields. The source of truth is
     # tenant_subscription_modules, not the subscription header row.
-    seat_count: int = 0
+    seat_count: int = Field(default=0, ge=0)
     selected_module_slugs: list[str] = Field(default_factory=list)
-    discount_pct: Decimal = Decimal("0")
+    discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
 
 
@@ -97,12 +97,12 @@ class TenantSubscriptionModuleBase(BaseModel):
     module_slug: str
     source_type: Literal["template", "manual"] = "manual"
     status: Literal["active", "removed"] = "active"
-    seats: int = 0
+    seats: int = Field(default=0, ge=0)
     pricing_mode: Literal["catalog", "override"] = "catalog"
-    override_base_price_ils: Optional[Decimal] = None
-    override_per_seat_ils: Optional[Decimal] = None
-    override_setup_fee_ils: Optional[Decimal] = None
-    override_included_seats: Optional[int] = None
+    override_base_price_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_per_seat_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_setup_fee_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_included_seats: Optional[int] = Field(default=None, ge=0)
     price_lock_reason: Optional[str] = None
     notes: Optional[str] = None
 
@@ -113,12 +113,12 @@ class TenantSubscriptionModuleCreate(TenantSubscriptionModuleBase):
 
 class TenantSubscriptionModuleUpdate(BaseModel):
     status: Optional[Literal["active", "removed"]] = None
-    seats: Optional[int] = None
+    seats: Optional[int] = Field(default=None, ge=0)
     pricing_mode: Optional[Literal["catalog", "override"]] = None
-    override_base_price_ils: Optional[Decimal] = None
-    override_per_seat_ils: Optional[Decimal] = None
-    override_setup_fee_ils: Optional[Decimal] = None
-    override_included_seats: Optional[int] = None
+    override_base_price_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_per_seat_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_setup_fee_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_included_seats: Optional[int] = Field(default=None, ge=0)
     price_lock_reason: Optional[str] = None
     notes: Optional[str] = None
 
@@ -129,12 +129,12 @@ class TenantSubscriptionModuleActionBody(BaseModel):
     module_slug: Optional[str] = None
     source_type: Optional[Literal["template", "manual"]] = None
     status: Optional[Literal["active", "removed"]] = None
-    seats: Optional[int] = None
+    seats: Optional[int] = Field(default=None, ge=0)
     pricing_mode: Optional[Literal["catalog", "override"]] = None
-    override_base_price_ils: Optional[Decimal] = None
-    override_per_seat_ils: Optional[Decimal] = None
-    override_setup_fee_ils: Optional[Decimal] = None
-    override_included_seats: Optional[int] = None
+    override_base_price_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_per_seat_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_setup_fee_ils: Optional[Decimal] = Field(default=None, ge=0)
+    override_included_seats: Optional[int] = Field(default=None, ge=0)
     price_lock_reason: Optional[str] = None
     notes: Optional[str] = None
     valid_from: Optional[date] = None

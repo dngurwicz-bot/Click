@@ -1,4 +1,4 @@
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 import uuid
 from datetime import date, datetime
 from typing import Optional
@@ -10,7 +10,7 @@ from app.services.pricing_policy import pricing_policy_note, pricing_summary_tex
 class TemplateModuleEntry(BaseModel):
     """A module assigned to a template, with an optional per-module seat default."""
     module_slug: str
-    seats_default: Optional[int] = None  # None → fall back to template-level seat_count
+    seats_default: Optional[int] = Field(default=None, ge=0)  # None → fall back to template-level seat_count
 
 
 class TemplateModulePricing(BaseModel):
@@ -52,8 +52,8 @@ class TemplateModulePricing(BaseModel):
 
 
 class TemplatePricingSummary(BaseModel):
-    seat_count: int = 0
-    discount_pct: Decimal = Decimal("0")
+    seat_count: int = Field(default=0, ge=0)
+    discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
     modules_count: int = 0
     recurring_before_discount_ils: Decimal = Decimal("0")
@@ -62,6 +62,11 @@ class TemplatePricingSummary(BaseModel):
     setup_after_discount_ils: Decimal = Decimal("0")
     total_before_discount_ils: Decimal = Decimal("0")
     total_after_discount_ils: Decimal = Decimal("0")
+
+
+class TemplateActionResult(BaseModel):
+    ok: bool = True
+    action: str
 
 
 class TemplateOut(BaseModel):
@@ -81,8 +86,8 @@ class TemplateOut(BaseModel):
     module_slugs: list[str] = []
     # Rich list with per-module seat defaults
     modules: list[TemplateModuleEntry] = []
-    seat_count: int = 0
-    discount_pct: Decimal = Decimal("0")
+    seat_count: int = Field(default=0, ge=0)
+    discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
     module_pricing: list[TemplateModulePricing] = []
     pricing_summary: Optional[TemplatePricingSummary] = None
@@ -104,8 +109,8 @@ class TemplateCreate(BaseModel):
     # Supports both legacy (list[str]) and rich (list[TemplateModuleEntry]) formats
     module_slugs: list[str] = []
     modules: list[TemplateModuleEntry] = []
-    seat_count: int = 0
-    discount_pct: Decimal = Decimal("0")
+    seat_count: int = Field(default=0, ge=0)
+    discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
 
 
@@ -125,6 +130,6 @@ class TemplateActionBody(BaseModel):
     valid_to: Optional[date] = None
     module_slugs: Optional[list[str]] = None
     modules: Optional[list[TemplateModuleEntry]] = None
-    seat_count: Optional[int] = None
-    discount_pct: Optional[Decimal] = None
+    seat_count: Optional[int] = Field(default=None, ge=0)
+    discount_pct: Optional[Decimal] = Field(default=None, ge=0, le=100)
     is_price_locked: Optional[bool] = None
