@@ -137,6 +137,8 @@ class TenantSubscriptionModule(Base):
     source_type: Mapped[str] = mapped_column(String, nullable=False, default="template")
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     seats: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    allocated_seats: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    extra_seats: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pricing_mode: Mapped[str] = mapped_column(String, nullable=False, default="catalog")
     override_base_price_ils: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     override_per_seat_ils: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)

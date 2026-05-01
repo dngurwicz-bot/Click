@@ -1,3 +1,13 @@
+import sys
+import io
+
+# Fix UnicodeEncodeError on Windows when logging Hebrew/non-ASCII text
+# SQLAlchemy echo logs can contain Hebrew strings (tenant names etc.)
+if sys.stdout and hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr and hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
