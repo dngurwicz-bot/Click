@@ -127,6 +127,14 @@ class TenantSubscriptionModule(Base):
             "pricing_mode IN ('catalog','override')",
             name="ck_tenant_subscription_module_pricing_mode",
         ),
+        CheckConstraint(
+            "seats >= 0 AND allocated_seats >= 0 AND extra_seats >= 0 AND (override_included_seats IS NULL OR override_included_seats >= 0)",
+            name="ck_tsm_non_negative_counts",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to >= valid_from",
+            name="ck_tsm_valid_window",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

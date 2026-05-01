@@ -8,6 +8,7 @@ from app.middleware.auth import CurrentUser, require_permission
 from app.schemas.reporting import (
     ReportCatalogResponse,
     ReportDatasetsResponse,
+    ReportAssetKind,
     ReportExportRequest,
     ReportExportResponse,
     ReportQueryRequest,
@@ -25,6 +26,7 @@ from app.services.reporting import (
     list_saved_reports,
     run_saved_report,
     update_saved_report,
+    delete_saved_report,
 )
 
 router = APIRouter(prefix="/api/insights/reports", tags=["insights"])
@@ -76,10 +78,11 @@ async def export_query(
 
 @router.get("/saved", response_model=list[SavedReportViewOut])
 async def get_saved_reports(
+    kind: ReportAssetKind | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("reports", "view")),
 ):
-    return await list_saved_reports(db, current_user)
+    return await list_saved_reports(db, current_user, kind)
 
 
 @router.post("/saved", response_model=SavedReportViewOut)
@@ -118,6 +121,20 @@ async def run_report_view(
 ):
     try:
         return await run_saved_report(db, report_id, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail={"error": str(exc), "code": "FORBIDDEN"}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"error": str(exc), "code": "NOT_FOUND"}) from exc
+
+
+@router.delete("/saved/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report_view(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("reports", "edit")),
+):
+    try:
+        await delete_saved_report(db, report_id, current_user)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail={"error": str(exc), "code": "FORBIDDEN"}) from exc
     except ValueError as exc:

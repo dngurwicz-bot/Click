@@ -16,6 +16,27 @@ import {
   Visibility
 } from "./types";
 
+const PREFERRED_COLUMNS_STORAGE_KEY = "click-report-preferred-columns";
+
+function readPreferredColumnsMap(): Record<string, string[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(PREFERRED_COLUMNS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every((item) => typeof item === "string")),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writePreferredColumnsMap(nextMap: Record<string, string[]>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PREFERRED_COLUMNS_STORAGE_KEY, JSON.stringify(nextMap));
+}
+
 function decodeBase64ToBlob(base64: string, mimeType: string) {
   const binary = window.atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -40,6 +61,7 @@ export function ReportsWorkspace() {
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [datasets, setDatasets] = useState<ReportDatasetDefinition[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
+  const [savedTemplates, setSavedTemplates] = useState<SavedReportView[]>([]);
   const [filterOptions, setFilterOptions] = useState<{ tenant_statuses: FilterOption[]; modules: FilterOption[] }>({
     tenant_statuses: [],
     modules: [],
@@ -52,12 +74,26 @@ export function ReportsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preferredColumnsVersion, setPreferredColumnsVersion] = useState(0);
+
+  function getPreferredColumns(dataset: ReportDatasetDefinition) {
+    void preferredColumnsVersion;
+    return readPreferredColumnsMap()[dataset.id]?.filter((columnId) => dataset.fields.some((field) => field.id === columnId)) ?? [];
+  }
 
   function buildDefinitionFromDataset(dataset: ReportDatasetDefinition, base: ReportDefinition = emptyDefinition): ReportDefinition {
+    const preferredColumns = getPreferredColumns(dataset);
+    const resolvedColumns =
+      base.columns.length > 0
+        ? base.columns
+        : preferredColumns.length > 0
+        ? preferredColumns
+        : [];
+
     return {
       ...base,
       dataset: dataset.id,
-      columns: base.columns.length > 0 ? base.columns : dataset.default_columns,
+      columns: resolvedColumns,
       metrics: base.metrics.length > 0 ? base.metrics : dataset.metrics.map((metric) => ({
         operation: metric.operation,
         field: metric.field ?? null,
@@ -73,11 +109,13 @@ export function ReportsWorkspace() {
     Promise.allSettled([
       api.get<{ reports: ReportCatalogItem[]; filter_options: { tenant_statuses: FilterOption[]; modules: FilterOption[] } }>("/api/insights/reports/catalog"),
       api.get<{ datasets: ReportDatasetDefinition[]; filter_options: { tenant_statuses: FilterOption[]; modules: FilterOption[] } }>("/api/insights/reports/datasets"),
-      api.get<SavedReportView[]>("/api/insights/reports/saved"),
+      api.get<SavedReportView[]>("/api/insights/reports/saved?kind=report"),
+      api.get<SavedReportView[]>("/api/insights/reports/saved?kind=template"),
     ])
-      .then(([catalogResult, datasetsResult, savedResult]) => {
+      .then(([catalogResult, datasetsResult, savedResult, templateResult]) => {
         let loadedCatalog = catalog;
         let loadedSaved = savedReports;
+        let loadedTemplates = savedTemplates;
         let loadedDatasets = datasets;
 
         if (catalogResult.status === "fulfilled") {
@@ -93,15 +131,23 @@ export function ReportsWorkspace() {
           loadedSaved = savedResult.value;
           setSavedReports(loadedSaved);
         }
+        if (templateResult.status === "fulfilled") {
+          loadedTemplates = templateResult.value;
+          setSavedTemplates(loadedTemplates);
+        }
 
         // Apply URL params if present
         const templateId = searchParams?.get('template');
+        const savedTemplateId = searchParams?.get('saved_template');
         const savedId = searchParams?.get('saved');
         const isNew = searchParams?.get('new') === 'true';
 
         if (templateId) {
           const item = loadedCatalog.find(r => r.id === templateId);
           if (item) applyDefinition(item.definition, item.title);
+        } else if (savedTemplateId) {
+          const item = loadedTemplates.find(r => r.id === savedTemplateId);
+          if (item) applyDefinition(item.definition, item.name);
         } else if (savedId) {
           const item = loadedSaved.find(r => r.id === savedId);
           if (item) applyDefinition(item.definition, item.name);
@@ -138,6 +184,9 @@ export function ReportsWorkspace() {
       if (type === 'template') {
         const item = catalog.find(r => r.id === id);
         if (item) applyDefinition(item.definition, item.title);
+      } else if (type === 'saved-template') {
+        const item = savedTemplates.find(r => r.id === id);
+        if (item) applyDefinition(item.definition, item.name);
       } else if (type === 'saved') {
         const item = savedReports.find(r => r.id === id);
         if (item) applyDefinition(item.definition, item.name);
@@ -153,7 +202,7 @@ export function ReportsWorkspace() {
 
     window.addEventListener('load-report', handleLoadReport);
     return () => window.removeEventListener('load-report', handleLoadReport);
-  }, [catalog, savedReports]);
+  }, [catalog, savedReports, savedTemplates, datasets]);
 
   async function runQuery() {
     if (!definition.dataset) return;
@@ -197,12 +246,76 @@ export function ReportsWorkspace() {
       const payload = await api.post<SavedReportView>("/api/insights/reports/saved", {
         name: name.trim(),
         description: description.trim() || title.trim() || null,
+        kind: "report",
         visibility,
         definition,
       });
       setSavedReports((prev) => [payload, ...prev.filter((item) => item.id !== payload.id)]);
     } catch (err: unknown) {
       const message = err instanceof ApiRequestError ? err.message : "שמירת הדוח נכשלה.";
+      setError(message);
+      throw new Error(message);
+    }
+  }
+
+  function savePreferredColumns(datasetId: string, columns: string[]) {
+    const nextMap = {
+      ...readPreferredColumnsMap(),
+      [datasetId]: columns,
+    };
+    writePreferredColumnsMap(nextMap);
+    setPreferredColumnsVersion((value) => value + 1);
+  }
+
+  function clearPreferredColumns(datasetId: string) {
+    const nextMap = { ...readPreferredColumnsMap() };
+    delete nextMap[datasetId];
+    writePreferredColumnsMap(nextMap);
+    setPreferredColumnsVersion((value) => value + 1);
+  }
+
+  async function saveTemplate(name: string, visibility: Visibility) {
+    try {
+      const payload = await api.post<SavedReportView>("/api/insights/reports/saved", {
+        name: name.trim(),
+        description: title.trim() || null,
+        kind: "template",
+        visibility,
+        definition: {
+          ...definition,
+          offset: 0,
+        },
+      });
+      setSavedTemplates((prev) => [payload, ...prev.filter((item) => item.id !== payload.id)]);
+    } catch (err: unknown) {
+      const message = err instanceof ApiRequestError ? err.message : "שמירת התבנית נכשלה.";
+      setError(message);
+      throw new Error(message);
+    }
+  }
+
+  function applySavedTemplate(templateId: string) {
+    const template = savedTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+    applyDefinition(template.definition, template.name);
+  }
+
+  function applySavedReport(reportId: string) {
+    const report = savedReports.find((item) => item.id === reportId);
+    if (!report) return;
+    applyDefinition(report.definition, report.name);
+  }
+
+  async function deleteSavedItem(itemId: string, kind: "report" | "template") {
+    try {
+      await api.delete(`/api/insights/reports/saved/${itemId}`);
+      if (kind === "template") {
+        setSavedTemplates((prev) => prev.filter((item) => item.id !== itemId));
+      } else {
+        setSavedReports((prev) => prev.filter((item) => item.id !== itemId));
+      }
+    } catch (err: unknown) {
+      const message = err instanceof ApiRequestError ? err.message : "מחיקת הפריט נכשלה.";
       setError(message);
       throw new Error(message);
     }
@@ -232,14 +345,14 @@ export function ReportsWorkspace() {
   }
 
   return (
-    <div className="flex-1 overflow-hidden p-4 bg-slate-50">
+    <div className="flex-1 overflow-hidden bg-slate-100">
       {error && (
-        <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700 shadow-sm">
+        <div className="m-3 border border-red-300 bg-red-50 p-2 text-xs text-red-700">
           {error}
         </div>
       )}
 
-      <div className="h-full">
+      <div className={`${error ? "h-[calc(100%-44px)]" : "h-full"} p-3`}>
         <ReportDesigner 
           definition={definition}
           setDefinition={setDefinition}
@@ -252,6 +365,15 @@ export function ReportsWorkspace() {
           onRunQuery={runQuery}
           onExportQuery={exportQuery}
           onSaveReport={saveReport}
+          getPreferredColumnsForDataset={getPreferredColumns}
+          onSavePreferredColumns={savePreferredColumns}
+          onClearPreferredColumns={clearPreferredColumns}
+          savedReports={savedReports}
+          savedTemplates={savedTemplates}
+          onSaveTemplate={saveTemplate}
+          onApplySavedReport={applySavedReport}
+          onApplySavedTemplate={applySavedTemplate}
+          onDeleteSavedItem={deleteSavedItem}
           filterOptions={filterOptions}
         />
       </div>

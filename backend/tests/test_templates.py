@@ -32,6 +32,9 @@ class _FakeSession:
     async def commit(self):
         self.committed = True
 
+    async def refresh(self, _row):
+        return None
+
 
 def _current_user() -> CurrentUser:
     return CurrentUser(
@@ -58,7 +61,7 @@ async def test_template_record_delete_returns_valid_action_result():
 
     assert result == TemplateActionResult(action="delete")
     assert db.committed is True
-    assert db.execute_count == 4
+    assert db.execute_count == 2
 
 
 def test_template_record_route_accepts_delete_result_response_model():

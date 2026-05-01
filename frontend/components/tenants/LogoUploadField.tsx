@@ -7,7 +7,7 @@ import { uploadLogoFile } from "@/lib/logo-upload";
 
 interface LogoUploadFieldProps {
   value?: string | null;
-  onChange: (value: string) => void;
+  onChange: (value: string) => void | Promise<void>;
   storageKey: string;
   size?: number;
   label?: string;
@@ -61,12 +61,12 @@ export function LogoUploadField({
 
     try {
       const publicUrl = await uploadLogoFile(file, storageKey);
+      await onChange(publicUrl);
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = null;
       }
       setPreview(publicUrl);
-      onChange(publicUrl);
     } catch (err: unknown) {
       setPreview(value || undefined);
       setError((err as { message?: string })?.message || "שגיאה בהעלאה");
@@ -76,15 +76,27 @@ export function LogoUploadField({
     }
   }
 
-  function handleRemove() {
+  async function handleRemove() {
+    const previousPreview = preview;
+
+    setUploading(true);
+    setError(null);
+
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
     }
     setPreview(undefined);
-    setError(null);
-    onChange("");
-    if (inputRef.current) inputRef.current.value = "";
+
+    try {
+      await onChange("");
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (err: unknown) {
+      setPreview(previousPreview || value || undefined);
+      setError((err as { message?: string })?.message || "שגיאה בעדכון הלוגו");
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (

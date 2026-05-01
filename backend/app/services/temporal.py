@@ -275,16 +275,19 @@ async def delete_specific_row(
     model: Type,
     tenant_id: uuid.UUID,
     row_valid_from: date,
+    extra_filters: dict[str, Any] | None = None,
 ) -> None:
     """
     Action '3' (ביטול — מחיקה): hard-delete the row whose valid_from matches.
     The row disappears completely — no trace remains in the database.
     """
-    await session.execute(
+    stmt = (
         delete(model)
         .where(model.tenant_id == tenant_id)   # type: ignore[attr-defined]
         .where(model.valid_from == row_valid_from)   # type: ignore[attr-defined]
     )
+    stmt = _apply_extra_filters(stmt, model, extra_filters)
+    await session.execute(stmt)
 
 
 async def close_active_row(

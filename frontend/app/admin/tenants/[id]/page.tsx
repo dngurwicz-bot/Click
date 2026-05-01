@@ -34,6 +34,12 @@ interface TenantSubscriptionOut extends AuditFields {
   id: string; billing_cycle: string; currency: string;
   template_id?: string; seat_count: number; selected_module_slugs: string[];
   discount_pct: string; is_price_locked: boolean; next_renewal_at?: string;
+  current_monthly_total_ils: string;
+  current_yearly_total_ils: string;
+  current_cycle_total_ils: string;
+  current_setup_total_ils: string;
+  initial_charge_total_ils: string;
+  next_charge_total_ils: string;
   valid_from: string; valid_to?: string;
 }
 interface TenantSubscriptionModuleOut extends AuditFields {
@@ -200,6 +206,15 @@ const fmtDate = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString("he-IL") : "—";
 const fmtDateTime = (d?: string | null) =>
   d ? new Date(d).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "—";
+const fmtMoney = (v: string | number | null | undefined, currency = "ILS") =>
+  v === null || v === undefined || v === ""
+    ? "—"
+    : new Intl.NumberFormat("he-IL", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(v));
 
 function todayIsoDate(): string {
   const now = new Date();
@@ -266,7 +281,7 @@ interface EditModalProps {
   initialData: Record<string, string>;
   initialValidFrom: string;
   initialValidTo: string;
-  allRows: Array<{ valid_from: string; valid_to?: string }>;
+  allRows: Array<{ valid_from: string; valid_to?: string; contact_type?: string }>;
   statusRows: TenantStatusOut[];
   tenantId: string;
   templateOptions?: { value: string; label: string }[];
@@ -277,7 +292,7 @@ interface EditModalProps {
 
 type FieldDef = {
   key: string; label: string; required?: boolean;
-  type?: "text" | "email" | "select" | "checkbox" | "textarea";
+  type?: "text" | "email" | "select" | "checkbox" | "textarea" | "date";
   options?: { value: string; label: string }[];
   lookupKey?: string;
   helpText?: string;
@@ -314,6 +329,7 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
       options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "yearly", label: "שנתי" }] },
     { key: "currency",      label: "מטבע",         required: true, type: "select",
       options: [{ value: "ILS", label: "₪ שקל" }, { value: "USD", label: "$ דולר" }, { value: "EUR", label: "€ יורו" }] },
+    { key: "next_renewal_at", label: "תאריך חיוב הבא", type: "date", helpText: "כאן קובעים מתי המערכת תראה את החידוש/החיוב הבא של הלקוח." },
     { key: "discount_pct",   label: "הנחה %" },
     { key: "is_price_locked", label: "מחיר נעול", type: "checkbox", helpText: "כשזה פעיל, המחיר ללקוח נשאר קבוע ולא מתעדכן אוטומטית לפי מחירון חדש." },
   ],
@@ -414,6 +430,13 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
     return field;
   });
 
+  const relevantRows = (() => {
+    if (section !== "contact") return allRows;
+    const contactType = form.contact_type?.trim();
+    if (!contactType) return [];
+    return allRows.filter((row) => row.contact_type === contactType);
+  })();
+
   // Fetch lookup lists needed for this section
   useEffect(() => {
     const needed = Array.from(new Set(fields.filter((f) => f.lookupKey).map((f) => f.lookupKey!)));
@@ -457,7 +480,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
 
   // Helper: send section payload (needed even for delete/close — backend ignores the data)
   function buildSectionPayload() {
-    const p: Record<string, string | number | boolean | string[]> = {};
+    const p: Record<string, string | number | boolean | string[] | null> = {};
     for (const f of fields) {
       if (section === "subscription" && f.key === "selected_module_slugs") {
         p[f.key] = (form[f.key] ?? "")
@@ -466,6 +489,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
           .filter(Boolean);
       } else if (section === "subscription" && f.key === "seat_count") {
         p[f.key] = parseInt(form[f.key] ?? "0", 10) || 0;
+      } else if (f.type === "date") {
+        p[f.key] = form[f.key]?.trim() ? form[f.key].trim() : null;
       } else if (f.type === "checkbox") {
         p[f.key] = form[f.key] === "true";
       } else {
@@ -512,7 +537,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
     // Front-end overlap check for הוספה only
     if (action === "add") {
       const d = new Date(validFrom);
-      for (const row of allRows) {
+      for (const row of relevantRows) {
         const rf = new Date(row.valid_from);
         const rt = row.valid_to ? new Date(row.valid_to) : null;
         if (d.getTime() === rf.getTime()) {
@@ -551,8 +576,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
   }
 
   // Whether an active (open) row already exists — הוסף is blocked in that case
-  // For contact section, multiple types can coexist so the check is skipped
-  const hasActiveRow = section !== "contact" && allRows.some((r) => !r.valid_to);
+  // For contacts, only rows of the same contact_type should block/overlap.
+  const hasActiveRow = relevantRows.some((r) => !r.valid_to);
 
   const modalTitle =
     mode === "add"    ? `רשומה חדשה — ${SECTION_LABELS[section]}`
@@ -573,7 +598,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
     mode === "close"  ? "text-orange-800" :
     "text-[#1a3a6e]";
 
-  const activeRow = allRows.find((r) => !r.valid_to);
+  const activeRow = relevantRows.find((r) => !r.valid_to);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -671,6 +696,23 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                       rows={2}
                       className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400 resize-none"
                     />
+                  ) : f.type === "date" ? (
+                    <div className="flex items-center gap-2">
+                      <HebrewDatePicker
+                        value={form[f.key] ?? ""}
+                        onChange={(value) => setForm((prev) => ({ ...prev, [f.key]: value }))}
+                        className="border border-slate-300 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400 bg-white"
+                      />
+                      {!!form[f.key] && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((prev) => ({ ...prev, [f.key]: "" }))}
+                          className="text-xs text-slate-500 hover:text-slate-700"
+                        >
+                          נקה
+                        </button>
+                      )}
+                    </div>
                   ) : section === "identity" && f.key === "logo_url" ? (
                     <LogoUploadField
                       value={form[f.key] ?? ""}
@@ -878,15 +920,18 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
 
 // ─── Parent form ──────────────────────────────────────────────────────────────
 
-function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploaded: (url: string) => void }) {
+function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploaded: (url: string) => Promise<void> }) {
   const statusVal = tenant.status?.status ?? "trial";
   const statusLabel = STATUS_LABELS[statusVal] ?? statusVal;
+  const subscription = tenant.subscription;
   const identityAudit = getAuditStamp(tenant.identity ?? {});
   const pageCreatedBy = tenant.created_by ?? identityAudit.by;
   const pageUpdatedAt = tenant.updated_at ?? identityAudit.at;
   const pageUpdatedBy = tenant.updated_by ?? identityAudit.by;
-  const billingCycleLabel = tenant.subscription?.billing_cycle ?? "—";
+  const billingCycleLabel = subscription?.billing_cycle ?? "—";
   const billingCycleDisplay = BILLING_CYCLE_LABELS[billingCycleLabel] ?? billingCycleLabel;
+  const subscriptionCurrency = subscription?.currency ?? "ILS";
+  const cycleChargeLabel = billingCycleLabel === "yearly" ? "חיוב למחזור שנתי" : "חיוב למחזור חודשי";
   const activeModules = (tenant.subscription_modules ?? []).filter((item) => item.status === "active");
   const currentValidity = tenant.identity?.valid_to
     ? `${fmtDate(tenant.identity.valid_from)} עד ${fmtDate(tenant.identity.valid_to)}`
@@ -938,7 +983,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
             </div>
           </div>
 
-          <div className="grid flex-1 min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid flex-1 min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
               <div className="mb-1 text-[11px] font-medium text-slate-400">ח.פ / ע.מ</div>
               <div className="text-sm font-semibold text-slate-700">{tenant.identity?.tax_id ?? "—"}</div>
@@ -956,6 +1001,40 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
               <div className="mb-1 text-[11px] font-medium text-slate-400">מודולים בפועל</div>
               <div className="text-sm font-semibold text-slate-700">{activeModules.length}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-emerald-700">מחיר חודשי</div>
+              <div className="text-sm font-semibold text-emerald-900">
+                {subscription ? fmtMoney(subscription.current_monthly_total_ils, subscriptionCurrency) : "—"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-blue-700">מחיר שנתי</div>
+              <div className="text-sm font-semibold text-blue-900">
+                {subscription ? fmtMoney(subscription.current_yearly_total_ils, subscriptionCurrency) : "—"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-amber-700">עלות הקמה</div>
+              <div className="text-sm font-semibold text-amber-900">
+                {subscription ? fmtMoney(subscription.current_setup_total_ils, subscriptionCurrency) : "—"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-rose-700">חיוב פתיחה</div>
+              <div className="text-sm font-semibold text-rose-900">
+                {subscription ? fmtMoney(subscription.initial_charge_total_ils, subscriptionCurrency) : "—"}
+              </div>
+              <div className="mt-1 text-[11px] text-rose-700/80">מחזור ראשון כולל הקמה</div>
+            </div>
+            <div className="rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-2.5">
+              <div className="mb-1 text-[11px] font-medium text-violet-700">החיוב הבא</div>
+              <div className="text-sm font-semibold text-violet-900">
+                {subscription ? fmtMoney(subscription.next_charge_total_ils, subscriptionCurrency) : "—"}
+              </div>
+              <div className="mt-1 text-[11px] text-violet-700/80">
+                {subscription?.next_renewal_at ? `${cycleChargeLabel} ב-${fmtDate(subscription.next_renewal_at)}` : "תאריך חיוב הבא עדיין לא נקבע"}
+              </div>
             </div>
           </div>
         </div>
@@ -1129,6 +1208,11 @@ function buildSubscriptionTab(
       { key: "currency",      label: "מטבע",         required: true },
       { key: "discount_pct",  label: "הנחה %" },
       { key: "is_price_locked", label: "מחיר נעול" },
+      { key: "current_monthly_total_ils", label: "לחודש" },
+      { key: "current_yearly_total_ils", label: "לשנה" },
+      { key: "current_setup_total_ils", label: "הקמה" },
+      { key: "initial_charge_total_ils", label: "פתיחה" },
+      { key: "next_charge_total_ils", label: "חיוב הבא" },
       { key: "next_renewal_at", label: "חידוש הבא" },
       { key: "created_at",    label: "תאריך שינוי" },
       { key: "created_by",    label: "בוצע ע\"י" },
@@ -1143,6 +1227,11 @@ function buildSubscriptionTab(
       currency:      r.currency,
       discount_pct:  `${r.discount_pct}%`,
       is_price_locked: r.is_price_locked ? "כן" : "לא",
+      current_monthly_total_ils: fmtMoney(r.current_monthly_total_ils, r.currency),
+      current_yearly_total_ils: fmtMoney(r.current_yearly_total_ils, r.currency),
+      current_setup_total_ils: fmtMoney(r.current_setup_total_ils, r.currency),
+      initial_charge_total_ils: fmtMoney(r.initial_charge_total_ils, r.currency),
+      next_charge_total_ils: fmtMoney(r.next_charge_total_ils, r.currency),
       next_renewal_at: fmtDate(r.next_renewal_at),
       created_at:    fmtDateTime(audit.at),
       created_by:    audit.by ?? "—",
@@ -1654,6 +1743,7 @@ function SubscriptionModuleModal({
   const [modules, setModules] = useState<ModuleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ModuleMode>(initial ? "update" : "add");
   const today = new Date().toISOString().slice(0, 10);
@@ -1684,6 +1774,12 @@ function SubscriptionModuleModal({
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function switchToMode(nextMode: ModuleMode) {
+    setDropdownOpen(false);
+    setError(null);
+    setMode(nextMode);
+  }
+
   function buildPayload() {
     return {
       module_id: initial?.id,
@@ -1706,6 +1802,10 @@ function SubscriptionModuleModal({
   async function runAction(action: ModuleMode) {
     if (!form.module_slug) {
       setError("יש לבחור מודול");
+      return;
+    }
+    if (action !== "close" && action !== "delete" && validTo && validFrom && validTo < validFrom) {
+      setError("תאריך הסיום חייב להיות מאוחר או שווה לתאריך ההתחלה");
       return;
     }
     if (action !== "close" && action !== "delete" && !validFrom) {
@@ -1733,36 +1833,57 @@ function SubscriptionModuleModal({
   }
 
   const inputCls = "w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
+  const areaCls = "min-h-24 w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
   const showPayloadForm = mode === "add" || mode === "update" || mode === "set";
   const titleMap: Record<ModuleMode, string> = {
-    update: "עדכון מודול מנוי",
-    add: "רשומת מודול חדשה",
-    set: "קבע תקופה למודול",
-    close: "סגירת תוקף מודול",
-    delete: "מחיקת שורת מודול",
+    update: "עדכון — מודולים בפועל",
+    add: "רשומה חדשה — מודולים בפועל",
+    set: "קבע תקופה — מודולים בפועל",
+    close: "סגירת תקופה — מודולים בפועל",
+    delete: "מחיקת שורה — מודולים בפועל",
   };
+  const headerBg =
+    mode === "set" ? "bg-amber-50"
+    : mode === "delete" ? "bg-red-50"
+    : mode === "close" ? "bg-orange-50"
+    : "bg-slate-50";
+  const headerText =
+    mode === "set" ? "text-amber-800"
+    : mode === "delete" ? "text-red-800"
+    : mode === "close" ? "text-orange-800"
+    : "text-slate-800";
+  const subtitleMap: Record<ModuleMode, string> = {
+    update: "עדכון שורת מודול קיימת תוך שמירה על מבנה זהה לשאר המסכים הטמפורליים.",
+    add: "יצירת רשומת מודול חדשה עם טווח תוקף ומבנה זהה לשאר מסכי העריכה.",
+    set: "קביעה מחליפה או מפצלת רשומות חופפות של אותו מודול בטווח התאריכים שתבחר.",
+    close: "סגירת תקופה מסיימת את התוקף של השורה הקיימת ומשאירה אותה בהיסטוריה.",
+    delete: "מחיקת שורה מסירה אותה לחלוטין מההיסטוריה של המודול.",
+  };
+  const isExistingRow = Boolean(initial);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+        dir="rtl"
+        onClick={() => setDropdownOpen(false)}
+      >
+        <div className={`flex items-center justify-between border-b border-slate-200 px-5 py-3 rounded-t-xl ${headerBg}`}>
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">{titleMap[mode]}</h3>
-            <p className="mt-1 text-[11px] text-slate-500">כאן מנהלים היסטוריית מודולים לפי תוקף, כמו בשאר המערכת הטמפורלית.</p>
+            <h3 className={`text-sm font-semibold ${headerText}`}>{titleMap[mode]}</h3>
+            <p className={`mt-1 text-[11px] ${mode === "update" || mode === "add" ? "text-slate-500" : headerText}`}>{subtitleMap[mode]}</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
         </div>
         <div className="grid gap-4 p-5 md:grid-cols-2">
-          {initial && (
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs font-semibold text-slate-600">פעולה</label>
-              <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as ModuleMode)} disabled={saving}>
-                <option value="update">עדכון שורה</option>
-                <option value="add">רשומה חדשה</option>
-                <option value="set">קבע תקופה</option>
-                <option value="close">סגור תקופה</option>
-                <option value="delete">מחק שורה</option>
-              </select>
+          {mode === "set" && (
+            <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              הפעולה תחליף או תפצל כל רשומה חופפת של המודול בטווח התאריכים שתגדיר.
             </div>
           )}
 
@@ -1770,14 +1891,14 @@ function SubscriptionModuleModal({
             <>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">מודול</label>
-            <select className={inputCls} value={form.module_slug} onChange={(e) => setField("module_slug", e.target.value)} disabled={Boolean(initial) || loading || saving}>
+            <select className={inputCls} value={form.module_slug} onChange={(e) => setField("module_slug", e.target.value)} disabled={isExistingRow || loading || saving}>
               <option value="">{loading ? "טוען מודולים..." : "בחר מודול"}</option>
               {modules.map((item) => <option key={item.slug} value={item.slug}>{item.name}</option>)}
             </select>
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">מקור</label>
-            <select className={inputCls} value={form.source_type} onChange={(e) => setField("source_type", e.target.value)} disabled={Boolean(initial) || saving}>
+            <select className={inputCls} value={form.source_type} onChange={(e) => setField("source_type", e.target.value)} disabled={saving}>
               <option value="manual">ידני</option>
               <option value="template">תבנית</option>
             </select>
@@ -1834,7 +1955,7 @@ function SubscriptionModuleModal({
           </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs font-semibold text-slate-600">הערות</label>
-            <textarea className={`${inputCls} min-h-20`} value={form.notes} onChange={(e) => setField("notes", e.target.value)} disabled={saving} />
+            <textarea className={areaCls} value={form.notes} onChange={(e) => setField("notes", e.target.value)} disabled={saving} />
           </div>
             </>
           )}
@@ -1859,26 +1980,87 @@ function SubscriptionModuleModal({
         </div>
         {error && <div className="px-5 pb-2 text-xs text-red-600">{error}</div>}
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
-            <button
-              onClick={() => runAction(mode)}
-              disabled={saving || loading}
-              className={`rounded-md px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${
-                mode === "delete" ? "bg-red-600 hover:bg-red-700" :
-                mode === "close" ? "bg-amber-600 hover:bg-amber-700" :
-                "bg-brand-600 hover:bg-brand-700"
-              }`}
-            >
-              {saving ? "שומר..." : (
-                mode === "delete" ? "מחק שורה" :
-                mode === "close" ? "סגור תקופה" :
-                mode === "set" ? "קבע תקופה" :
-                mode === "add" ? "הוסף רשומה" :
-                "שמור"
-              )}
-            </button>
-          </div>
+          {mode === "delete" ? (
+            <>
+              <button onClick={() => switchToMode("update")} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">חזרה</button>
+              <button
+                onClick={() => runAction("delete")}
+                disabled={saving || loading}
+                className="rounded-md bg-red-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {saving ? "מוחק..." : "מחק שורה"}
+              </button>
+            </>
+          ) : mode === "close" ? (
+            <>
+              <button onClick={() => switchToMode("update")} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">חזרה</button>
+              <button
+                onClick={() => runAction("close")}
+                disabled={saving || loading}
+                className="rounded-md bg-orange-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+              >
+                {saving ? "שומר..." : "סגור תקופה"}
+              </button>
+            </>
+          ) : mode === "set" ? (
+            <>
+              <button onClick={() => switchToMode("update")} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">חזרה</button>
+              <button
+                onClick={() => runAction("set")}
+                disabled={saving || loading}
+                className="rounded-md bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {saving ? "שומר..." : "קבע תקופה"}
+              </button>
+            </>
+          ) : mode === "add" ? (
+            <>
+              <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
+              <button
+                onClick={() => runAction("add")}
+                disabled={saving || loading}
+                className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {saving ? "שומר..." : "הוסף רשומה"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
+              <div className="relative flex">
+                <button
+                  onClick={() => runAction("update")}
+                  disabled={saving || loading}
+                  className="rounded-r-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 border-l border-brand-500"
+                >
+                  {saving ? "שומר..." : "שמור"}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDropdownOpen((current) => !current);
+                  }}
+                  disabled={saving || loading}
+                  className="rounded-l-md bg-brand-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  ▾
+                </button>
+                {dropdownOpen && (
+                  <div className="absolute bottom-full left-0 mb-1 min-w-[150px] rounded border border-slate-200 bg-white text-right shadow-lg">
+                    <button onClick={() => switchToMode("set")} className="block w-full border-b border-slate-100 px-4 py-2 text-right text-xs text-amber-700 hover:bg-amber-50">
+                      קבע תקופה
+                    </button>
+                    <button onClick={() => switchToMode("close")} className="block w-full border-b border-slate-100 px-4 py-2 text-right text-xs text-orange-700 hover:bg-orange-50">
+                      סגור תקופה
+                    </button>
+                    <button onClick={() => switchToMode("delete")} className="block w-full px-4 py-2 text-right text-xs text-red-700 hover:bg-red-50">
+                      מחק שורה
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -2058,13 +2240,13 @@ function SyncTemplateModal({
 // ─── Tenant Invoice Detail Modal ──────────────────────────────────────────────
 
 function InvoiceViewModal({
-  invoice: initial, onClose, onUpdated,
-}: { invoice: TenantInvoiceItem; onClose: () => void; onUpdated: () => void }) {
+  invoice: initial, onClose, onUpdated, initialShowPaid = false,
+}: { invoice: TenantInvoiceItem; onClose: () => void; onUpdated: () => void; initialShowPaid?: boolean }) {
   const [inv, setInv]         = useState<TenantInvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState<string | null>(null);
-  const [showPaid, setShowPaid] = useState(false);
+  const [showPaid, setShowPaid] = useState(initialShowPaid);
   const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
   const [payRef,  setPayRef]  = useState("");
 
@@ -2230,7 +2412,10 @@ export default function TenantDetailPage() {
   const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
   const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<TenantInvoiceItem | null>(null);
+  const [selectedBillingInvoice, setSelectedBillingInvoice] = useState<{
+    invoice: TenantInvoiceItem;
+    showPaid?: boolean;
+  } | null>(null);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
   const [showSyncTemplate, setShowSyncTemplate] = useState(false);
   const [showDeleteTenant, setShowDeleteTenant] = useState(false);
@@ -2240,7 +2425,7 @@ export default function TenantDetailPage() {
     data: Record<string, string>;
     initialValidFrom: string;
     initialValidTo: string;
-    allRows: Array<{ valid_from: string; valid_to?: string }>;
+    allRows: Array<{ valid_from: string; valid_to?: string; contact_type?: string }>;
     initialMode?: EditMode;
   } | null>(null);
 
@@ -2262,6 +2447,37 @@ export default function TenantDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const handleParentLogoChange = useCallback(async (logoUrl: string) => {
+    if (!tenant?.identity) {
+      throw new Error("לא נמצאה רשומת זהות פעילה לשמירת הלוגו");
+    }
+
+    const saved = await api.put<TenantOut>(`/api/admin/tenants/${tenant.tenant_id}`, {
+      valid_from: tenant.identity.valid_from,
+      valid_to: tenant.identity.valid_to ?? null,
+      action: "update",
+      identity: {
+        name_he: tenant.identity.name_he,
+        name_en: tenant.identity.name_en || null,
+        tax_id: tenant.identity.tax_id,
+        entity_type: tenant.identity.entity_type,
+        logo_url: logoUrl || null,
+        industry_code: tenant.identity.industry_code || null,
+      },
+    });
+
+    setTenant(saved);
+    setHistory((prev) => {
+      if (!prev || !saved.identity) return prev;
+      return {
+        ...prev,
+        identity: prev.identity.map((row) => (
+          row.id === saved.identity?.id ? saved.identity : row
+        )),
+      };
+    });
+  }, [tenant]);
+
   useEffect(() => {
     if (!isLoggedIn()) { router.replace("/login"); return; }
     loadData();
@@ -2277,19 +2493,29 @@ export default function TenantDetailPage() {
       data: getRawFields(section, item),
       initialValidFrom: item.valid_from,
       initialValidTo: item.valid_to ?? "",
-      allRows: items.map((r) => ({ valid_from: r.valid_from, valid_to: r.valid_to })),
+      allRows: items.map((r) => ({
+        valid_from: r.valid_from,
+        valid_to: r.valid_to,
+        contact_type: "contact_type" in r ? r.contact_type : undefined,
+      })),
     });
   }
 
   function openAddNew(section: SectionKey) {
     const fields = SECTION_FIELDS[section];
-    const items = history ? (history[section] as Array<{ valid_from: string; valid_to?: string }>) : [];
+    const items = history
+      ? (history[section] as Array<{ valid_from: string; valid_to?: string; contact_type?: string }>)
+      : [];
     setEditState({
       section,
       data: Object.fromEntries(fields.map((f) => [f.key, ""])),
       initialValidFrom: "",
       initialValidTo: "",
-      allRows: items.map((r) => ({ valid_from: r.valid_from, valid_to: r.valid_to })),
+      allRows: items.map((r) => ({
+        valid_from: r.valid_from,
+        valid_to: r.valid_to,
+        contact_type: r.contact_type,
+      })),
       initialMode: "add",
     });
   }
@@ -2337,6 +2563,7 @@ export default function TenantDetailPage() {
       { key: "due",     label: "לתשלום עד" },
       { key: "total",   label: "סה״כ" },
       { key: "status",  label: "סטטוס" },
+      { key: "actions", label: "" },
       { key: "pdf",     label: "" },
     ],
     rows: (billing?.invoices ?? []).map((inv) => {
@@ -2348,6 +2575,32 @@ export default function TenantDetailPage() {
         due:    <span className={inv.status === "overdue" ? "text-red-600 font-medium" : ""}>{fmtDate(inv.due_date)}</span>,
         total:  <span className="tabular-nums font-semibold">{fmtIls(inv.total_ils)}</span>,
         status: <BillingStatusBadge cfg={stCfg} />,
+        actions: (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedBillingInvoice({ invoice: inv });
+              }}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+            >
+              פתח
+            </button>
+            {(inv.status === "sent" || inv.status === "overdue") && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedBillingInvoice({ invoice: inv, showPaid: true });
+                }}
+                className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                סמן כשולם
+              </button>
+            )}
+          </div>
+        ),
         pdf: (
           <div className="flex items-center gap-2">
             <a
@@ -2378,7 +2631,7 @@ export default function TenantDetailPage() {
     }),
     onRowDoubleClick: (i) => {
       const inv = billing?.invoices[i];
-      if (inv) setSelectedBillingInvoice(inv);
+      if (inv) setSelectedBillingInvoice({ invoice: inv });
     },
     emptyMessage: "אין חשבוניות — ניתן ליצור מדף ניהול חיובים",
   };
@@ -2437,12 +2690,7 @@ export default function TenantDetailPage() {
           parentContent={tenant ? (
             <ParentForm
               tenant={tenant}
-              onLogoUploaded={(url) => {
-                setTenant((prev) => prev && prev.identity
-                  ? { ...prev, identity: { ...prev.identity, logo_url: url } }
-                  : prev
-                );
-              }}
+              onLogoUploaded={handleParentLogoChange}
             />
           ) : undefined}
           formTabs={[]}
@@ -2469,7 +2717,8 @@ export default function TenantDetailPage() {
 
       {selectedBillingInvoice && (
         <InvoiceViewModal
-          invoice={selectedBillingInvoice}
+          invoice={selectedBillingInvoice.invoice}
+          initialShowPaid={selectedBillingInvoice.showPaid}
           onClose={() => setSelectedBillingInvoice(null)}
           onUpdated={() => { setSelectedBillingInvoice(null); loadData(); }}
         />

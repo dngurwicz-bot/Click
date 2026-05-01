@@ -6,6 +6,13 @@ import { isLoggedIn, getStoredUser, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
+import {
+  createDefaultTemporalFilterState,
+  getTemporalFilterError,
+  overlapsTemporalFilter,
+  type TemporalFilterState,
+} from "@/lib/temporalFilter";
 import {
   UserCheck, UserX,
   UserPlus, Pencil, Trash2, X, Eye, EyeOff, ShieldCheck,
@@ -737,6 +744,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [temporalFilter, setTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
 
   const currentUser = getStoredUser();
   const currentUserId = currentUser?.id ?? "";
@@ -757,6 +765,15 @@ export default function AdminUsersPage() {
   const filtered = users.filter((u) =>
     u.full_name.includes(search) || u.email.includes(search) || u.role.includes(search)
   );
+  const temporalFilterError = getTemporalFilterError(temporalFilter);
+  const visibleUsers = filtered.filter((u) =>
+    temporalFilterError ||
+    overlapsTemporalFilter({
+      rowFrom: u.valid_from,
+      rowTo: u.valid_to,
+      filter: temporalFilter,
+    })
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
@@ -768,7 +785,7 @@ export default function AdminUsersPage() {
           start={<AdminSearchField value={search} onChange={setSearch} />}
           end={
             <div className="flex items-center gap-3">
-            {!loading && <AdminCountLabel>{filtered.length} משתמשים</AdminCountLabel>}
+            {!loading && <AdminCountLabel>{visibleUsers.length} משתמשים</AdminCountLabel>}
             <button
               onClick={() => setModal({ mode: "create" })}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white
@@ -781,6 +798,18 @@ export default function AdminUsersPage() {
           }
         />
 
+        {!loading && (
+          <TemporalFilterBar
+            filter={temporalFilter}
+            onChange={setTemporalFilter}
+            rowRanges={users.map((u) => ({
+              valid_from: u.valid_from,
+              valid_to: u.valid_to,
+            }))}
+            idPrefix="users-temporal"
+          />
+        )}
+
         {/* ── Table ─────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-auto bg-white min-h-0">
           {loading ? (
@@ -788,7 +817,7 @@ export default function AdminUsersPage() {
               <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
               <span className="text-sm">טוען...</span>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : visibleUsers.length === 0 ? (
             <div className="py-20 text-center text-slate-400 text-sm">לא נמצאו משתמשים</div>
           ) : (
             <table className="admin-data-table w-full text-xs border-collapse">
@@ -806,7 +835,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u, i) => {
+                {visibleUsers.map((u, i) => {
                   const activePerms = (u.permissions ?? []).filter((p) => p.can_view || p.can_edit);
                   return (
                     <tr
@@ -914,7 +943,7 @@ export default function AdminUsersPage() {
           )}
         </div>
 
-        {!loading && <AdminStatusBar total={filtered.length} label="משתמשים" />}
+        {!loading && <AdminStatusBar total={visibleUsers.length} label="משתמשים" />}
       </main>
 
       {/* Modals */}

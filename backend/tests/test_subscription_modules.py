@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from app.services.subscription_modules import (
     calculate_module_totals,
+    calculate_subscription_pricing,
     derive_subscription_snapshot,
     round2,
     sync_subscription_header,
@@ -50,6 +51,74 @@ def test_calculate_module_totals_uses_overrides():
 
     assert monthly == Decimal("230.00")
     assert setup == Decimal("99.00")
+
+
+def test_calculate_subscription_pricing_monthly_applies_discount():
+    subscription = SimpleNamespace(billing_cycle="monthly", discount_pct=Decimal("10.00"))
+    module_rows = [
+        SimpleNamespace(
+            module_slug="core",
+            seats=12,
+            status="active",
+            pricing_mode="catalog",
+            override_base_price_ils=None,
+            override_per_seat_ils=None,
+            override_setup_fee_ils=None,
+            override_included_seats=None,
+        ),
+        SimpleNamespace(
+            module_slug="vision",
+            seats=4,
+            status="removed",
+            pricing_mode="catalog",
+            override_base_price_ils=None,
+            override_per_seat_ils=None,
+            override_setup_fee_ils=None,
+            override_included_seats=None,
+        ),
+    ]
+    catalog_prices = {
+        "core": SimpleNamespace(
+            base_price_ils=Decimal("100.00"),
+            per_seat_ils=Decimal("7.50"),
+            included_seats=5,
+            setup_fee_ils=Decimal("250.00"),
+        )
+    }
+
+    summary = calculate_subscription_pricing(subscription, module_rows, catalog_prices)
+
+    assert summary["current_monthly_total_ils"] == Decimal("137.25")
+    assert summary["current_yearly_total_ils"] == Decimal("1647.00")
+    assert summary["current_cycle_total_ils"] == Decimal("137.25")
+    assert summary["current_setup_total_ils"] == Decimal("225.00")
+    assert summary["initial_charge_total_ils"] == Decimal("362.25")
+    assert summary["next_charge_total_ils"] == Decimal("137.25")
+
+
+def test_calculate_subscription_pricing_yearly_uses_annual_cycle_total():
+    subscription = SimpleNamespace(billing_cycle="yearly", discount_pct=Decimal("0"))
+    module_rows = [
+        SimpleNamespace(
+            module_slug="core",
+            seats=9,
+            status="active",
+            pricing_mode="override",
+            override_base_price_ils=Decimal("180.00"),
+            override_per_seat_ils=Decimal("10.00"),
+            override_setup_fee_ils=Decimal("99.00"),
+            override_included_seats=4,
+        ),
+    ]
+
+    summary = calculate_subscription_pricing(subscription, module_rows, {})
+
+    assert summary["current_monthly_total_ils"] == Decimal("230.00")
+    assert summary["current_yearly_total_ils"] == Decimal("2760.00")
+    assert summary["current_cycle_total_ils"] == Decimal("2760.00")
+    assert summary["current_setup_total_ils"] == Decimal("99.00")
+    assert summary["initial_charge_total_ils"] == Decimal("2859.00")
+    assert summary["next_charge_total_ils"] == Decimal("2760.00")
 
 
 def test_sync_subscription_header_derives_snapshot_fields():

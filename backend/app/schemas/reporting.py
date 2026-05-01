@@ -23,6 +23,16 @@ ReportMetricOperation = Literal["count", "sum", "avg", "count_distinct"]
 ReportViewMode = Literal["detail", "summary"]
 ReportVisibility = Literal["personal", "shared"]
 ReportFormat = Literal["csv", "pdf", "xlsx", "html"]
+ReportAssetKind = Literal["report", "template"]
+
+
+class ReportFieldHelp(BaseModel):
+    summary: str
+    details: str
+    related_fields: list[str] = Field(default_factory=list)
+    related_reason: Optional[str] = None
+    example: Optional[str] = None
+    notes: list[str] = Field(default_factory=list)
 
 
 class ReportFieldDefinition(BaseModel):
@@ -33,6 +43,7 @@ class ReportFieldDefinition(BaseModel):
     groupable: bool = False
     category: Optional[str] = None
     description: Optional[str] = None
+    help: ReportFieldHelp
 
 
 class ReportMetricDefinition(BaseModel):
@@ -145,6 +156,7 @@ class ReportExportResponse(BaseModel):
 class SavedReportViewCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    kind: ReportAssetKind = "report"
     visibility: ReportVisibility = "personal"
     definition: ReportDefinition
 
@@ -152,6 +164,7 @@ class SavedReportViewCreate(BaseModel):
 class SavedReportViewUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    kind: Optional[ReportAssetKind] = None
     visibility: Optional[ReportVisibility] = None
     definition: Optional[ReportDefinition] = None
 
@@ -160,6 +173,7 @@ class SavedReportViewOut(BaseModel):
     id: uuid.UUID
     name: str
     description: Optional[str] = None
+    kind: ReportAssetKind
     dataset: str
     visibility: ReportVisibility
     owner_id: uuid.UUID

@@ -9,7 +9,9 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.module import Module, ModulePrice, OrgTemplateModule
+from app.models.billing_engine import BillingContract, BillingContractItem
 from app.models.tenant import TenantSubscription, TenantSubscriptionModule
+from app.services.billing_engine import effective_contract_items
 
 TWO_PLACES = Decimal("0.01")
 
@@ -358,3 +360,196 @@ def calculate_module_totals(
     monthly_total = round2(base_price + (per_seat * Decimal(billable_seats)))
     setup_total = round2(setup)
     return monthly_total, setup_total
+
+
+def calculate_subscription_pricing(
+    subscription: TenantSubscription,
+    module_rows: list[TenantSubscriptionModule],
+    catalog_prices: dict[str, ModulePrice],
+) -> dict[str, Decimal]:
+    active_rows = [row for row in module_rows if row.status == "active"]
+    monthly_subtotal = Decimal("0")
+    setup_subtotal = Decimal("0")
+    discount_ratio = Decimal("1") - (round2(subscription.discount_pct) / Decimal("100"))
+
+    for row in active_rows:
+        monthly_total, setup_total = calculate_module_totals(row, catalog_prices.get(row.module_slug))
+        monthly_subtotal += monthly_total
+        setup_subtotal += setup_total
+
+    current_monthly_total = round2(monthly_subtotal * discount_ratio)
+    current_yearly_total = round2(current_monthly_total * Decimal("12"))
+    current_setup_total = round2(setup_subtotal * discount_ratio)
+    current_cycle_total = (
+        current_yearly_total
+        if _contract_cycle(subscription.billing_cycle) == "yearly"
+        else current_monthly_total
+    )
+    initial_charge_total = round2(current_cycle_total + current_setup_total)
+    return {
+        "current_monthly_total_ils": current_monthly_total,
+        "current_yearly_total_ils": current_yearly_total,
+        "current_cycle_total_ils": current_cycle_total,
+        "current_setup_total_ils": current_setup_total,
+        "initial_charge_total_ils": initial_charge_total,
+        "next_charge_total_ils": current_cycle_total,
+    }
+
+
+def _contract_cycle(subscription_cycle: str) -> str:
+    return "yearly" if subscription_cycle == "yearly" else "monthly"
+
+
+def _contract_item_values(
+    row: TenantSubscriptionModule,
+    catalog_price: ModulePrice | None,
+    *,
+    discount_pct: Decimal,
+) -> dict[str, object]:
+    if row.pricing_mode == "override":
+        base_price = row.override_base_price_ils or Decimal("0")
+        per_seat = row.override_per_seat_ils or Decimal("0")
+        included = row.override_included_seats or 0
+        setup = row.override_setup_fee_ils or Decimal("0")
+    else:
+        base_price = catalog_price.base_price_ils if catalog_price else Decimal("0")
+        per_seat = catalog_price.per_seat_ils if catalog_price else Decimal("0")
+        included = catalog_price.included_seats if catalog_price else 0
+        setup = catalog_price.setup_fee_ils if catalog_price else Decimal("0")
+    return {
+        "status": row.status,
+        "rating_model": "per_seat",
+        "quantity": max(row.seats, 0),
+        "base_amount_ils": round2(base_price),
+        "included_qty": max(included, 0),
+        "per_unit_amount_ils": round2(per_seat),
+        "tier_definition": None,
+        "setup_fee_amount_ils": round2(setup),
+        "discount_pct": round2(discount_pct),
+    }
+
+
+def _contract_item_changed(item: BillingContractItem, values: dict[str, object]) -> bool:
+    comparable_fields = [
+        "status",
+        "rating_model",
+        "quantity",
+        "base_amount_ils",
+        "included_qty",
+        "per_unit_amount_ils",
+        "tier_definition",
+        "setup_fee_amount_ils",
+        "discount_pct",
+    ]
+    return any(getattr(item, field) != values[field] for field in comparable_fields)
+
+
+async def sync_billing_contract_from_subscription(
+    db: AsyncSession,
+    *,
+    subscription: TenantSubscription,
+    actor_id: uuid.UUID | None,
+    as_of: date | None = None,
+) -> BillingContract:
+    """Mirror the customer-file subscription modules into billing contract items.
+
+    The customer file remains the source of truth. BillingContractItem rows are
+    maintained as the billable timeline used by the billing engine.
+    """
+    effective_on = as_of or subscription.valid_from
+    contract_result = await db.execute(
+        sa.select(BillingContract)
+        .where(BillingContract.tenant_id == subscription.tenant_id)
+        .where(BillingContract.status.in_(["active", "draft"]))
+        .order_by(BillingContract.status, BillingContract.start_date.desc(), BillingContract.created_at.desc())
+        .limit(1)
+    )
+    contract = contract_result.scalar_one_or_none()
+    if contract is None:
+        contract = BillingContract(
+            tenant_id=subscription.tenant_id,
+            status="active",
+            billing_cycle=_contract_cycle(subscription.billing_cycle),
+            currency=subscription.currency,
+            start_date=subscription.valid_from,
+            next_renewal_at=subscription.next_renewal_at or subscription.valid_from,
+            created_by=actor_id,
+            updated_by=actor_id,
+            updated_at=_now_utc(),
+        )
+        db.add(contract)
+        await db.flush()
+    else:
+        contract.billing_cycle = _contract_cycle(subscription.billing_cycle)
+        contract.currency = subscription.currency
+        if subscription.next_renewal_at is not None:
+            contract.next_renewal_at = subscription.next_renewal_at
+        contract.updated_by = actor_id
+        contract.updated_at = _now_utc()
+
+    if contract.next_renewal_at is None:
+        contract.next_renewal_at = subscription.next_renewal_at or subscription.valid_from
+    subscription.next_renewal_at = contract.next_renewal_at
+    subscription.updated_by = actor_id
+    subscription.updated_at = _now_utc()
+
+    module_rows = await load_subscription_modules(db, subscription.id, as_of=effective_on)
+    prices = await get_effective_module_prices(db, [row.module_slug for row in module_rows], as_of=effective_on)
+    current_items = {
+        item.module_slug: item
+        for item in await effective_contract_items(db, contract.id, effective_on)
+    }
+    seen_slugs: set[str] = set()
+
+    for row in module_rows:
+        seen_slugs.add(row.module_slug)
+        values = _contract_item_values(row, prices.get(row.module_slug), discount_pct=subscription.discount_pct)
+        item = current_items.get(row.module_slug)
+        if item is None:
+            db.add(BillingContractItem(
+                contract_id=contract.id,
+                module_slug=row.module_slug,
+                effective_from=max(row.valid_from, effective_on),
+                effective_to=row.valid_to,
+                created_by=actor_id,
+                updated_by=actor_id,
+                updated_at=_now_utc(),
+                **values,
+            ))
+            continue
+        if not _contract_item_changed(item, values):
+            continue
+        if effective_on <= item.effective_from:
+            for key, value in values.items():
+                setattr(item, key, value)
+            item.effective_to = row.valid_to
+            item.updated_by = actor_id
+            item.updated_at = _now_utc()
+        else:
+            item.effective_to = effective_on - date.resolution
+            item.updated_by = actor_id
+            item.updated_at = _now_utc()
+            db.add(BillingContractItem(
+                contract_id=contract.id,
+                module_slug=row.module_slug,
+                effective_from=effective_on,
+                effective_to=row.valid_to,
+                created_by=actor_id,
+                updated_by=actor_id,
+                updated_at=_now_utc(),
+                **values,
+            ))
+
+    for slug, item in current_items.items():
+        if slug in seen_slugs:
+            continue
+        if effective_on <= item.effective_from:
+            item.status = "removed"
+            item.effective_to = item.effective_from
+        else:
+            item.effective_to = effective_on - date.resolution
+        item.updated_by = actor_id
+        item.updated_at = _now_utc()
+
+    await db.flush()
+    return contract

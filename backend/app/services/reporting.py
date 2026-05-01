@@ -51,6 +51,7 @@ from app.schemas.reporting import (
     ReportExportRequest,
     ReportExportResponse,
     ReportFieldDefinition,
+    ReportFieldHelp,
     ReportFilterOptions,
     ReportFilterOption,
     ReportMetricDefinition,
@@ -79,6 +80,19 @@ DEFAULT_OPERATORS_BY_TYPE = {
     "datetime": ["equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "is_null", "is_not_null"],
     "uuid": ["equals", "not_equals", "is_null", "is_not_null", "in", "not_in"],
     "boolean": ["equals", "not_equals", "is_null", "is_not_null"],
+}
+OPERATOR_LABELS = {
+    "equals": "שווה",
+    "not_equals": "שונה",
+    "contains": "מכיל",
+    "greater_than": "גדול מ",
+    "greater_or_equal": "גדול או שווה",
+    "less_than": "קטן מ",
+    "less_or_equal": "קטן או שווה",
+    "is_null": "ריק",
+    "is_not_null": "לא ריק",
+    "in": "ברשימה",
+    "not_in": "לא ברשימה",
 }
 LEGACY_DATASET_ALIASES = {
     "tenant_snapshot": "tenant_snapshot_full",
@@ -165,7 +179,160 @@ def _field(
         groupable=(field_type in {"string", "date", "datetime", "boolean"} if groupable is None else groupable),
         category=category,
         description=description,
+        help=ReportFieldHelp(summary=description or label, details=description or label),
     )
+
+
+FIELD_GROUP_PREFIXES = [
+    "identity_",
+    "contact_main_",
+    "address_main_",
+    "status_",
+    "subscription_",
+    "module_",
+    "template_",
+    "saved_report_",
+    "audit_",
+    "admin_",
+    "permission_",
+    "period_",
+]
+
+
+def _field_group_key(field_id: str) -> str:
+    for prefix in FIELD_GROUP_PREFIXES:
+        if field_id.startswith(prefix):
+            return prefix
+    if field_id in {"tenant_id", "tenant_name", "tenant_status", "org_number"}:
+        return "tenant_core"
+    if field_id in {"valid_from", "valid_to", "created_at", "created_by"}:
+        return "generic_timeline"
+    return field_id
+
+
+def _generate_field_summary(field: ReportFieldDefinition) -> str:
+    if field.description:
+        return field.description
+    if field.id.endswith("_id"):
+        return f"מזהה טכני של {field.label} לצורכי קישור, מעקב וסינון."
+    if field.id.endswith("_name"):
+        return f"שם התצוגה של {field.label}, כפי שמופיע בדוח ובמסכי הניהול."
+    if field.id.endswith("_slug"):
+        return f"מזהה יציב של {field.label} שמשמש לקישור בין מודולים, תמחור ותהליכים אוטומטיים."
+    if field.id.endswith("_created_at"):
+        return f"זמן היצירה של {field.label} לצורכי היסטוריה, מיון ובקרה."
+    if field.id.endswith("_updated_at"):
+        return f"זמן העדכון האחרון של {field.label} לצורכי מעקב היסטורי."
+    if field.id.endswith("_valid_from"):
+        return f"תאריך תחילת התוקף של {field.label} בתוך ציר הזמן של הרשומה."
+    if field.id.endswith("_valid_to"):
+        return f"תאריך סיום התוקף של {field.label}; ערך ריק בדרך כלל אומר שהרשומה עדיין פעילה."
+    if field.type == "boolean":
+        return f"שדה כן/לא שמציין את המצב של {field.label}."
+    if field.type == "number":
+        return f"שדה מספרי המשמש למדידה, חישוב וסיכום עבור {field.label}."
+    if field.type in {"date", "datetime"}:
+        return f"שדה תאריך/זמן המשמש למעקב, סינון ומיון עבור {field.label}."
+    return f"שדה מידע מסוג {field.type} עבור {field.label}."
+
+
+def _find_related_fields(field: ReportFieldDefinition, fields: list[ReportFieldDefinition]) -> tuple[list[str], str | None]:
+    field_ids = {item.id for item in fields}
+    related: list[str] = []
+    group_key = _field_group_key(field.id)
+
+    def add(candidate: str) -> None:
+        if candidate in field_ids and candidate != field.id and candidate not in related:
+            related.append(candidate)
+
+    if group_key not in {"tenant_core", "generic_timeline", field.id}:
+        for item in fields:
+            if _field_group_key(item.id) == group_key and item.id != field.id:
+                related.append(item.id)
+            if len(related) >= 4:
+                break
+
+    pairs = [
+        ("_valid_from", "_valid_to"),
+        ("_created_by", "_created_at"),
+        ("_updated_by", "_updated_at"),
+    ]
+    for left, right in pairs:
+        if field.id.endswith(left):
+            add(field.id[: -len(left)] + right)
+        if field.id.endswith(right):
+            add(field.id[: -len(right)] + left)
+
+    if field.id.endswith("_id"):
+        base = field.id[:-3]
+        add(base + "_name")
+        add(base + "_slug")
+        add(base + "_dataset")
+
+    if field.id.endswith("_slug"):
+        base = field.id[:-5]
+        add(base + "_name")
+        add(base + "_description")
+
+    explicit_relations = {
+        "org_number": ["tenant_id", "identity_name_he"],
+        "tenant_id": ["org_number", "identity_name_he", "tenant_name"],
+        "tenant_name": ["tenant_id", "tenant_status"],
+        "tenant_status": ["tenant_name", "subscription_id"],
+        "subscription_template_id": ["subscription_template_name"],
+        "subscription_template_name": ["subscription_template_id"],
+        "module_count": ["module_names", "subscription_selected_module_slugs"],
+        "module_names": ["module_count", "subscription_selected_module_slugs"],
+        "module_seats": ["subscription_seat_count", "module_name"],
+        "pricing_mode": ["override_base_price_ils", "override_per_seat_ils", "base_price_ils", "per_seat_ils"],
+        "base_price_ils": ["per_seat_ils", "included_seats", "pricing_mode"],
+        "override_base_price_ils": ["override_per_seat_ils", "override_included_seats", "price_lock_reason"],
+        "template_name": ["template_id"],
+        "default_value": ["default_type", "is_mandatory"],
+        "tenant_count": ["total_seats", "avg_seats"],
+        "total_seats": ["tenant_count", "avg_seats"],
+        "avg_seats": ["tenant_count", "total_seats"],
+    }
+    for candidate in explicit_relations.get(field.id, []):
+        add(candidate)
+
+    related_reason = None
+    if related:
+        related_reason = "השדות המקושרים עוזרים להבין את ההקשר העסקי, מקור הרשומה או ציר הזמן של אותו אובייקט."
+    return related[:4], related_reason
+
+
+def _build_field_help(field: ReportFieldDefinition, fields: list[ReportFieldDefinition]) -> ReportFieldHelp:
+    related_fields, related_reason = _find_related_fields(field, fields)
+    operator_labels = [OPERATOR_LABELS.get(operator, operator) for operator in field.operators]
+    notes = [
+        f"סוג נתון: {field.type}.",
+        f"ניתן לסנן באמצעות: {', '.join(operator_labels)}.",
+        "ניתן להשתמש בשדה הזה בקיבוץ וסיכומים." if field.groupable else "השדה לא מיועד לקיבוץ, ורצוי להשתמש בו בעיקר כתצוגה או סינון.",
+    ]
+    if field.id.endswith("_valid_to"):
+        notes.append("ערך ריק בדרך כלל מייצג רשומה פתוחה או פעילה ללא תאריך סיום.")
+    if field.id.endswith("_id"):
+        notes.append("זהו בדרך כלל מזהה מערכת פנימי, ולכן נוח לשילוב עם שדות שם/slug לצורך קריאה אנושית.")
+    if field.type == "boolean":
+        notes.append("בערכים בוליאניים התצוגה בממשק היא כן/לא, אך מאחורי הקלעים נשמר ערך true/false.")
+
+    details = (
+        f"השדה שייך לקטגוריית '{field.category or 'כללי'}' ונמצא במבנה הדוחות כדי לאפשר חיפוש, סינון, "
+        f"מיון וייצוא ברמת {field.label}. "
+        f"ברוב המקרים משתמשים בו יחד עם שדות מאותה משפחה כדי להבין גם את הזהות, גם את הסטטוס וגם את חלון התוקף של הרשומה."
+    )
+    return ReportFieldHelp(
+        summary=_generate_field_summary(field),
+        details=details,
+        related_fields=related_fields,
+        related_reason=related_reason,
+        notes=notes,
+    )
+
+
+def _enrich_dataset_fields(fields: list[ReportFieldDefinition]) -> list[ReportFieldDefinition]:
+    return [field.model_copy(update={"help": _build_field_help(field, fields)}) for field in fields]
 
 
 TENANT_SNAPSHOT_FIELDS = [
@@ -481,13 +648,14 @@ def _dataset(
     default_columns: list[str],
     metrics: list[ReportMetricDefinition],
 ) -> ReportDatasetDefinition:
+    enriched_fields = _enrich_dataset_fields(fields)
     return ReportDatasetDefinition(
         id=dataset_id,
         label=label,
         description=description,
-        fields=fields,
+        fields=enriched_fields,
         default_columns=default_columns,
-        groupable_fields=[field.id for field in fields if field.groupable],
+        groupable_fields=[field.id for field in enriched_fields if field.groupable],
         metrics=metrics,
     )
 
@@ -1424,6 +1592,18 @@ def _project_rows(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[s
     return [{column: row.get(column) for column in columns} for row in rows]
 
 
+def _dedupe_rows_by_columns(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    unique_rows: list[dict[str, Any]] = []
+    for row in rows:
+        key = tuple(_serialize_value(row.get(column)) for column in columns)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_rows.append(row)
+    return unique_rows
+
+
 
 def _is_active_in_range(record: Any, date_from: date, date_to: date) -> bool:
     """True if the record's validity window overlaps the requested range."""
@@ -1693,9 +1873,9 @@ async def execute_report_query(db: AsyncSession, request: ReportQueryRequest) ->
 
     filtered_rows = _apply_filters(source_rows, definition)
     filtered_rows = _apply_sort(filtered_rows, definition)
-    summary = _build_summary(filtered_rows, definition)
 
     if definition.view_mode == "summary":
+        summary = _build_summary(filtered_rows, definition)
         columns, grouped_rows = _build_grouped_rows(filtered_rows, definition)
         grouped_rows = _apply_sort(grouped_rows, ReportDefinition(dataset=definition.dataset, sort=definition.sort))
         total = len(grouped_rows)
@@ -1709,8 +1889,10 @@ async def execute_report_query(db: AsyncSession, request: ReportQueryRequest) ->
         )
 
     columns = definition.columns or DATASET_MAP[definition.dataset].default_columns
-    total = len(filtered_rows)
-    paged_rows = _project_rows(filtered_rows[definition.offset:definition.offset + min(definition.limit, 1000)], columns)
+    display_rows = _dedupe_rows_by_columns(filtered_rows, columns)
+    summary = _build_summary(display_rows, definition)
+    total = len(display_rows)
+    paged_rows = _project_rows(display_rows[definition.offset:definition.offset + min(definition.limit, 1000)], columns)
     return ReportResult(
         columns=columns,
         rows=[{key: _fmt_value(value) for key, value in row.items()} for row in paged_rows],
@@ -2079,6 +2261,7 @@ def _saved_to_out(row: SavedReportView, owner_name: str | None) -> SavedReportVi
         id=row.id,
         name=row.name,
         description=row.description,
+        kind=getattr(row, "kind", "report"),
         dataset=definition.dataset,
         visibility=row.visibility,
         owner_id=row.owner_id,
@@ -2089,19 +2272,25 @@ def _saved_to_out(row: SavedReportView, owner_name: str | None) -> SavedReportVi
     )
 
 
-async def list_saved_reports(db: AsyncSession, current_user: CurrentUser) -> list[SavedReportViewOut]:
+async def list_saved_reports(db: AsyncSession, current_user: CurrentUser, kind: str | None = None) -> list[SavedReportViewOut]:
+    query = (
+        select(SavedReportView, AdminUser.full_name)
+        .join(AdminUser, AdminUser.id == SavedReportView.owner_id)
+        .where((SavedReportView.owner_id == current_user.id) | (SavedReportView.visibility == "shared"))
+        .order_by(SavedReportView.updated_at.desc().nullslast(), SavedReportView.created_at.desc())
+    )
+    if kind in {"report", "template"}:
+        query = query.where(SavedReportView.kind == kind)
     try:
-        result = await db.execute(
-            select(SavedReportView, AdminUser.full_name)
-            .join(AdminUser, AdminUser.id == SavedReportView.owner_id)
-            .where((SavedReportView.owner_id == current_user.id) | (SavedReportView.visibility == "shared"))
-            .order_by(SavedReportView.updated_at.desc().nullslast(), SavedReportView.created_at.desc())
-        )
+        result = await db.execute(query)
     except ProgrammingError as exc:
         if "saved_report_views" in str(exc).lower():
             return []
         raise
-    return [_saved_to_out(row, owner_name) for row, owner_name in result.all()]
+    rows = [_saved_to_out(row, owner_name) for row, owner_name in result.all()]
+    if kind in {"report", "template"}:
+        rows = [row for row in rows if row.kind == kind]
+    return rows
 
 
 async def create_saved_report(db: AsyncSession, body: SavedReportViewCreate, current_user: CurrentUser) -> SavedReportViewOut:
@@ -2113,6 +2302,7 @@ async def create_saved_report(db: AsyncSession, body: SavedReportViewCreate, cur
         description=body.description,
         dataset=definition.dataset,
         definition_json=definition.model_dump(mode="json"),
+        kind=body.kind,
         visibility=body.visibility,
         owner_id=current_user.id,
     )
@@ -2139,6 +2329,8 @@ async def update_saved_report(
         row.name = body.name
     if body.description is not None:
         row.description = body.description
+    if body.kind is not None:
+        row.kind = body.kind
     if body.visibility is not None:
         row.visibility = body.visibility
     if body.definition is not None:
@@ -2161,5 +2353,17 @@ async def run_saved_report(db: AsyncSession, report_id: uuid.UUID, current_user:
         raise ValueError("Saved report not found")
     if row.visibility != "shared" and row.owner_id != current_user.id:
         raise PermissionError("Saved report is not available")
+    if getattr(row, "kind", "report") != "report":
+        raise ValueError("Saved template cannot be run directly")
     definition = _normalize_definition(ReportDefinition.model_validate(row.definition_json))
     return await execute_report_query(db, ReportQueryRequest(title=row.name, definition=definition))
+
+
+async def delete_saved_report(db: AsyncSession, report_id: uuid.UUID, current_user: CurrentUser) -> None:
+    result = await db.execute(select(SavedReportView).where(SavedReportView.id == report_id))
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise ValueError("Saved report not found")
+    if row.owner_id != current_user.id:
+        raise PermissionError("Only the owner can delete this saved item")
+    await db.delete(row)

@@ -127,8 +127,7 @@ async def delete_module(
     if not module:
         raise HTTPException(status_code=404, detail={"error": "Module not found", "code": "NOT_FOUND"})
 
-    await db.execute(delete(ModulePrice).where(ModulePrice.module_slug == slug))
-    await db.execute(delete(Module).where(Module.slug == slug))
+    module.is_active = False
     await db.commit()
     return {"ok": True}
 

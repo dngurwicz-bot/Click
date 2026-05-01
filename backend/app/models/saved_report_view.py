@@ -18,6 +18,7 @@ class SavedReportView(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     dataset: Mapped[str] = mapped_column(String(80), nullable=False)
     definition_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="report", server_default="report")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="personal", server_default="personal")
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False

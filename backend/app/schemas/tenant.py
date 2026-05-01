@@ -91,6 +91,7 @@ class TenantSubscriptionBase(BaseModel):
     selected_module_slugs: list[str] = Field(default_factory=list)
     discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
+    next_renewal_at: Optional[date] = None
 
 
 class TenantSubscriptionModuleBase(BaseModel):
@@ -157,7 +158,12 @@ class TenantSubscriptionModuleOut(TenantSubscriptionModuleBase):
 class TenantSubscriptionOut(TenantSubscriptionBase):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    next_renewal_at: Optional[date] = None
+    current_monthly_total_ils: Decimal = Decimal("0")
+    current_yearly_total_ils: Decimal = Decimal("0")
+    current_cycle_total_ils: Decimal = Decimal("0")
+    current_setup_total_ils: Decimal = Decimal("0")
+    initial_charge_total_ils: Decimal = Decimal("0")
+    next_charge_total_ils: Decimal = Decimal("0")
     valid_from: date
     valid_to: Optional[date] = None
     created_at: datetime

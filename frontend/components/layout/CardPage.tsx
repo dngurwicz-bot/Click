@@ -111,6 +111,52 @@ export function CardPage({
         });
       })
     : [];
+  const hiddenRowsCount = currentChildTab
+    ? Math.max(currentChildTab.rows.length - visibleRows.length, 0)
+    : 0;
+  const rowsHiddenByTemporalFilter = Boolean(
+    currentTabTemporalFiltering &&
+    !temporalFilterError &&
+    visibleRows.length === 0 &&
+    hiddenRowsCount > 0,
+  );
+  const hiddenRowsLabel = hiddenRowsCount === 1 ? "רשומה" : "רשומות";
+
+  function renderEmptyState() {
+    if (!currentChildTab) return "אין רשומות";
+
+    if (currentChildTab.rows.length === 0) {
+      if (!currentChildTab.onAddClick) {
+        return currentChildTab.emptyMessage ?? "אין רשומות";
+      }
+
+      return (
+        <span className="flex items-center justify-center gap-1.5">
+          <Plus size={14} />
+          {currentChildTab.addDisabled
+            ? (currentChildTab.addDisabledReason ?? currentChildTab.emptyMessage ?? "לא ניתן להוסיף רשומה")
+            : (currentChildTab.emptyMessage ?? "לחץ להוספת רשומה")}
+        </span>
+      );
+    }
+
+    if (rowsHiddenByTemporalFilter) {
+      return (
+        <span className="inline-flex flex-col items-center gap-1 text-center">
+          <span>{`יש ${hiddenRowsCount} ${hiddenRowsLabel} מחוץ לסינון שנבחר.`}</span>
+          <span className="text-xs text-slate-500">
+            {pageTemporalFilter.mode === "current_month"
+              ? "עברו ל'לפי חודש' או 'לפי תאריכים' כדי לראות את ההיסטוריה."
+              : "שנו את הסינון כדי לראות את הרשומות הקיימות."}
+          </span>
+        </span>
+      );
+    }
+
+    return temporalFilterError
+      ? "הטווח שנבחר אינו תקין"
+      : "לא נמצאו רשומות עבור הסינון שנבחר";
+  }
 
   if (loading) {
     return (
@@ -290,22 +336,7 @@ export function CardPage({
                     }
                   >
                     <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
-                      {currentChildTab.rows.length === 0 ? (
-                        currentChildTab.onAddClick ? (
-                          <span className="flex items-center justify-center gap-1.5">
-                            <Plus size={14} />
-                            {currentChildTab.addDisabled
-                              ? (currentChildTab.addDisabledReason ?? currentChildTab.emptyMessage ?? "לא ניתן להוסיף רשומה")
-                              : (currentChildTab.emptyMessage ?? "לחץ להוספת רשומה")}
-                          </span>
-                        ) : (
-                          currentChildTab.emptyMessage ?? "אין רשומות"
-                        )
-                      ) : (
-                        temporalFilterError
-                          ? "הטווח שנבחר אינו תקין"
-                          : "לא נמצאו רשומות עבור הסינון שנבחר"
-                      )}
+                      {renderEmptyState()}
                     </td>
                   </tr>
                 ) : (

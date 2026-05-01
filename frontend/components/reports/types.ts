@@ -1,6 +1,7 @@
 export type ReportViewMode = "detail" | "summary";
 export type ReportFormat = "csv" | "xlsx" | "html" | "pdf";
 export type Visibility = "personal" | "shared";
+export type ReportAssetKind = "report" | "template";
 
 export interface FilterOption {
   value: string;
@@ -8,6 +9,14 @@ export interface FilterOption {
 }
 
 export interface ReportFieldDefinition {
+  help: {
+    summary: string;
+    details: string;
+    related_fields: string[];
+    related_reason?: string | null;
+    example?: string | null;
+    notes: string[];
+  };
   id: string;
   label: string;
   type: "string" | "number" | "date" | "datetime" | "uuid" | "boolean";
@@ -70,9 +79,12 @@ export interface SavedReportView {
   id: string;
   name: string;
   description?: string | null;
+  kind: ReportAssetKind;
   dataset: string;
   visibility: Visibility;
   owner_name?: string | null;
+  created_at?: string;
+  updated_at?: string | null;
   definition: ReportDefinition;
 }
 

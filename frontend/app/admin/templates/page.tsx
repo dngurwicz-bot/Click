@@ -376,6 +376,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
 
   async function handleSave(action: "update" | "add" | "set") {
     if (!form.name.trim()) { setError("שם תבנית הוא שדה חובה"); return; }
+    if (selectedModuleEntries.length === 0) { setError("תבנית חייבת לכלול לפחות מודול אחד"); return; }
     if (!validFrom) { setError("יש להזין תאריך תחילת תוקף"); return; }
     setSaving(true); setError(null);
     try {
@@ -612,6 +613,11 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                     <div className="grid gap-2 md:grid-cols-2">
                       {modules.length === 0 && (
                         <p className="col-span-full rounded-lg border border-dashed border-slate-300 py-6 text-center text-xs text-slate-400">אין מודולים זמינים</p>
+                      )}
+                      {modules.length > 0 && selectedModuleEntries.length === 0 && (
+                        <p className="col-span-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          תבנית חייבת לכלול לפחות מודול אחד.
+                        </p>
                       )}
                       {modules.map((module) => {
                         const entry = selectedModuleEntries.find((item) => item.module_slug === module.slug);

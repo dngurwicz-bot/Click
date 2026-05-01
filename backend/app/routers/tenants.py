@@ -46,6 +46,7 @@ from app.services.subscription_modules import (
     align_subscription_modules_to_subscription,
     build_subscription_blueprint,
     calculate_module_totals,
+    calculate_subscription_pricing,
     clone_subscription_modules,
     derive_subscription_snapshot,
     get_effective_subscription_module,
@@ -55,6 +56,7 @@ from app.services.subscription_modules import (
     load_subscription_modules,
     load_tenant_subscription_module_history,
     replace_subscription_modules,
+    sync_billing_contract_from_subscription,
     sync_subscription_header,
 )
 from app.services.tenant_status_windows import ensure_tenant_status_allows_range
@@ -394,18 +396,115 @@ def _subscription_payload_from_row(
     row: TenantSubscription,
     module_rows: list[TenantSubscriptionModule],
     user_lookup: dict[uuid.UUID, str],
+    pricing_summary: dict[str, Decimal] | None = None,
 ) -> dict[str, object]:
     seat_count, selected_module_slugs = derive_subscription_snapshot(module_rows)
     payload = {
         field_name: getattr(row, field_name, None)
         for field_name in TenantSubscriptionOut.model_fields
-        if field_name not in {"created_by", "updated_by", "seat_count", "selected_module_slugs"}
+        if field_name not in {
+            "created_by",
+            "updated_by",
+            "seat_count",
+            "selected_module_slugs",
+            "current_monthly_total_ils",
+            "current_yearly_total_ils",
+            "current_cycle_total_ils",
+            "current_setup_total_ils",
+            "initial_charge_total_ils",
+            "next_charge_total_ils",
+        }
     }
     payload["seat_count"] = seat_count
     payload["selected_module_slugs"] = selected_module_slugs
+    payload.update(pricing_summary or {})
     payload["created_by"] = _resolve_user_label(user_lookup, getattr(row, "created_by", None))
     payload["updated_by"] = _resolve_user_label(user_lookup, getattr(row, "updated_by", None))
     return payload
+
+
+async def _subscription_pricing_summary(
+    db: AsyncSession,
+    subscription: TenantSubscription,
+    module_rows: list[TenantSubscriptionModule],
+    *,
+    as_of: date,
+) -> dict[str, Decimal]:
+    prices = await get_effective_module_prices(
+        db,
+        [row.module_slug for row in module_rows if row.status == "active"],
+        as_of=as_of,
+    )
+    return calculate_subscription_pricing(subscription, module_rows, prices)
+
+
+def _validate_temporal_range(valid_from: date | None, valid_to: date | None) -> None:
+    if valid_from is None or valid_to is None:
+        return
+    if valid_to < valid_from:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": f"תאריך גמר תוקף ({valid_to}) לא יכול להיות לפני תאריך תחילת התקופה ({valid_from})",
+                "code": "INVALID_DATE",
+            },
+        )
+
+
+async def _upsert_subscription_for_effective_date(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    current_subscription: TenantSubscription | None,
+    subscription_payload: dict[str, object],
+    actor_id: uuid.UUID,
+    effective_from: date,
+) -> tuple[TenantSubscription, dict[str, int]]:
+    if current_subscription:
+        current_module_rows = await load_subscription_modules(db, current_subscription.id)
+        existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
+
+        if current_subscription.valid_from == effective_from:
+            current_data = _extract_current_data(current_subscription, set(subscription_payload.keys()))
+            if current_data != subscription_payload:
+                await update_in_place(
+                    db,
+                    TenantSubscription,
+                    tenant_id,
+                    subscription_payload,
+                    actor_id,
+                    None,
+                    target_valid_from=current_subscription.valid_from,
+                    new_valid_to=current_subscription.valid_to,
+                )
+                await db.refresh(current_subscription)
+            return current_subscription, existing_seats
+
+        new_subscription = await close_and_create(
+            db,
+            TenantSubscription,
+            tenant_id,
+            subscription_payload,
+            actor_id,
+            new_valid_from=effective_from,
+        )
+        await align_subscription_modules_to_subscription(
+            db,
+            subscription_id=current_subscription.id,
+            valid_to=effective_from - timedelta(days=1),
+            actor_id=actor_id,
+        )
+        return new_subscription, existing_seats
+
+    new_subscription = TenantSubscription(
+        **subscription_payload,
+        tenant_id=tenant_id,
+        valid_from=effective_from,
+        created_by=actor_id,
+    )
+    db.add(new_subscription)
+    await db.flush()
+    return new_subscription, {}
 
 
 async def _ensure_tenant_operation_window(
@@ -430,8 +529,13 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
         _collect_row_user_ids(identity, contact, address, subscription, status_row, *current_subscription_rows),
     )
     latest_at, latest_actor_id = _latest_row_change([identity, contact, address, subscription, status_row, *current_subscription_rows])
+    pricing_summary = (
+        await _subscription_pricing_summary(db, subscription, current_subscription_rows, as_of=date.today())
+        if subscription is not None
+        else None
+    )
     subscription_payload = (
-        _subscription_payload_from_row(subscription, current_subscription_rows, user_lookup)
+        _subscription_payload_from_row(subscription, current_subscription_rows, user_lookup, pricing_summary)
         if subscription is not None
         else None
     )
@@ -511,6 +615,23 @@ async def _sync_subscription_header_from_date(
     rows = await load_subscription_modules(db, subscription.id, as_of=as_of)
     sync_subscription_header(subscription, rows)
     return rows
+
+
+async def _sync_subscription_to_billing(
+    db: AsyncSession,
+    subscription: TenantSubscription,
+    *,
+    actor_id: uuid.UUID | None,
+    as_of: date | None = None,
+) -> None:
+    if getattr(subscription, "id", None) is None:
+        return
+    await sync_billing_contract_from_subscription(
+        db,
+        subscription=subscription,
+        actor_id=actor_id,
+        as_of=as_of or date.today(),
+    )
 
 
 async def _materialize_subscription_modules(
@@ -833,6 +954,7 @@ async def create_tenant(
         actor_id=actor,
         explicit_module_slugs=body.subscription.selected_module_slugs,
     )
+    await _sync_subscription_to_billing(db, subscription, actor_id=actor, as_of=today)
 
     await db.commit()
     await db.refresh(tenant)
@@ -1051,6 +1173,7 @@ async def update_tenant(
                         target_valid_to = body.valid_to
 
             if target_valid_from is not None:
+                _validate_temporal_range(target_valid_from, target_valid_to)
                 await _ensure_tenant_operation_window(
                     db,
                     tenant_id,
@@ -1064,12 +1187,14 @@ async def update_tenant(
         if body.action == "update":
             if body.valid_from:
                 # Find the row the user actually edited (by valid_from key)
-                res = await db.execute(
+                stmt = (
                     select(model)
                     .where(model.tenant_id == tenant_id)
                     .where(model.valid_from == body.valid_from)
                     .limit(1)
                 )
+                stmt = _apply_extra_filters(stmt, model, extra_filters)
+                res = await db.execute(stmt)
                 target = res.scalar_one_or_none()
                 if target:
                     # Case 2.1 — row found at this date, update its fields in-place
@@ -1170,7 +1295,7 @@ async def update_tenant(
                     status_code=422,
                     detail={"error": "ביטול מחיקה דורש תאריך התחלה לזיהוי השורה", "code": "MISSING_DATE"}
                 )
-            await delete_specific_row(db, model, tenant_id, body.valid_from)
+            await delete_specific_row(db, model, tenant_id, body.valid_from, extra_filters=extra_filters)
 
         # ── Action '3b': ביטול גמר תוקף — close the active row ──────────
         elif body.action == "close":
@@ -1234,6 +1359,7 @@ async def update_tenant(
                         explicit_module_slugs=body.subscription.selected_module_slugs,
                     )
             await _sync_subscription_header_from_date(db, active_subscription, as_of=date.today())
+            await _sync_subscription_to_billing(db, active_subscription, actor_id=actor, as_of=date.today())
 
     await db.commit()
     return await _build_tenant_out(tenant, db)
@@ -1271,33 +1397,14 @@ async def apply_template_to_tenant(
 
     # Build existing seat map so apply-template uses Option-C (take max)
     current_subscription = await get_active(db, TenantSubscription, tenant_id)
-    if current_subscription:
-        current_module_rows = await load_subscription_modules(db, current_subscription.id)
-        existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
-        new_subscription = await close_and_create(
-            db,
-            TenantSubscription,
-            tenant_id,
-            subscription_payload,
-            current_user.id,
-            new_valid_from=effective_from,
-        )
-        await align_subscription_modules_to_subscription(
-            db,
-            subscription_id=current_subscription.id,
-            valid_to=effective_from - timedelta(days=1),
-            actor_id=current_user.id,
-        )
-    else:
-        existing_seats = {}
-        new_subscription = TenantSubscription(
-            **subscription_payload,
-            tenant_id=tenant_id,
-            valid_from=effective_from,
-            created_by=current_user.id,
-        )
-        db.add(new_subscription)
-        await db.flush()
+    new_subscription, existing_seats = await _upsert_subscription_for_effective_date(
+        db,
+        tenant_id=tenant_id,
+        current_subscription=current_subscription,
+        subscription_payload=subscription_payload,
+        actor_id=current_user.id,
+        effective_from=effective_from,
+    )
 
     await _materialize_subscription_modules(
         db,
@@ -1307,6 +1414,7 @@ async def apply_template_to_tenant(
         explicit_module_slugs=module_slugs,
         existing_seats=existing_seats,
     )
+    await _sync_subscription_to_billing(db, new_subscription, actor_id=current_user.id, as_of=effective_from)
 
     await db.commit()
     return await _build_tenant_out(tenant, db)
@@ -1465,6 +1573,9 @@ async def _execute_subscription_module_action(
         if not body.valid_to:
             raise HTTPException(status_code=422, detail={"error": "סגירת תקופה דורשת תאריך גמר תוקף", "code": "MISSING_DATE"})
         await _ensure_tenant_operation_window(db, tenant_id, body.valid_to, body.valid_to)
+    elif action == "delete":
+        effective_on = body.valid_to or body.valid_from or date.today()
+        await _ensure_tenant_operation_window(db, tenant_id, effective_on, effective_on)
 
     target = None
     if body.module_id:
@@ -1491,12 +1602,9 @@ async def _execute_subscription_module_action(
             )
         if target is None:
             raise HTTPException(status_code=404, detail={"error": "Subscription module row not found", "code": "NOT_FOUND"})
-        await db.execute(
-            delete(TenantSubscriptionModule)
-            .where(TenantSubscriptionModule.id == target.id)
-            .execution_options(synchronize_session=False)
-        )
+        await db.delete(target)
         await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+        await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
         await db.commit()
         return None
 
@@ -1509,6 +1617,7 @@ async def _execute_subscription_module_action(
         target.updated_by = actor_id
         target.updated_at = _now_utc()
         await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+        await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
         await db.commit()
         await db.refresh(target)
         return await _build_subscription_module_out(db, target)
@@ -1533,6 +1642,7 @@ async def _execute_subscription_module_action(
         db.add(row)
         await db.flush()
         await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+        await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
         await db.commit()
         await db.refresh(row)
         return await _build_subscription_module_out(db, row)
@@ -1573,6 +1683,7 @@ async def _execute_subscription_module_action(
                 effective_date=effective_from,
             )
             await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+            await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
             await db.commit()
             await db.refresh(target)
             return await _build_subscription_module_out(db, target)
@@ -1612,6 +1723,7 @@ async def _execute_subscription_module_action(
             effective_date=effective_from,
         )
         await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+        await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
         await db.commit()
         await db.refresh(new_row)
         return await _build_subscription_module_out(db, new_row)
@@ -1687,6 +1799,7 @@ async def _execute_subscription_module_action(
                 effective_date=effective_from,
             )
         await _sync_subscription_header_from_date(db, subscription, as_of=date.today())
+        await _sync_subscription_to_billing(db, subscription, actor_id=actor_id, as_of=date.today())
         await db.commit()
         await db.refresh(new_row)
         return await _build_subscription_module_out(db, new_row)
@@ -1806,28 +1919,19 @@ async def apply_tenant_sync(
     await _ensure_tenant_operation_window(db, tenant_id, effective_from)
     template_defaults = await _load_template_defaults(db, template.id)
     # Build existing seat map for Option-C (take max of template vs existing)
-    current_module_rows = await load_subscription_modules(db, current_subscription.id)
-    existing_seats: dict[str, int] = {row.module_slug: row.seats for row in current_module_rows}
-
-    new_subscription = await close_and_create(
+    new_subscription, existing_seats = await _upsert_subscription_for_effective_date(
         db,
-        TenantSubscription,
-        tenant_id,
-        {
+        tenant_id=tenant_id,
+        current_subscription=current_subscription,
+        subscription_payload={
             "template_id": template.id,
             "billing_cycle": template.default_billing_cycle,
             "currency": current_subscription.currency,
             "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
             "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
         },
-        current_user.id,
-        new_valid_from=effective_from,
-    )
-    await align_subscription_modules_to_subscription(
-        db,
-        subscription_id=current_subscription.id,
-        valid_to=effective_from - timedelta(days=1),
         actor_id=current_user.id,
+        effective_from=effective_from,
     )
     module_slugs = await _load_template_modules(db, template.id)
     await _materialize_subscription_modules(
@@ -1838,6 +1942,7 @@ async def apply_tenant_sync(
         explicit_module_slugs=module_slugs,
         existing_seats=existing_seats,
     )
+    await _sync_subscription_to_billing(db, new_subscription, actor_id=current_user.id, as_of=effective_from)
     await db.commit()
     return await _build_tenant_out(tenant, db)
 
@@ -1879,17 +1984,19 @@ async def get_tenant_history(
             TenantSubscriptionOut(
                 **_subscription_payload_from_row(
                     r,
-                    [
-                        module_row
-                        for module_row in subscription_module_rows
-                        if module_row.tenant_subscription_id == r.id
-                        and module_row.valid_from <= r.valid_from
-                        and (module_row.valid_to is None or module_row.valid_to >= r.valid_from)
-                    ],
+                    effective_rows,
                     user_lookup,
+                    await _subscription_pricing_summary(db, r, effective_rows, as_of=r.valid_from),
                 )
             )
             for r in subscription_rows
+            for effective_rows in [[
+                module_row
+                for module_row in subscription_module_rows
+                if module_row.tenant_subscription_id == r.id
+                and module_row.valid_from <= r.valid_from
+                and (module_row.valid_to is None or module_row.valid_to >= r.valid_from)
+            ]]
         ],
         "subscription_modules": [_serialize_temporal_row(r, TenantSubscriptionModuleOut, user_lookup) for r in subscription_module_rows],
         "status": [_serialize_temporal_row(r, TenantStatusOut, user_lookup) for r in status_rows],

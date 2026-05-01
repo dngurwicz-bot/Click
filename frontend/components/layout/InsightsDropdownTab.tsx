@@ -21,6 +21,7 @@ export function InsightsDropdownTab({
   
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
+  const [savedTemplates, setSavedTemplates] = useState<SavedReportView[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
@@ -38,10 +39,12 @@ export function InsightsDropdownTab({
     if (!hasLoaded) {
       Promise.all([
         api.get<{ reports: ReportCatalogItem[] }>("/api/insights/reports/catalog"),
-        api.get<SavedReportView[]>("/api/insights/reports/saved")
-      ]).then(([catalogRes, savedRes]) => {
+        api.get<SavedReportView[]>("/api/insights/reports/saved?kind=report"),
+        api.get<SavedReportView[]>("/api/insights/reports/saved?kind=template")
+      ]).then(([catalogRes, savedRes, templateRes]) => {
         setCatalog(catalogRes.reports);
         setSavedReports(savedRes);
+        setSavedTemplates(templateRes);
         setHasLoaded(true);
       }).catch(console.error);
     }
@@ -58,6 +61,12 @@ export function InsightsDropdownTab({
     setIsOpen(false);
     onNavigate(`/admin/reports?saved=${id}`);
     window.dispatchEvent(new CustomEvent('load-report', { detail: { type: 'saved', id } }));
+  };
+
+  const handleSelectSavedTemplate = (id: string) => {
+    setIsOpen(false);
+    onNavigate(`/admin/reports?saved_template=${id}`);
+    window.dispatchEvent(new CustomEvent('load-report', { detail: { type: 'saved-template', id } }));
   };
 
   return (
@@ -118,6 +127,31 @@ export function InsightsDropdownTab({
             ))}
             {hasLoaded && catalog.length === 0 && (
               <div className="px-3 py-2 text-xs text-slate-400">אין דוחות במערכת</div>
+            )}
+          </div>
+
+          <div className="border-y border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            התבניות שלי
+          </div>
+          <div className="py-1 max-h-[160px] overflow-y-auto">
+            {savedTemplates.map(item => (
+              <button
+                key={item.id}
+                onClick={() => handleSelectSavedTemplate(item.id)}
+                className="flex w-full items-start gap-2 px-3 py-2 text-xs transition text-slate-700 hover:bg-slate-50 text-right"
+              >
+                <FileText size={13} className="text-brand-500 shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-0.5 w-full pr-0">
+                  <div className="flex items-center justify-between w-full">
+                    <span className="font-medium text-slate-800 line-clamp-1">{item.name}</span>
+                    {item.visibility === "shared" && <Share2 size={10} className="text-slate-400 shrink-0" />}
+                  </div>
+                  <span className="text-[10px] text-slate-500 line-clamp-1">{item.dataset}</span>
+                </div>
+              </button>
+            ))}
+            {hasLoaded && savedTemplates.length === 0 && (
+              <div className="px-3 py-2 text-xs text-slate-400">אין תבניות שמורות</div>
             )}
           </div>
 

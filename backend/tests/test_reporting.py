@@ -35,6 +35,7 @@ class _FakeSession:
     def __init__(self, execute_results):
         self.execute_results = list(execute_results)
         self.added = []
+        self.deleted = []
 
     async def execute(self, _query):
         return self.execute_results.pop(0)
@@ -50,6 +51,10 @@ class _FakeSession:
             row.id = uuid4()
         if getattr(row, "created_at", None) is None:
             row.created_at = datetime.now(UTC)
+        return None
+
+    async def delete(self, row):
+        self.deleted.append(row)
         return None
 
 
@@ -308,6 +313,18 @@ def test_dataset_metadata_exposes_new_system_fields_and_summary_datasets():
     assert "seat_distribution" in reporting.DATASET_MAP
 
 
+def test_all_report_fields_include_detailed_help_and_valid_relations():
+    for dataset in reporting.DATASETS:
+        field_ids = {field.id for field in dataset.fields}
+        for field in dataset.fields:
+            assert field.help.summary.strip(), f"{dataset.id}.{field.id} missing help summary"
+            assert field.help.details.strip(), f"{dataset.id}.{field.id} missing help details"
+            assert len(field.help.details.strip()) >= 40, f"{dataset.id}.{field.id} help details too short"
+            assert len(field.help.notes) >= 2, f"{dataset.id}.{field.id} missing help notes"
+            for related_field in field.help.related_fields:
+                assert related_field in field_ids, f"{dataset.id}.{field.id} references unknown related field {related_field}"
+
+
 @pytest.mark.asyncio
 async def test_execute_report_query_filters_new_dataset(monkeypatch):
     async def fake_load(_db, _as_of):
@@ -372,6 +389,35 @@ async def test_execute_report_query_groups_permissions(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_execute_report_query_detail_mode_dedupes_selected_columns(monkeypatch):
+    async def fake_load(_db, _as_of):
+        return {
+            "master_dataset": [
+                {"org_number": 10006, "identity_name_he": "ארגון דוגמא", "record_type": "tenant_snapshot", "record_key": "a"},
+                {"org_number": 10006, "identity_name_he": "ארגון דוגמא", "record_type": "contact", "record_key": "b"},
+                {"org_number": 10006, "identity_name_he": "ארגון דוגמא", "record_type": "address", "record_key": "c"},
+            ]
+        }
+
+    monkeypatch.setattr(reporting, "_load_snapshot_rows", fake_load)
+
+    result = await reporting.execute_report_query(
+        None,
+        ReportQueryRequest(
+            definition=ReportDefinition(
+                dataset="master_dataset",
+                columns=["org_number", "identity_name_he"],
+                limit=25,
+            )
+        ),
+    )
+
+    assert result.total == 1
+    assert result.rows == [{"org_number": "10006", "identity_name_he": "ארגון דוגמא"}]
+    assert result.summary[0].value == "1"
+
+
+@pytest.mark.asyncio
 async def test_run_saved_report_normalizes_legacy_dataset(monkeypatch):
     owner_id = uuid4()
     row = SimpleNamespace(
@@ -396,6 +442,53 @@ async def test_run_saved_report_normalizes_legacy_dataset(monkeypatch):
     result = await reporting.run_saved_report(db, row.id, _current_user())
 
     assert result.total == 1
+
+
+@pytest.mark.asyncio
+async def test_list_saved_reports_filters_by_kind():
+    report_row = SimpleNamespace(
+        id=uuid4(),
+        name="Monthly Report",
+        description=None,
+        kind="report",
+        dataset="tenant_snapshot_full",
+        visibility="personal",
+        owner_id=uuid4(),
+        definition_json=ReportDefinition(dataset="tenant_snapshot_full", columns=["org_number"]).model_dump(mode="json"),
+        created_at=datetime.now(UTC),
+        updated_at=None,
+    )
+    template_row = SimpleNamespace(
+        id=uuid4(),
+        name="Base Template",
+        description=None,
+        kind="template",
+        dataset="tenant_snapshot_full",
+        visibility="shared",
+        owner_id=uuid4(),
+        definition_json=ReportDefinition(dataset="tenant_snapshot_full", columns=["identity_name_he"]).model_dump(mode="json"),
+        created_at=datetime.now(UTC),
+        updated_at=None,
+    )
+    db = _FakeSession([_TupleResult([(report_row, "Owner A"), (template_row, "Owner B")])])
+
+    items = await reporting.list_saved_reports(db, _current_user(), "template")
+
+    assert len(items) == 1
+    assert items[0].kind == "template"
+    assert items[0].name == "Base Template"
+
+
+@pytest.mark.asyncio
+async def test_delete_saved_report_requires_owner():
+    owner_id = uuid4()
+    row = SimpleNamespace(id=uuid4(), owner_id=owner_id)
+    db = _FakeSession([_ScalarResult(row)])
+
+    with pytest.raises(PermissionError):
+        await reporting.delete_saved_report(db, row.id, _current_user())
+
+    assert db.deleted == []
 
 
 @pytest.mark.asyncio

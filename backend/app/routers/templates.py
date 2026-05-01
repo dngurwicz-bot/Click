@@ -256,6 +256,15 @@ def _resolve_module_entries(
     # Legacy flat list — convert, preserving no per-module override
     return [TemplateModuleEntry(module_slug=s, seats_default=None) for s in body_module_slugs]
 
+
+def _require_module_entries(entries: list[TemplateModuleEntry]) -> list[TemplateModuleEntry]:
+    if not entries:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "Template must include at least one module", "code": "TEMPLATE_MODULE_REQUIRED"},
+        )
+    return entries
+
 @router.get("", response_model=list[TemplateOut])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
@@ -291,7 +300,7 @@ async def create_template(
     db.add(new_template)
     await db.flush()
     await db.refresh(new_template)
-    await _save_module_entries(db, new_template.id, _resolve_module_entries(body.modules, body.module_slugs))
+    await _save_module_entries(db, new_template.id, _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs)))
     await _save_template_defaults(
         db,
         new_template.id,
@@ -330,7 +339,7 @@ async def update_template(
         template.valid_to = body.valid_to
 
     # TemplateCreate.module_slugs/modules defaults to [] — treat as "replace with provided list"
-    await _save_module_entries(db, template_id, _resolve_module_entries(body.modules, body.module_slugs))
+    await _save_module_entries(db, template_id, _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs)))
     await _save_template_defaults(
         db,
         template_id,
@@ -349,18 +358,13 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("templates", "edit")),
 ):
-    """Hard delete a template by id."""
+    """Deactivate a template by id. Templates are historical billing inputs and are not hard-deleted."""
     result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail={"error": "Template not found", "code": "NOT_FOUND"})
 
-    await _delete_template_dependents(db, template_id)
-    await db.execute(
-        delete(OrgTemplate)
-        .where(OrgTemplate.id == template_id)
-        .execution_options(synchronize_session=False)
-    )
+    template.is_active = False
     await db.commit()
     return {"ok": True}
 
@@ -413,12 +417,12 @@ async def template_record_action(
 
     action = body.action or "update"
 
-    # ── Action: delete — hard-delete this specific row ───────────────────────
+    # ── Action: delete — deactivate this specific row ────────────────────────
     if action == "delete":
-        await _delete_template_dependents(db, template_id)
         await db.execute(
-            delete(OrgTemplate)
+            update(OrgTemplate)
             .where(OrgTemplate.id == template_id)
+            .values(is_active=False)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
@@ -491,7 +495,7 @@ async def template_record_action(
                 .execution_options(synchronize_session=False)
             )
             if body.modules is not None or body.module_slugs is not None:
-                entries = _resolve_module_entries(body.modules, body.module_slugs or [])
+                entries = _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs or []))
                 await _save_module_entries(db, template_id, entries)
             current_defaults = await _load_template_defaults(db, template_id)
             await _save_template_defaults(
@@ -525,9 +529,9 @@ async def template_record_action(
             await db.refresh(new_row)
             # Copy modules from old row unless new ones are provided
             if body.modules is not None or body.module_slugs is not None:
-                entries_to_copy = _resolve_module_entries(body.modules, body.module_slugs or [])
+                entries_to_copy = _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs or []))
             else:
-                entries_to_copy = await _load_module_entries(db, template_id)
+                entries_to_copy = _require_module_entries(await _load_module_entries(db, template_id))
             await _save_module_entries(db, new_row.id, entries_to_copy)
             anchor_defaults = await _load_template_defaults(db, template_id)
             await _save_template_defaults(
@@ -567,7 +571,7 @@ async def template_record_action(
         db.add(new_row)
         await db.flush()
         await db.refresh(new_row)
-        await _save_module_entries(db, new_row.id, _resolve_module_entries(body.modules, body.module_slugs or []))
+        await _save_module_entries(db, new_row.id, _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs or [])))
         await _save_template_defaults(
             db,
             new_row.id,
@@ -704,9 +708,9 @@ async def template_record_action(
         await db.refresh(new_row)
         # Copy modules from anchor unless body provides explicit ones
         if body.modules is not None or body.module_slugs is not None:
-            entries_for_new = _resolve_module_entries(body.modules, body.module_slugs or [])
+            entries_for_new = _require_module_entries(_resolve_module_entries(body.modules, body.module_slugs or []))
         else:
-            entries_for_new = await _load_module_entries(db, template_id)
+            entries_for_new = _require_module_entries(await _load_module_entries(db, template_id))
         await _save_module_entries(db, new_row.id, entries_for_new)
         anchor_defaults = await _load_template_defaults(db, template_id)
         await _save_template_defaults(
