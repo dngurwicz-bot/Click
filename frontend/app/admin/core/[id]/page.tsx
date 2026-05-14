@@ -187,6 +187,8 @@ interface LegacyEmployeeIdentity {
   legal_id_number?: string | null;
   birth_date?: string | null;
   marital_status?: string | null;
+  nationality?: string | null;
+  children_count?: number | null;
   country?: string | null;
   city?: string | null;
   postal_code?: string | null;
@@ -290,7 +292,9 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
       personal: identityHistory.map((row) => ({
         id: row.id,
         birth_date: row.birth_date ?? undefined,
+        citizenship1: row.nationality ?? undefined,
         marital_status: row.marital_status ?? undefined,
+        num_children: row.children_count ?? undefined,
         valid_from: row.valid_from,
         valid_to: row.valid_to ?? undefined,
         created_at: row.created_at,
@@ -640,6 +644,11 @@ function TemporalModal({
     setSaving(true);
     setError(null);
 
+    const requestPath =
+      state.section === "identity" || state.section === "personal" || state.section === "contact"
+        ? `/api/core/employees/${employeeId}/identity/record`
+        : `/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`;
+
     const body: Record<string, unknown> = {
       action: mode,
       valid_from: validFrom || todayIso(),
@@ -656,29 +665,24 @@ function TemporalModal({
         Object.assign(body, {
           first_name: form.first_name?.trim() || undefined,
           last_name: form.last_name?.trim() || undefined,
-          id_number: form.id_number?.trim() || undefined,
+          legal_id_number: form.id_number?.trim() || undefined,
           gender: form.gender || undefined,
         });
       } else if (state.section === "personal") {
         Object.assign(body, {
           birth_date: toDate(form.birth_date),
-          birth_country: form.birth_country?.trim() || undefined,
-          citizenship1: form.citizenship1?.trim() || undefined,
-          citizenship2: form.citizenship2?.trim() || undefined,
           marital_status: form.marital_status || undefined,
-          num_children: form.num_children ? toNum(form.num_children) : undefined,
+          nationality: form.citizenship1?.trim() || undefined,
+          children_count: form.num_children ? toNum(form.num_children) : undefined,
         });
       } else if (state.section === "contact") {
         Object.assign(body, {
-          address1: form.address1?.trim() || undefined,
-          address2: form.address2?.trim() || undefined,
+          address_line1: form.address1?.trim() || undefined,
+          address_line2: form.address2?.trim() || undefined,
           city: form.city?.trim() || undefined,
-          zip_code: form.zip_code?.trim() || undefined,
+          postal_code: form.zip_code?.trim() || undefined,
           country: form.country?.trim() || undefined,
           phone: form.phone?.trim() || undefined,
-          mobile: form.mobile?.trim() || undefined,
-          home_phone: form.home_phone?.trim() || undefined,
-          fax: form.fax?.trim() || undefined,
           email: form.email?.trim() || undefined,
         });
       } else if (state.section === "employment") {
@@ -712,7 +716,7 @@ function TemporalModal({
     }
 
     try {
-      await api.put(`/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`, body);
+      await api.put(requestPath, body);
       onSaved();
       onClose();
     } catch (err) {
