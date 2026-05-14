@@ -4,6 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from types import SimpleNamespace
 from datetime import UTC, date, datetime
+from fastapi import HTTPException
 
 from app.database import get_db
 from app.main import app
@@ -288,7 +289,6 @@ async def test_update_identity_maps_id_number_to_model_column(monkeypatch):
         first_name="Diego",
         last_name="Gurbicz",
         id_number="313842650",
-        username="diegog",
     )
 
     await core_router.update_identity(
@@ -304,4 +304,30 @@ async def test_update_identity_maps_id_number_to_model_column(monkeypatch):
     assert data_fields["last_name"] == "Gurbicz"
     assert data_fields["legal_id_number"] == "313842650"
     assert "id_number" not in data_fields
-    assert "username" not in data_fields
+
+
+def test_temporal_action_body_rejects_invalid_date_window():
+    with pytest.raises(ValueError, match="תאריך סיום לא יכול להיות מוקדם מתאריך התחלה"):
+        core_router.TemporalActionBody(
+            action="update",
+            valid_from=date(2026, 5, 14),
+            valid_to=date(2026, 5, 13),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "payload", "expected_error"),
+    [
+        ("first_name", {"first_name": "   ", "last_name": "Levi"}, "שם פרטי הוא שדה חובה"),
+        ("last_name", {"first_name": "Dana", "last_name": "   "}, "שם משפחה הוא שדה חובה"),
+        ("id_number", {"first_name": "Dana", "last_name": "Levi", "id_number": "12A"}, "תעודת זהות חייב להכיל ספרות בלבד"),
+    ],
+)
+def test_build_identity_temporal_data_rejects_invalid_supported_fields(field_name, payload, expected_error):
+    body = core_router.TemporalActionBody(action="update", **payload)
+
+    with pytest.raises(HTTPException) as exc_info:
+        core_router._build_identity_temporal_data(body)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["error"] == expected_error

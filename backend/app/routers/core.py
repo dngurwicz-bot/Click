@@ -118,15 +118,8 @@ class TemporalActionBody(BaseModel):
     # identity fields
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    first_name_en: Optional[str] = None
-    last_name_en: Optional[str] = None
     id_number: Optional[str] = None
-    title: Optional[str] = None
     gender: Optional[str] = None
-    username: Optional[str] = None
-    api_username: Optional[str] = None
-    is_partner: Optional[bool] = None
-    is_manager: Optional[bool] = None
     # personal fields
     birth_date: Optional[date] = None
     birth_country: Optional[str] = None
@@ -167,6 +160,12 @@ class TemporalActionBody(BaseModel):
     fixed_amount: Optional[Decimal] = None
     signature_date: Optional[date] = None
 
+    @model_validator(mode="after")
+    def _validate_temporal_window(self) -> "TemporalActionBody":
+        if self.valid_from and self.valid_to and self.valid_to < self.valid_from:
+            raise ValueError("תאריך סיום לא יכול להיות מוקדם מתאריך התחלה")
+        return self
+
 
 class EventBody(BaseModel):
     event_type: str
@@ -189,15 +188,8 @@ def _ser_identity(r: EmployeeIdentity) -> dict[str, Any]:
         "id": str(r.id),
         "first_name": r.first_name,
         "last_name": r.last_name,
-        "first_name_en": r.first_name_en,
-        "last_name_en": r.last_name_en,
         "id_number": r.id_number,
-        "title": r.title,
         "gender": r.gender,
-        "username": r.username,
-        "api_username": r.api_username,
-        "is_partner": r.is_partner,
-        "is_manager": r.is_manager,
         "valid_from": _fmtd(r.valid_from),
         "valid_to": _fmtd(r.valid_to),
         "created_at": _fmtdt(r.created_at),
@@ -212,30 +204,29 @@ def _build_identity_temporal_data(body: "TemporalActionBody") -> dict[str, Any]:
     data: dict[str, Any] = {}
 
     if body.first_name is not None:
-        data["first_name"] = body.first_name
+        cleaned = body.first_name.strip()
+        if not cleaned:
+            raise HTTPException(status_code=400, detail={"error": "שם פרטי הוא שדה חובה", "code": "BAD_FIRST_NAME"})
+        data["first_name"] = cleaned
     if body.last_name is not None:
-        data["last_name"] = body.last_name
+        cleaned = body.last_name.strip()
+        if not cleaned:
+            raise HTTPException(status_code=400, detail={"error": "שם משפחה הוא שדה חובה", "code": "BAD_LAST_NAME"})
+        data["last_name"] = cleaned
     if body.gender is not None:
         data["gender"] = body.gender
 
     if body.id_number is not None:
+        cleaned_id = body.id_number.strip()
+        if cleaned_id:
+            try:
+                _validate_digits(cleaned_id, "תעודת זהות")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail={"error": str(exc), "code": "BAD_ID_NUMBER"}) from exc
         if "id_number" in columns:
-            data["id_number"] = body.id_number
+            data["id_number"] = cleaned_id or None
         elif "legal_id_number" in columns:
-            data["legal_id_number"] = body.id_number
-
-    optional_identity_fields = {
-        "first_name_en": body.first_name_en,
-        "last_name_en": body.last_name_en,
-        "title": body.title,
-        "username": body.username,
-        "api_username": body.api_username,
-        "is_partner": body.is_partner,
-        "is_manager": body.is_manager,
-    }
-    for key, value in optional_identity_fields.items():
-        if value is not None and key in columns:
-            data[key] = value
+            data["legal_id_number"] = cleaned_id or None
 
     return data
 

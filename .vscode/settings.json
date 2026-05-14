@@ -1,0 +1,19 @@
+{
+  "git.autoRepositoryDetection": false,
+  "git.detectWorktrees": false,
+  "git.openRepositoryInParentFolders": "never",
+  "git.repositoryScanMaxDepth": 1,
+  "git.repositoryScanIgnoredFolders": [
+    ".claude/worktrees"
+  ],
+  "git.ignoredRepositories": [
+    "C:/Click/.claude/worktrees",
+    "C:/Click/.claude/worktrees/gracious-fermi-fe943e",
+    "C:/Click/.claude/worktrees/jovial-knuth-76a02c",
+    "C:/Click/.claude/worktrees/upbeat-gould-1758b2",
+    "C:/Click/.claude/worktrees/zealous-goldstine-5b21f5"
+  ],
+  "files.exclude": {
+    "**/.claude/worktrees": true
+  }
+}

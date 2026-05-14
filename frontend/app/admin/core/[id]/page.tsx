@@ -30,15 +30,8 @@ interface IdentityRow {
   id: string;
   first_name: string;
   last_name: string;
-  first_name_en?: string;
-  last_name_en?: string;
   id_number?: string;
-  title?: string;
   gender?: string;
-  username?: string;
-  api_username?: string;
-  is_partner?: boolean;
-  is_manager?: boolean;
   valid_from: string;
   valid_to?: string | null;
   created_at?: string;
@@ -375,7 +368,7 @@ function todayIso() {
 }
 
 function getApiError(err: unknown, fallback: string) {
-  if (err instanceof ApiRequestError) return err.error ?? fallback;
+  if (err instanceof ApiRequestError) return err.error ?? err.message ?? fallback;
   const candidate = err as { error?: string; details?: { error?: string } };
   return candidate?.error ?? candidate?.details?.error ?? fallback;
 }
@@ -663,15 +656,8 @@ function TemporalModal({
         Object.assign(body, {
           first_name: form.first_name?.trim() || undefined,
           last_name: form.last_name?.trim() || undefined,
-          first_name_en: form.first_name_en?.trim() || undefined,
-          last_name_en: form.last_name_en?.trim() || undefined,
           id_number: form.id_number?.trim() || undefined,
-          title: form.title?.trim() || undefined,
           gender: form.gender || undefined,
-          username: form.username?.trim() || undefined,
-          api_username: form.api_username?.trim() || undefined,
-          is_partner: form.is_partner ? form.is_partner === "true" : undefined,
-          is_manager: form.is_manager ? form.is_manager === "true" : undefined,
         });
       } else if (state.section === "personal") {
         Object.assign(body, {
@@ -781,54 +767,22 @@ function TemporalModal({
           {mode !== "delete" && mode !== "close" ? (
             <>
               {state.section === "identity" ? (
-                <div className="space-y-4">
-                  <ModalSection title="זהות בסיסית" description="פרטי הזיהוי העיקריים של העובד כפי שהם מוצגים במערכת.">
-                    <div className={ADMIN_MODAL_GRID}>
-                      <ModalTextField label="שם פרטי" required value={form.first_name ?? ""} onChange={(value) => setField("first_name", value)} />
-                      <ModalTextField label="שם משפחה" required value={form.last_name ?? ""} onChange={(value) => setField("last_name", value)} />
-                      <ModalTextField label="שם פרטי (לועזית)" value={form.first_name_en ?? ""} onChange={(value) => setField("first_name_en", value)} />
-                      <ModalTextField label="שם משפחה (לועזית)" value={form.last_name_en ?? ""} onChange={(value) => setField("last_name_en", value)} />
-                      <ModalTextField label="ת.ז." value={form.id_number ?? ""} onChange={(value) => setField("id_number", value)} />
-                      <ModalTextField label="תואר" value={form.title ?? ""} onChange={(value) => setField("title", value)} />
-                      <ModalSelectField
-                        label="מגדר"
-                        value={form.gender ?? ""}
-                        onChange={(value) => setField("gender", value)}
-                        options={[
-                          { value: "M", label: "זכר" },
-                          { value: "F", label: "נקבה" },
-                        ]}
-                      />
-                    </div>
-                  </ModalSection>
-
-                  <ModalSection title="הרשאות וסיווג" description="נתוני גישה וסימוני תפקיד שמשפיעים על התנהגות העובד במערכת.">
-                    <div className={ADMIN_MODAL_GRID}>
-                      <ModalTextField label="שם משתמש" value={form.username ?? ""} onChange={(value) => setField("username", value)} />
-                      <ModalTextField label="שם API" value={form.api_username ?? ""} onChange={(value) => setField("api_username", value)} />
-                      <ModalSelectField
-                        label="שותף"
-                        value={form.is_partner ?? ""}
-                        onChange={(value) => setField("is_partner", value)}
-                        placeholder="לא הוגדר"
-                        options={[
-                          { value: "true", label: "כן" },
-                          { value: "false", label: "לא" },
-                        ]}
-                      />
-                      <ModalSelectField
-                        label="מנהל"
-                        value={form.is_manager ?? ""}
-                        onChange={(value) => setField("is_manager", value)}
-                        placeholder="לא הוגדר"
-                        options={[
-                          { value: "true", label: "כן" },
-                          { value: "false", label: "לא" },
-                        ]}
-                      />
-                    </div>
-                  </ModalSection>
-                </div>
+                <ModalSection title="זהות בסיסית" description="פרטי הזיהוי העיקריים של העובד כפי שהם נתמכים כיום בכרטיס העובד.">
+                  <div className={ADMIN_MODAL_GRID}>
+                    <ModalTextField label="שם פרטי" required value={form.first_name ?? ""} onChange={(value) => setField("first_name", value)} />
+                    <ModalTextField label="שם משפחה" required value={form.last_name ?? ""} onChange={(value) => setField("last_name", value)} />
+                    <ModalTextField label="ת.ז." value={form.id_number ?? ""} onChange={(value) => setField("id_number", value)} />
+                    <ModalSelectField
+                      label="מגדר"
+                      value={form.gender ?? ""}
+                      onChange={(value) => setField("gender", value)}
+                      options={[
+                        { value: "M", label: "זכר" },
+                        { value: "F", label: "נקבה" },
+                      ]}
+                    />
+                  </div>
+                </ModalSection>
               ) : null}
 
               {state.section === "personal" ? (
@@ -1270,7 +1224,7 @@ function DeleteEmployeeModal({
 }: {
   tenantId: string;
   employeeId: string;
-  employeeNumber: number;
+  employeeNumber: string;
   fullName: string;
   onClose: () => void;
   onDeleted: () => void;
@@ -1434,7 +1388,6 @@ export default function EmployeeCardPage() {
         { key: "first_name", label: "שם פרטי" },
         { key: "last_name", label: "שם משפחה" },
         { key: "id_number", label: "ת.ז." },
-        { key: "title", label: "תואר" },
         { key: "gender", label: "מגדר" },
         { key: "valid_from", label: "מ-" },
         { key: "valid_to", label: "עד" },
@@ -1443,7 +1396,6 @@ export default function EmployeeCardPage() {
         first_name: row.first_name,
         last_name: row.last_name,
         id_number: row.id_number ?? "—",
-        title: row.title ?? "—",
         gender: row.gender ? GENDER_MAP[row.gender] ?? row.gender : "—",
         valid_from: fmtDate(row.valid_from),
         valid_to: fmtDate(row.valid_to),
@@ -1537,33 +1489,6 @@ export default function EmployeeCardPage() {
       onRowDoubleClick: (index) => {
         const row = employmentRows[index];
         if (row) openTemporal("employment", toPrefillRecord(row));
-      },
-    },
-    {
-      id: "settings",
-      label: "הגדרות",
-      temporalFilter: true,
-      emptyMessage: "אין הגדרות מתקדמות",
-      columns: [
-        { key: "username", label: "שם משתמש" },
-        { key: "api_username", label: "שם API" },
-        { key: "is_partner", label: "שותף" },
-        { key: "is_manager", label: "מנהל" },
-        { key: "valid_from", label: "מ-" },
-        { key: "valid_to", label: "עד" },
-      ],
-      rows: buildTemporalRows(identityRows, (row) => ({
-        username: row.username ?? "—",
-        api_username: row.api_username ?? "—",
-        is_partner: row.is_partner ? "כן" : "לא",
-        is_manager: row.is_manager ? "כן" : "לא",
-        valid_from: fmtDate(row.valid_from),
-        valid_to: fmtDate(row.valid_to),
-      })),
-      onAddClick: () => openTemporal("identity"),
-      onRowDoubleClick: (index) => {
-        const row = identityRows[index];
-        if (row) openTemporal("identity", toPrefillRecord(row));
       },
     },
     {
