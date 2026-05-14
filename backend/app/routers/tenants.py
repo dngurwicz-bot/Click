@@ -123,7 +123,7 @@ def _sanitize_extension(value: str | None, content_type: str | None) -> str:
 
 
 async def _ensure_public_logo_bucket() -> None:
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
@@ -133,8 +133,8 @@ async def _ensure_public_logo_bucket() -> None:
         response = await client.post(
             f"{settings.SUPABASE_URL}/storage/v1/bucket",
             headers={
-                "apikey": settings.SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
                 "Content-Type": "application/json",
             },
             json={"id": _LOGO_BUCKET, "name": _LOGO_BUCKET, "public": True},
@@ -166,8 +166,8 @@ async def _upload_logo_to_storage(*, content: bytes, content_type: str, storage_
         response = await client.post(
             f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
             headers={
-                "apikey": settings.SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
                 "Content-Type": content_type,
                 "x-upsert": "true",
             },
@@ -178,8 +178,8 @@ async def _upload_logo_to_storage(*, content: bytes, content_type: str, storage_
                 response = await client.put(
                     f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
                     headers={
-                        "apikey": settings.SUPABASE_SERVICE_KEY,
-                        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                        "apikey": settings.SUPABASE_SECRET_KEY,
+                        "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
                         "Content-Type": content_type,
                         "x-upsert": "true",
                     },
@@ -224,7 +224,7 @@ async def _delete_logo_from_storage(public_url: str | None) -> None:
     object_path = _extract_storage_object_path(public_url)
     if not object_path:
         return
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
@@ -234,8 +234,8 @@ async def _delete_logo_from_storage(public_url: str | None) -> None:
         response = await client.delete(
             f"{settings.SUPABASE_URL}/storage/v1/object/{_LOGO_BUCKET}/{object_path}",
             headers={
-                "apikey": settings.SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
             },
         )
 

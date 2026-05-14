@@ -26,3 +26,8 @@ out/
 .claude/worktrees/
 .codex-temp/
 tmp_alembic_core.sql
+
+# Local secrets — never commit
+.claude/settings.local.json
+backend/click.db
+api_temp.json

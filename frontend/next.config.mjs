@@ -5,16 +5,23 @@ const proxyApiUrl =
     ? rawApiUrl.replace("://localhost", "://127.0.0.1")
     : rawApiUrl;
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseHostname = supabaseUrl
+  ? new URL(supabaseUrl).hostname
+  : "";
+
 const nextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'lvulwhyzdqqwpccksxem.supabase.co',
-        port: '',
-        pathname: '/storage/v1/object/public/**',
-      },
-    ],
+    remotePatterns: supabaseHostname
+      ? [
+          {
+            protocol: "https",
+            hostname: supabaseHostname,
+            port: "",
+            pathname: "/storage/v1/object/public/**",
+          },
+        ]
+      : [],
   },
   async rewrites() {
     return [
