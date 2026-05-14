@@ -78,7 +78,7 @@ def _default_permissions_for_role(role: str) -> list:
 
 async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
     """Create user in Supabase Auth and return their UUID."""
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
@@ -87,8 +87,8 @@ async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
         resp = await client.post(
             f"{settings.SUPABASE_URL}/auth/v1/admin/users",
             headers={
-                "apikey": settings.SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
                 "Content-Type": "application/json",
             },
             json={"email": email, "password": password, "email_confirm": True},
@@ -106,14 +106,14 @@ async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
 
 async def _delete_supabase_user(user_id: uuid.UUID) -> None:
     """Remove user from Supabase Auth (best-effort, no raise on failure)."""
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         return
     async with httpx.AsyncClient() as client:
         await client.delete(
             f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
             headers={
-                "apikey": settings.SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
             },
             timeout=10,
         )
