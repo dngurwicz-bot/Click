@@ -23,3 +23,8 @@ out/
 # Misc
 *.log
 .DS_Store
+
+# Local secrets — never commit
+.claude/settings.local.json
+backend/click.db
+api_temp.json
