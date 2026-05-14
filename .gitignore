@@ -23,3 +23,6 @@ out/
 # Misc
 *.log
 .DS_Store
+.claude/worktrees/
+.codex-temp/
+tmp_alembic_core.sql
