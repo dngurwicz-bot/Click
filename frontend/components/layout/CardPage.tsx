@@ -33,8 +33,9 @@ export interface ChildRow extends Record<string, React.ReactNode> {
 export interface ChildTab {
   id: string;
   label: string;
-  columns: ChildColumn[];
-  rows: ChildRow[];
+  columns?: ChildColumn[];
+  rows?: ChildRow[];
+  content?: React.ReactNode;
   temporalFilter?: boolean;
   emptyMessage?: string;
   onRowDoubleClick?: (rowIndex: number) => void;
@@ -149,17 +150,17 @@ export function CardPage({
   const currentFormTab = formTabs.find((t) => t.id === activeFormTab);
   const currentChildTab = orderedChildTabs.find((t) => t.id === activeChildTab);
   const pageTemporalFilterEnabled = orderedChildTabs.some(
-    (tab) => tab.temporalFilter && tab.rows.some((row) => row._valid_from_raw),
+    (tab) => tab.temporalFilter && (tab.rows ?? []).some((row) => row._valid_from_raw),
   );
   const temporalFilterError = pageTemporalFilterEnabled
     ? getTemporalFilterError(pageTemporalFilter)
     : null;
   const currentTabTemporalFiltering = Boolean(
     currentChildTab?.temporalFilter &&
-    currentChildTab.rows.some((row) => row._valid_from_raw),
+    (currentChildTab.rows ?? []).some((row) => row._valid_from_raw),
   );
   const visibleRows = currentChildTab
-    ? currentChildTab.rows.filter((row) => {
+    ? (currentChildTab.rows ?? []).filter((row) => {
         if (!currentTabTemporalFiltering || temporalFilterError) return true;
         return overlapsTemporalFilter({
           rowFrom: row._valid_from_raw,
@@ -169,7 +170,7 @@ export function CardPage({
       })
     : [];
   const hiddenRowsCount = currentChildTab
-    ? Math.max(currentChildTab.rows.length - visibleRows.length, 0)
+    ? Math.max((currentChildTab.rows ?? []).length - visibleRows.length, 0)
     : 0;
   const rowsHiddenByTemporalFilter = Boolean(
     currentTabTemporalFiltering &&
@@ -202,7 +203,7 @@ export function CardPage({
   function renderEmptyState() {
     if (!currentChildTab) return "אין רשומות";
 
-    if (currentChildTab.rows.length === 0) {
+    if ((currentChildTab.rows ?? []).length === 0) {
       if (!currentChildTab.onAddClick) {
         return currentChildTab.emptyMessage ?? "אין רשומות";
       }
@@ -341,7 +342,7 @@ export function CardPage({
           onChange={setPageTemporalFilter}
           rowRanges={orderedChildTabs.flatMap((tab) => (
             tab.temporalFilter
-              ? tab.rows.map((row) => ({
+              ? (tab.rows ?? []).map((row) => ({
                   valid_from: row._valid_from_raw,
                   valid_to: row._valid_to_raw,
                 }))
@@ -421,12 +422,14 @@ export function CardPage({
             if (canUsePaneFocus) setActivePane("child");
           }}
         >
-          {currentChildTab && (
+          {currentChildTab?.content ? (
+            currentChildTab.content
+          ) : currentChildTab && (
             <>
               <table className="admin-data-table w-full text-xs border-collapse min-w-max">
                 <thead className="sticky top-0 z-10">
                   <tr>
-                    {currentChildTab.columns.map((col) => (
+                    {(currentChildTab.columns ?? []).map((col) => (
                       <th
                         key={col.key}
                         className={`text-right px-3 py-2 font-semibold text-slate-600
@@ -442,17 +445,17 @@ export function CardPage({
                   {visibleRows.length === 0 ? (
                     <tr
                       onClick={
-                        currentChildTab.rows.length === 0 && !currentChildTab.addDisabled
+                        (currentChildTab.rows ?? []).length === 0 && !currentChildTab.addDisabled
                           ? currentChildTab.onAddClick
                           : undefined
                       }
                       className={
-                        currentChildTab.rows.length === 0 && currentChildTab.onAddClick && !currentChildTab.addDisabled
+                        (currentChildTab.rows ?? []).length === 0 && currentChildTab.onAddClick && !currentChildTab.addDisabled
                           ? "cursor-pointer hover:bg-blue-50 transition-colors"
                           : ""
                       }
                     >
-                      <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
+                      <td colSpan={(currentChildTab.columns ?? []).length} className="text-center py-12 text-slate-400">
                         {renderEmptyState()}
                       </td>
                     </tr>
@@ -460,7 +463,7 @@ export function CardPage({
                     visibleRows.map((row, i) => {
                       const isCurrent = row._current === true;
                       const hasClick = !!currentChildTab.onRowDoubleClick;
-                      const originalIndex = currentChildTab.rows.indexOf(row);
+                      const originalIndex = (currentChildTab.rows ?? []).indexOf(row);
                       return (
                         <tr
                           key={originalIndex >= 0 ? originalIndex : i}
@@ -474,7 +477,7 @@ export function CardPage({
                                 : "bg-slate-50/60 hover:bg-slate-100 text-slate-600"
                           }`}
                         >
-                          {currentChildTab.columns.map((col) => (
+                          {(currentChildTab.columns ?? []).map((col) => (
                             <td key={col.key} className="px-3 py-1.5 border-b border-slate-100 border-l border-slate-100">
                               {row[col.key] ?? ""}
                             </td>

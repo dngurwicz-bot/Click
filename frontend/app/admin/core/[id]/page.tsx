@@ -44,10 +44,31 @@ interface PersonalRow {
   id: string;
   birth_date?: string;
   birth_country?: string;
+  birth_place?: string;
+  immigration_date?: string;
   citizenship1?: string;
   citizenship2?: string;
   marital_status?: string;
+  prev_marital_status?: string;
+  marital_status_change_date?: string;
   num_children?: number;
+  prev_surname?: string;
+  father_name?: string;
+  // spouse
+  spouse_first_name?: string;
+  spouse_last_name?: string;
+  spouse_id_number?: string;
+  spouse_workplace?: string;
+  spouse_birth_date?: string;
+  spouse_immigration_date?: string;
+  spouse_mobile?: string;
+  spouse_work_phone?: string;
+  // additional
+  license_number?: string;
+  license_issue_year?: string;
+  license_type?: string;
+  license_expiry?: string;
+  health_fund?: string;
   valid_from: string;
   valid_to?: string | null;
   created_at?: string;
@@ -82,10 +103,15 @@ interface EmploymentRow {
   org_unit_name?: string;
   position_id?: string;
   position_name?: string;
-  company?: string;
+  branch_name?: string;
+  work_site?: string;
   employment_type?: string;
+  employment_status?: string;
+  salary_type?: string;
   manager_id?: string;
+  manager_name?: string;
   start_date?: string;
+  end_date?: string;
   valid_from: string;
   valid_to?: string | null;
   created_at?: string;
@@ -96,10 +122,10 @@ interface EmploymentRow {
 
 interface CompensationRow {
   id: string;
-  comp_code?: string;
-  comp_name?: string;
-  amount?: number;
-  percentage?: number;
+  base_salary?: string | number;
+  currency?: string;
+  pay_cycle?: string;
+  cost_center?: string;
   valid_from: string;
   valid_to?: string | null;
   created_at?: string;
@@ -109,21 +135,42 @@ interface CompensationRow {
 }
 
 interface BankRow {
-  id: string;
-  payment_code?: string;
   bank_code?: string;
+  id: string;
   bank_name?: string;
   branch?: string;
+  branch_description?: string;
   account?: string;
-  pct_payment?: number;
-  fixed_amount?: number;
-  signature_date?: string;
+  account_holder_name?: string;
+  payment_method?: string;
+  pct_payment?: string | number;
+  fixed_amount?: string | number;
+  payment_priority?: number;
+  company_name?: string;
+  notes?: string;
   valid_from: string;
   valid_to?: string | null;
   created_at?: string;
   _current?: boolean;
   _valid_from_raw?: string;
   _valid_to_raw?: string | null;
+}
+
+interface ChildRow {
+  id: string;
+  first_name: string;
+  last_name?: string;
+  gender?: string;
+  id_number?: string;
+  birth_date?: string;
+  receives_allowance?: boolean;
+  recruitment_date?: string;
+  release_date?: string;
+  study_start_date?: string;
+  study_end_date?: string;
+  in_custody?: boolean;
+  notes?: string;
+  created_at?: string;
 }
 
 interface EventRow {
@@ -158,6 +205,7 @@ interface EmployeeCard {
   employment: EmploymentRow[];
   compensation: CompensationRow[];
   bank: BankRow[];
+  children: ChildRow[];
   events: EventRow[];
   training: TrainingRow[];
 }
@@ -211,7 +259,9 @@ interface LegacyEmployeeEmployment {
   position_title?: string | null;
   employment_status?: string | null;
   employment_type?: string | null;
+  salary_type?: string | null;
   start_date?: string | null;
+  end_date?: string | null;
   branch_name?: string | null;
   work_site?: string | null;
   valid_from: string;
@@ -219,24 +269,65 @@ interface LegacyEmployeeEmployment {
   created_at?: string;
 }
 
+interface LegacyEmployeeCompensation {
+  id: string;
+  base_salary?: string | null;
+  currency?: string | null;
+  pay_cycle?: string | null;
+  cost_center?: string | null;
+  valid_from: string;
+  valid_to?: string | null;
+  created_at?: string;
+}
+
+interface LegacyEmployeeBankAccount {
+  id: string;
+  bank_code?: string | null;
+  bank_name?: string | null;
+  branch_number?: string | null;
+  branch_description?: string | null;
+  account_number?: string | null;
+  account_holder_name?: string | null;
+  payment_method?: string | null;
+  payment_percent?: string | null;
+  fixed_amount?: string | null;
+  payment_priority?: number | null;
+  company_name?: string | null;
+  notes?: string | null;
+  valid_from: string;
+  valid_to?: string | null;
+  created_at?: string;
+}
+
+interface LegacyEmployeeCourse {
+  id: string;
+  course_name: string;
+  provider?: string | null;
+  started_on?: string | null;
+  completed_on?: string | null;
+  status?: string | null;
+  score?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
 interface LegacyEmployeeDetail {
   employee: LegacyEmployeeSummary;
   current_identity?: LegacyEmployeeIdentity | null;
   current_employment?: LegacyEmployeeEmployment | null;
+  current_compensation?: LegacyEmployeeCompensation | null;
+  current_bank_account?: LegacyEmployeeBankAccount | null;
   identity_history?: LegacyEmployeeIdentity[];
   employment_history?: LegacyEmployeeEmployment[];
+  compensation_history?: LegacyEmployeeCompensation[];
+  bank_accounts?: LegacyEmployeeBankAccount[];
   timeline?: Array<{
     id: string;
     event_type: string;
     effective_date: string;
     notes?: string | null;
   }>;
-  courses?: Array<{
-    id: string;
-    course_name: string;
-    completion_date?: string | null;
-    provider?: string | null;
-  }>;
+  courses?: LegacyEmployeeCourse[];
 }
 
 interface EmployeeOption {
@@ -249,9 +340,10 @@ interface LookupOption {
   id: string;
   code?: string;
   name: string;
+  title?: string;
 }
 
-type TemporalSection = "identity" | "personal" | "contact" | "employment" | "compensation" | "bank";
+type TemporalSection = "identity" | "personal" | "spouse" | "additional" | "contact" | "employment" | "compensation" | "bank";
 type TemporalMode = "add" | "update" | "set" | "close" | "delete";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -324,9 +416,15 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
         org_unit_name: row.org_unit_name ?? undefined,
         position_id: row.position_id ?? undefined,
         position_name: row.position_title ?? undefined,
+        branch_name: row.branch_name ?? undefined,
+        work_site: row.work_site ?? undefined,
         employment_type: row.employment_type ?? undefined,
+        employment_status: row.employment_status ?? undefined,
         manager_id: row.manager_employee_id ?? undefined,
+        manager_name: row.manager_name ?? undefined,
+        salary_type: row.salary_type ?? undefined,
         start_date: row.start_date ?? undefined,
+        end_date: row.end_date ?? undefined,
         valid_from: row.valid_from,
         valid_to: row.valid_to ?? undefined,
         created_at: row.created_at,
@@ -334,8 +432,41 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
         _valid_from_raw: row.valid_from,
         _valid_to_raw: row.valid_to ?? undefined,
       })),
-      compensation: [],
-      bank: [],
+      compensation: (card.compensation_history ?? (card.current_compensation ? [card.current_compensation] : [])).map((row) => ({
+        id: row.id,
+        base_salary: row.base_salary ?? undefined,
+        currency: row.currency ?? undefined,
+        pay_cycle: row.pay_cycle ?? undefined,
+        cost_center: row.cost_center ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      bank: (card.bank_accounts ?? (card.current_bank_account ? [card.current_bank_account] : [])).map((row) => ({
+        id: row.id,
+        bank_code: row.bank_code ?? undefined,
+        bank_name: row.bank_name ?? undefined,
+        branch: row.branch_number ?? undefined,
+        branch_description: row.branch_description ?? undefined,
+        account: row.account_number ?? undefined,
+        account_holder_name: row.account_holder_name ?? undefined,
+        payment_method: row.payment_method ?? undefined,
+        pct_payment: row.payment_percent ?? undefined,
+        fixed_amount: row.fixed_amount ?? undefined,
+        payment_priority: row.payment_priority ?? undefined,
+        company_name: row.company_name ?? undefined,
+        notes: row.notes ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      children: [],
       events: (card.timeline ?? []).map((row) => ({
         id: row.id,
         event_type: row.event_type,
@@ -345,8 +476,10 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
       training: (card.courses ?? []).map((row) => ({
         id: row.id,
         course_name: row.course_name,
-        course_date: row.completion_date ?? undefined,
+        course_date: row.completed_on ?? row.started_on ?? undefined,
+        score: row.score ?? undefined,
         institute: row.provider ?? undefined,
+        created_at: row.created_at,
       })),
     };
   }
@@ -359,6 +492,7 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
     employment: card.employment ?? [],
     compensation: card.compensation ?? [],
     bank: card.bank ?? [],
+    children: card.children ?? [],
     events: card.events ?? [],
     training: card.training ?? [],
   };
@@ -406,10 +540,11 @@ const MARITAL_MAP: Record<string, string> = {
 };
 
 const EMPLOYMENT_TYPE_MAP: Record<string, string> = {
-  full_time: "משרה מלאה",
-  part_time: "משרה חלקית",
-  contract: "חוזה",
-  freelance: "עצמאי",
+  employee: "עובד",
+  contractor: "קבלן",
+  temporary: "זמני",
+  intern: "מתמחה",
+  consultant: "יועץ",
 };
 
 function ModalSection({
@@ -543,6 +678,10 @@ function getSectionTitle(section: TemporalSection) {
       return "פרטים כלליים";
     case "personal":
       return "פרטים אישיים";
+    case "spouse":
+      return "פרטי בן הזוג";
+    case "additional":
+      return "פרטים נוספים";
     case "contact":
       return "פרטי קשר";
     case "employment":
@@ -634,7 +773,7 @@ function TemporalModal({
     }
 
     if (state.section === "compensation") {
-      return Boolean(form.comp_code?.trim() || form.comp_name?.trim());
+      return Boolean(form.amount?.trim());
     }
 
     return true;
@@ -644,18 +783,27 @@ function TemporalModal({
     setSaving(true);
     setError(null);
 
+    const requestMethod =
+      state.section === "bank" && !state.recordId && mode === "add" ? "post" : "put";
     const requestPath =
-      state.section === "identity" || state.section === "personal" || state.section === "contact"
+      state.section === "identity" || state.section === "personal" || state.section === "spouse" || state.section === "additional" || state.section === "contact"
         ? `/api/core/employees/${employeeId}/identity/record`
-        : `/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`;
+      : state.section === "employment"
+        ? `/api/core/employees/${employeeId}/employment/record`
+      : state.section === "compensation"
+        ? `/api/core/employees/${employeeId}/compensation/record`
+      : state.section === "bank" && state.recordId
+        ? `/api/core/employees/${employeeId}/bank-accounts/${state.recordId}/record`
+      : state.section === "bank"
+        ? `/api/core/employees/${employeeId}/bank-accounts`
+      : `/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`;
 
     const body: Record<string, unknown> = {
-      action: mode,
+      ...(requestMethod === "put" ? { action: mode } : {}),
       valid_from: validFrom || todayIso(),
     };
 
     if (validTo) body.valid_to = validTo;
-    if (state.recordId) body.record_id = state.recordId;
 
     const toNum = (value: string) => (value ? Number(value) : undefined);
     const toDate = (value: string) => value || undefined;
@@ -671,9 +819,36 @@ function TemporalModal({
       } else if (state.section === "personal") {
         Object.assign(body, {
           birth_date: toDate(form.birth_date),
+          birth_country: form.birth_country?.trim() || undefined,
+          birth_place: form.birth_place?.trim() || undefined,
+          immigration_date: toDate(form.immigration_date),
           marital_status: form.marital_status || undefined,
+          prev_marital_status: form.prev_marital_status || undefined,
+          marital_status_change_date: toDate(form.marital_status_change_date),
           nationality: form.citizenship1?.trim() || undefined,
+          citizenship2: form.citizenship2?.trim() || undefined,
           children_count: form.num_children ? toNum(form.num_children) : undefined,
+          prev_surname: form.prev_surname?.trim() || undefined,
+          father_name: form.father_name?.trim() || undefined,
+        });
+      } else if (state.section === "spouse") {
+        Object.assign(body, {
+          spouse_first_name: form.spouse_first_name?.trim() || undefined,
+          spouse_last_name: form.spouse_last_name?.trim() || undefined,
+          spouse_id_number: form.spouse_id_number?.trim() || undefined,
+          spouse_workplace: form.spouse_workplace?.trim() || undefined,
+          spouse_birth_date: toDate(form.spouse_birth_date),
+          spouse_immigration_date: toDate(form.spouse_immigration_date),
+          spouse_mobile: form.spouse_mobile?.trim() || undefined,
+          spouse_work_phone: form.spouse_work_phone?.trim() || undefined,
+        });
+      } else if (state.section === "additional") {
+        Object.assign(body, {
+          license_number: form.license_number?.trim() || undefined,
+          license_issue_year: form.license_issue_year?.trim() || undefined,
+          license_type: form.license_type?.trim() || undefined,
+          license_expiry: toDate(form.license_expiry),
+          health_fund: form.health_fund?.trim() || undefined,
         });
       } else if (state.section === "contact") {
         Object.assign(body, {
@@ -689,34 +864,46 @@ function TemporalModal({
         Object.assign(body, {
           org_unit_id: form.org_unit_id || undefined,
           position_id: form.position_id || undefined,
-          company: form.company?.trim() || undefined,
+          branch_name: form.company?.trim() || undefined,
+          work_site: form.work_site?.trim() || undefined,
           employment_type: form.employment_type || undefined,
-          manager_id: form.manager_id || undefined,
+          employment_status: form.employment_status || undefined,
+          salary_type: form.salary_type || undefined,
+          manager_employee_id: form.manager_id || undefined,
           start_date: toDate(form.start_date),
+          end_date: toDate(form.end_date),
         });
       } else if (state.section === "compensation") {
         Object.assign(body, {
-          comp_code: form.comp_code?.trim() || undefined,
-          comp_name: form.comp_name?.trim() || undefined,
-          amount: form.amount ? toNum(form.amount) : undefined,
-          percentage: form.percentage ? toNum(form.percentage) : undefined,
+          base_salary: form.amount ? toNum(form.amount) : undefined,
+          currency: form.currency?.trim() || undefined,
+          pay_cycle: form.pay_cycle || undefined,
+          cost_center: form.cost_center?.trim() || undefined,
         });
       } else if (state.section === "bank") {
         Object.assign(body, {
-          payment_code: form.payment_code?.trim() || undefined,
           bank_code: form.bank_code?.trim() || undefined,
           bank_name: form.bank_name?.trim() || undefined,
-          branch: form.branch?.trim() || undefined,
-          account: form.account?.trim() || undefined,
-          pct_payment: form.pct_payment ? toNum(form.pct_payment) : undefined,
+          branch_number: form.branch?.trim() || undefined,
+          branch_description: form.branch_description?.trim() || undefined,
+          account_number: form.account?.trim() || undefined,
+          account_holder_name: form.account_holder_name?.trim() || undefined,
+          payment_method: form.payment_method || undefined,
+          payment_percent: form.pct_payment ? toNum(form.pct_payment) : undefined,
           fixed_amount: form.fixed_amount ? toNum(form.fixed_amount) : undefined,
-          signature_date: toDate(form.signature_date),
+          payment_priority: form.payment_priority ? toNum(form.payment_priority) : undefined,
+          company_name: form.company_name?.trim() || undefined,
+          notes: form.notes?.trim() || undefined,
         });
       }
     }
 
     try {
-      await api.put(requestPath, body);
+      if (requestMethod === "post") {
+        await api.post(requestPath, body);
+      } else {
+        await api.put(requestPath, body);
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -792,10 +979,7 @@ function TemporalModal({
               {state.section === "personal" ? (
                 <ModalSection title="פרטים אישיים" description="נתונים אישיים ודמוגרפיים של העובד לצרכי משאבי אנוש ודיווח.">
                   <div className={ADMIN_MODAL_GRID}>
-                    <ModalDateField label="תאריך לידה" value={form.birth_date ?? ""} onChange={(value) => setField("birth_date", value)} />
                     <ModalTextField label="ארץ לידה" value={form.birth_country ?? ""} onChange={(value) => setField("birth_country", value)} />
-                    <ModalTextField label="אזרחות 1" value={form.citizenship1 ?? ""} onChange={(value) => setField("citizenship1", value)} />
-                    <ModalTextField label="אזרחות 2" value={form.citizenship2 ?? ""} onChange={(value) => setField("citizenship2", value)} />
                     <ModalSelectField
                       label="מצב משפחתי"
                       value={form.marital_status ?? ""}
@@ -807,7 +991,53 @@ function TemporalModal({
                         { value: "widowed", label: "אלמן/ה" },
                       ]}
                     />
-                    <ModalTextField label="מספר ילדים" value={form.num_children ?? ""} onChange={(value) => setField("num_children", value)} />
+                    <ModalDateField label="תאריך לידה" value={form.birth_date ?? ""} onChange={(value) => setField("birth_date", value)} />
+                    <ModalSelectField
+                      label="מצב משפחתי קודם"
+                      value={form.prev_marital_status ?? ""}
+                      onChange={(value) => setField("prev_marital_status", value)}
+                      options={[
+                        { value: "single", label: "רווק/ה" },
+                        { value: "married", label: "נשוי/נשואה" },
+                        { value: "divorced", label: "גרוש/ה" },
+                        { value: "widowed", label: "אלמן/ה" },
+                      ]}
+                    />
+                    <ModalDateField label="תאריך עליה" value={form.immigration_date ?? ""} onChange={(value) => setField("immigration_date", value)} />
+                    <ModalDateField label="ת. שינוי מצב משפחתי" value={form.marital_status_change_date ?? ""} onChange={(value) => setField("marital_status_change_date", value)} />
+                    <ModalTextField label="מקום לידה" value={form.birth_place ?? ""} onChange={(value) => setField("birth_place", value)} />
+                    <ModalTextField label="מס' ילדים" value={form.num_children ?? ""} onChange={(value) => setField("num_children", value)} />
+                    <ModalTextField label="אזרחות 1" value={form.citizenship1 ?? ""} onChange={(value) => setField("citizenship1", value)} />
+                    <ModalTextField label="שם משפחה קודם" value={form.prev_surname ?? ""} onChange={(value) => setField("prev_surname", value)} />
+                    <ModalTextField label="אזרחות 2" value={form.citizenship2 ?? ""} onChange={(value) => setField("citizenship2", value)} />
+                    <ModalTextField label="שם האב" value={form.father_name ?? ""} onChange={(value) => setField("father_name", value)} />
+                  </div>
+                </ModalSection>
+              ) : null}
+
+              {state.section === "spouse" ? (
+                <ModalSection title="פרטי בן הזוג" description="פרטי בן או בת הזוג של העובד.">
+                  <div className={ADMIN_MODAL_GRID}>
+                    <ModalTextField label="שם בן/בת זוג" value={form.spouse_first_name ?? ""} onChange={(value) => setField("spouse_first_name", value)} />
+                    <ModalTextField label="טלפון ניד" value={form.spouse_mobile ?? ""} onChange={(value) => setField("spouse_mobile", value)} />
+                    <ModalTextField label="שם משפחה" value={form.spouse_last_name ?? ""} onChange={(value) => setField("spouse_last_name", value)} />
+                    <ModalTextField label="טלפון בעבודה" value={form.spouse_work_phone ?? ""} onChange={(value) => setField("spouse_work_phone", value)} />
+                    <ModalTextField label="מספר זהות" value={form.spouse_id_number ?? ""} onChange={(value) => setField("spouse_id_number", value)} />
+                    <ModalTextField label="מקום עבודה" value={form.spouse_workplace ?? ""} onChange={(value) => setField("spouse_workplace", value)} />
+                    <ModalDateField label="תאריך לידה" value={form.spouse_birth_date ?? ""} onChange={(value) => setField("spouse_birth_date", value)} />
+                    <ModalDateField label="תאריך עליה" value={form.spouse_immigration_date ?? ""} onChange={(value) => setField("spouse_immigration_date", value)} />
+                  </div>
+                </ModalSection>
+              ) : null}
+
+              {state.section === "additional" ? (
+                <ModalSection title="פרטים נוספים" description="רישיון נהיגה וקופת חולים.">
+                  <div className={ADMIN_MODAL_GRID}>
+                    <ModalTextField label="מס. רישיון נהיגה" value={form.license_number ?? ""} onChange={(value) => setField("license_number", value)} />
+                    <ModalTextField label="שנת הוצאת רישיון" value={form.license_issue_year ?? ""} onChange={(value) => setField("license_issue_year", value)} />
+                    <ModalTextField label="סוג רישיון" value={form.license_type ?? ""} onChange={(value) => setField("license_type", value)} />
+                    <ModalDateField label="חוקף רישיון נהיגה" value={form.license_expiry ?? ""} onChange={(value) => setField("license_expiry", value)} />
+                    <ModalTextField label="קופת חולים" value={form.health_fund ?? ""} onChange={(value) => setField("health_fund", value)} />
                   </div>
                 </ModalSection>
               ) : null}
@@ -827,9 +1057,6 @@ function TemporalModal({
                   <ModalSection title="ערוצי קשר" description="פרטי ההתקשרות הישירים של העובד.">
                     <div className={ADMIN_MODAL_GRID}>
                       <ModalTextField label="טלפון" value={form.phone ?? ""} onChange={(value) => setField("phone", value)} />
-                      <ModalTextField label="נייד" value={form.mobile ?? ""} onChange={(value) => setField("mobile", value)} />
-                      <ModalTextField label="טלפון בית" value={form.home_phone ?? ""} onChange={(value) => setField("home_phone", value)} />
-                      <ModalTextField label="פקס" value={form.fax ?? ""} onChange={(value) => setField("fax", value)} />
                       <ModalTextField label="דוא״ל" type="email" value={form.email ?? ""} onChange={(value) => setField("email", value)} span={2} />
                     </div>
                   </ModalSection>
@@ -875,42 +1102,89 @@ function TemporalModal({
 
                   <ModalSection title="מאפייני העסקה" description="פרטי מסגרת ההעסקה כפי שהם מנוהלים בכרטיס העובד.">
                     <div className={ADMIN_MODAL_GRID}>
-                      <ModalTextField label="חברה" value={form.company ?? ""} onChange={(value) => setField("company", value)} />
+                      <ModalTextField label="סניף / חברה" value={form.company ?? ""} onChange={(value) => setField("company", value)} />
+                      <ModalTextField label="אתר עבודה" value={form.work_site ?? ""} onChange={(value) => setField("work_site", value)} />
                       <ModalSelectField
                         label="סוג העסקה"
                         value={form.employment_type ?? ""}
                         onChange={(value) => setField("employment_type", value)}
                         options={[
-                          { value: "full_time", label: "משרה מלאה" },
-                          { value: "part_time", label: "משרה חלקית" },
-                          { value: "contract", label: "חוזה" },
-                          { value: "freelance", label: "עצמאי" },
+                          { value: "employee", label: "עובד" },
+                          { value: "contractor", label: "קבלן" },
+                          { value: "temporary", label: "זמני" },
+                          { value: "intern", label: "מתמחה" },
+                          { value: "consultant", label: "יועץ" },
                         ]}
                       />
-                      <ModalDateField label="תאריך תחילה" value={form.start_date ?? ""} onChange={(value) => setField("start_date", value)} span={2} />
+                      <ModalSelectField
+                        label="סטטוס העסקה"
+                        value={form.employment_status ?? ""}
+                        onChange={(value) => setField("employment_status", value)}
+                        options={[
+                          { value: "active", label: "פעיל" },
+                          { value: "leave_of_absence", label: "חופשה" },
+                          { value: "unpaid_leave", label: "חל\"ת" },
+                          { value: "terminated", label: "סיום" },
+                          { value: "future", label: "עתידי" },
+                          { value: "suspended", label: "מושהה" },
+                        ]}
+                      />
+                      <ModalSelectField
+                        label="בסיס שכר"
+                        value={form.salary_type ?? ""}
+                        onChange={(value) => setField("salary_type", value)}
+                        options={[
+                          { value: "monthly", label: "חודשי" },
+                          { value: "hourly", label: "שעתי" },
+                          { value: "daily", label: "יומי" },
+                          { value: "global", label: "גלובלי" },
+                        ]}
+                      />
+                      <ModalDateField label="תאריך תחילה" value={form.start_date ?? ""} onChange={(value) => setField("start_date", value)} />
+                      <ModalDateField label="תאריך סיום" value={form.end_date ?? ""} onChange={(value) => setField("end_date", value)} />
                     </div>
                   </ModalSection>
                 </div>
               ) : null}
 
               {state.section === "compensation" ? (
-                <ModalSection title="רכיב שכר" description="הגדרת רכיב התגמול, הערך וסוג החישוב.">
+                <ModalSection title="מאפייני שכר" description="פרטי השכר הנתמכים כיום בכרטיס העובד.">
                   <div className={ADMIN_MODAL_GRID}>
-                    <ModalTextField label="קוד רכיב" value={form.comp_code ?? ""} onChange={(value) => setField("comp_code", value)} />
-                    <ModalTextField label="שם רכיב" value={form.comp_name ?? ""} onChange={(value) => setField("comp_name", value)} />
-                    <ModalTextField label="סכום" value={form.amount ?? ""} onChange={(value) => setField("amount", value)} />
-                    <ModalTextField label="אחוז" value={form.percentage ?? ""} onChange={(value) => setField("percentage", value)} />
+                    <ModalTextField label="שכר בסיס" value={form.amount ?? ""} onChange={(value) => setField("amount", value)} />
+                    <ModalTextField label="מטבע" value={form.currency ?? ""} onChange={(value) => setField("currency", value)} />
+                    <ModalSelectField
+                      label="מחזור תשלום"
+                      value={form.pay_cycle ?? ""}
+                      onChange={(value) => setField("pay_cycle", value)}
+                      options={[
+                        { value: "monthly", label: "חודשי" },
+                        { value: "biweekly", label: "דו שבועי" },
+                        { value: "weekly", label: "שבועי" },
+                      ]}
+                    />
+                    <ModalTextField label="מרכז עלות" value={form.cost_center ?? ""} onChange={(value) => setField("cost_center", value)} />
                   </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "bank" ? (
                 <div className="space-y-4">
-                  <ModalSection title="נתוני העברה" description="הקודים והסימונים שמשמשים את מנגנון התשלום.">
+                  <ModalSection title="נתוני תשלום" description="הגדרות העברת התשלום הנתמכות כיום במערכת.">
                     <div className={ADMIN_MODAL_GRID}>
-                      <ModalTextField label="קוד תשלום" value={form.payment_code ?? ""} onChange={(value) => setField("payment_code", value)} />
+                      <ModalSelectField
+                        label="שיטת תשלום"
+                        value={form.payment_method ?? ""}
+                        onChange={(value) => setField("payment_method", value)}
+                        options={[
+                          { value: "bank_transfer", label: "העברה בנקאית" },
+                          { value: "check", label: "שיק" },
+                          { value: "cash", label: "מזומן" },
+                        ]}
+                      />
                       <ModalTextField label="% לתשלום" value={form.pct_payment ?? ""} onChange={(value) => setField("pct_payment", value)} />
                       <ModalTextField label="סכום קבוע" value={form.fixed_amount ?? ""} onChange={(value) => setField("fixed_amount", value)} />
+                      <ModalTextField label="עדיפות" value={form.payment_priority ?? ""} onChange={(value) => setField("payment_priority", value)} />
+                      <ModalTextField label="חברה" value={form.company_name ?? ""} onChange={(value) => setField("company_name", value)} />
                     </div>
                   </ModalSection>
 
@@ -918,9 +1192,17 @@ function TemporalModal({
                     <div className={ADMIN_MODAL_GRID}>
                       <ModalTextField label="קוד בנק" value={form.bank_code ?? ""} onChange={(value) => setField("bank_code", value)} />
                       <ModalTextField label="שם בנק" value={form.bank_name ?? ""} onChange={(value) => setField("bank_name", value)} />
-                      <ModalTextField label="סניף" value={form.branch ?? ""} onChange={(value) => setField("branch", value)} />
+                      <ModalTextField label="מספר סניף" value={form.branch ?? ""} onChange={(value) => setField("branch", value)} />
+                      <ModalTextField label="תיאור סניף" value={form.branch_description ?? ""} onChange={(value) => setField("branch_description", value)} />
                       <ModalTextField label="חשבון" value={form.account ?? ""} onChange={(value) => setField("account", value)} />
-                      <ModalDateField label="תאריך חתימה" value={form.signature_date ?? ""} onChange={(value) => setField("signature_date", value)} />
+                      <ModalTextField label="שם בעל החשבון" value={form.account_holder_name ?? ""} onChange={(value) => setField("account_holder_name", value)} />
+                      <ModalField label="הערות" span={2}>
+                        <textarea
+                          value={form.notes ?? ""}
+                          onChange={(event) => setField("notes", event.target.value)}
+                          className={`${ADMIN_MODAL_INPUT} min-h-[88px]`}
+                        />
+                      </ModalField>
                     </div>
                   </ModalSection>
                 </div>
@@ -1009,6 +1291,141 @@ function TemporalModal({
   );
 }
 
+function ChildModal({
+  tenantId,
+  employeeId,
+  editRow,
+  onClose,
+  onSaved,
+}: {
+  tenantId: string;
+  employeeId: string;
+  editRow?: ChildRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    first_name: editRow?.first_name ?? "",
+    last_name: editRow?.last_name ?? "",
+    gender: editRow?.gender ?? "",
+    id_number: editRow?.id_number ?? "",
+    birth_date: editRow?.birth_date ?? "",
+    receives_allowance: editRow?.receives_allowance ?? false,
+    recruitment_date: editRow?.recruitment_date ?? "",
+    release_date: editRow?.release_date ?? "",
+    study_start_date: editRow?.study_start_date ?? "",
+    study_end_date: editRow?.study_end_date ?? "",
+    in_custody: editRow?.in_custody ?? false,
+    notes: editRow?.notes ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setField(key: string, value: string | boolean) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSave() {
+    if (!form.first_name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body = {
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim() || undefined,
+        gender: form.gender || undefined,
+        id_number: form.id_number.trim() || undefined,
+        birth_date: form.birth_date || undefined,
+        receives_allowance: form.receives_allowance,
+        recruitment_date: form.recruitment_date || undefined,
+        release_date: form.release_date || undefined,
+        study_start_date: form.study_start_date || undefined,
+        study_end_date: form.study_end_date || undefined,
+        in_custody: form.in_custody,
+        notes: form.notes.trim() || undefined,
+      };
+      if (editRow?.id) {
+        await api.put(`/api/core/employees/${employeeId}/children/${editRow.id}`, body);
+      } else {
+        await api.post(`/api/core/employees/${employeeId}/children`, body);
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getApiError(err, "שגיאה בשמירה"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-2xl overflow-hidden">
+        <AdminModalHeader title={editRow ? "עריכת ילד" : "הוסף ילד"} onClose={onClose} />
+        <AdminModalBody className="space-y-4">
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+          <ModalSection title="פרטי הילד">
+            <div className={ADMIN_MODAL_GRID}>
+              <ModalTextField label="שם ילד" required value={form.first_name} onChange={(value) => setField("first_name", value)} />
+              <ModalTextField label="שם משפחה" value={form.last_name} onChange={(value) => setField("last_name", value)} />
+              <ModalSelectField
+                label="מגדר"
+                value={form.gender}
+                onChange={(value) => setField("gender", value)}
+                options={[
+                  { value: "M", label: "זכר" },
+                  { value: "F", label: "נקבה" },
+                ]}
+              />
+              <ModalTextField label="מספר זהות" value={form.id_number} onChange={(value) => setField("id_number", value)} />
+              <ModalDateField label="תאריך לידה" value={form.birth_date} onChange={(value) => setField("birth_date", value)} />
+              <ModalField label="מקבל קצבת ילדים?">
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    checked={form.receives_allowance}
+                    onChange={(e) => setField("receives_allowance", e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600"
+                  />
+                  <span className="text-xs text-slate-600">כן</span>
+                </div>
+              </ModalField>
+              <ModalField label="ילד בחוקת העובד?">
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    checked={form.in_custody}
+                    onChange={(e) => setField("in_custody", e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600"
+                  />
+                  <span className="text-xs text-slate-600">כן</span>
+                </div>
+              </ModalField>
+            </div>
+          </ModalSection>
+          <ModalSection title="לימודים ושירות">
+            <div className={ADMIN_MODAL_GRID}>
+              <ModalDateField label="תאריך גיוס" value={form.recruitment_date} onChange={(value) => setField("recruitment_date", value)} />
+              <ModalDateField label="תאריך שחרור" value={form.release_date} onChange={(value) => setField("release_date", value)} />
+              <ModalDateField label="תאריך תחילת לימודים" value={form.study_start_date} onChange={(value) => setField("study_start_date", value)} />
+              <ModalDateField label="תאריך סיום לימודים" value={form.study_end_date} onChange={(value) => setField("study_end_date", value)} />
+              <ModalTextField label="הערה" value={form.notes} onChange={(value) => setField("notes", value)} span={2} />
+            </div>
+          </ModalSection>
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={handleSave} disabled={saving || !form.first_name.trim()} className={ADMIN_MODAL_ACTION_PRIMARY}>
+            {saving ? "שומר..." : "שמור"}
+          </button>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
+  );
+}
+
 function EventModal({
   tenantId,
   employeeId,
@@ -1033,11 +1450,11 @@ function EventModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/api/core/employees/${employeeId}/events?tenant_id=${tenantId}`, {
+      const notes = [form.reason, form.description].filter((value) => value.trim()).join(" — ");
+      await api.post(`/api/core/employees/${employeeId}/events`, {
         event_type: form.event_type,
-        event_date: form.event_date,
-        reason: form.reason || undefined,
-        description: form.description || undefined,
+        effective_date: form.event_date,
+        notes: notes || undefined,
       });
       onSaved();
       onClose();
@@ -1110,11 +1527,11 @@ function TrainingModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/api/core/employees/${employeeId}/training?tenant_id=${tenantId}`, {
+      await api.post(`/api/core/employees/${employeeId}/courses`, {
         course_name: form.course_name.trim(),
-        course_date: form.course_date || undefined,
+        completed_on: form.course_date || undefined,
         score: form.score || undefined,
-        institute: form.institute || undefined,
+        provider: form.institute || undefined,
       });
       onSaved();
       onClose();
@@ -1286,6 +1703,8 @@ export default function EmployeeCardPage() {
   const [resolvedEmployeeId, setResolvedEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [temporalModal, setTemporalModal] = useState<TemporalModalState | null>(null);
+  const [showChildModal, setShowChildModal] = useState(false);
+  const [editingChild, setEditingChild] = useState<ChildRow | undefined>(undefined);
   const [showEventModal, setShowEventModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -1336,12 +1755,17 @@ export default function EmployeeCardPage() {
 
     Promise.all([
       api.get<Array<{ id: string; code?: string; name: string }>>(`/api/core/org-units?tenant_id=${tenantId}`),
-      api.get<Array<{ id: string; code?: string; name: string }>>(`/api/core/positions?tenant_id=${tenantId}`),
+      api.get<Array<{ id: string; code?: string; name?: string; title?: string }>>(`/api/core/positions?tenant_id=${tenantId}`),
       api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${tenantId}`),
     ])
       .then(([orgUnits, positions, employees]) => {
         setOrgUnitOptions(orgUnits);
-        setPositionOptions(positions);
+        setPositionOptions(positions.map((position) => ({
+          id: position.id,
+          code: position.code,
+          name: position.name ?? position.title ?? "—",
+          title: position.title,
+        })));
         setManagerOptions(employees);
       })
       .catch(console.error);
@@ -1382,6 +1806,25 @@ export default function EmployeeCardPage() {
     });
   }
 
+  const filteredPersonalRows = personalRows.filter((row) =>
+    row.birth_date || row.birth_country || row.birth_place || row.immigration_date ||
+    row.citizenship1 || row.citizenship2 || row.marital_status || row.num_children != null ||
+    row.prev_marital_status || row.marital_status_change_date || row.prev_surname || row.father_name
+  );
+  const filteredContactRows = contactRows.filter((row) =>
+    row.address1 || row.address2 || row.city || row.zip_code || row.country ||
+    row.phone || row.mobile || row.home_phone || row.fax || row.email
+  );
+  const spouseRows = personalRows.filter((row) =>
+    row.spouse_first_name || row.spouse_last_name || row.spouse_id_number ||
+    row.spouse_workplace || row.spouse_birth_date || row.spouse_immigration_date ||
+    row.spouse_mobile || row.spouse_work_phone
+  );
+  const additionalRows = personalRows.filter((row) =>
+    row.license_number || row.license_issue_year || row.license_type ||
+    row.license_expiry || row.health_fund
+  );
+
   const childTabs: ChildTab[] = [
     {
       id: "identity",
@@ -1418,14 +1861,16 @@ export default function EmployeeCardPage() {
       columns: [
         { key: "birth_date", label: "תאריך לידה" },
         { key: "birth_country", label: "ארץ לידה" },
+        { key: "citizenship", label: "אזרחות" },
         { key: "marital_status", label: "מצב משפחתי" },
         { key: "num_children", label: "מס' ילדים" },
         { key: "valid_from", label: "מ-" },
         { key: "valid_to", label: "עד" },
       ],
-      rows: buildTemporalRows(personalRows, (row) => ({
+      rows: buildTemporalRows(filteredPersonalRows, (row) => ({
         birth_date: fmtDate(row.birth_date),
         birth_country: row.birth_country ?? "—",
+        citizenship: row.citizenship1 ?? "—",
         marital_status: row.marital_status ? MARITAL_MAP[row.marital_status] ?? row.marital_status : "—",
         num_children: row.num_children ?? "—",
         valid_from: fmtDate(row.valid_from),
@@ -1433,8 +1878,62 @@ export default function EmployeeCardPage() {
       })),
       onAddClick: () => openTemporal("personal"),
       onRowDoubleClick: (index) => {
-        const row = personalRows[index];
+        const row = filteredPersonalRows[index];
         if (row) openTemporal("personal", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "spouse",
+      label: "פרטי בן הזוג",
+      temporalFilter: true,
+      emptyMessage: "אין פרטי בן/בת זוג רשומים",
+      columns: [
+        { key: "spouse_name", label: "שם בן/בת הזוג" },
+        { key: "spouse_id_number", label: "מספר זהות" },
+        { key: "spouse_birth_date", label: "תאריך לידה" },
+        { key: "spouse_mobile", label: "טלפון ניד" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(spouseRows, (row) => ({
+        spouse_name: [row.spouse_first_name, row.spouse_last_name].filter(Boolean).join(" ") || "—",
+        spouse_id_number: row.spouse_id_number ?? "—",
+        spouse_birth_date: fmtDate(row.spouse_birth_date),
+        spouse_mobile: row.spouse_mobile ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("spouse"),
+      onRowDoubleClick: (index) => {
+        const row = spouseRows[index];
+        if (row) openTemporal("spouse", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "additional",
+      label: "פרטים נוספים",
+      temporalFilter: true,
+      emptyMessage: "אין פרטים נוספים רשומים",
+      columns: [
+        { key: "license_number", label: "מס. רישיון נהיגה" },
+        { key: "license_type", label: "סוג רישיון" },
+        { key: "license_expiry", label: "תוקף רישיון" },
+        { key: "health_fund", label: "קופת חולים" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(additionalRows, (row) => ({
+        license_number: row.license_number ?? "—",
+        license_type: row.license_type ?? "—",
+        license_expiry: fmtDate(row.license_expiry),
+        health_fund: row.health_fund ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("additional"),
+      onRowDoubleClick: (index) => {
+        const row = additionalRows[index];
+        if (row) openTemporal("additional", toPrefillRecord(row));
       },
     },
     {
@@ -1446,23 +1945,21 @@ export default function EmployeeCardPage() {
         { key: "address", label: "כתובת" },
         { key: "city", label: "עיר" },
         { key: "phone", label: "טלפון" },
-        { key: "mobile", label: "נייד" },
         { key: "email", label: 'דוא"ל' },
         { key: "valid_from", label: "מ-" },
         { key: "valid_to", label: "עד" },
       ],
-      rows: buildTemporalRows(contactRows, (row) => ({
+      rows: buildTemporalRows(filteredContactRows, (row) => ({
         address: [row.address1, row.address2].filter(Boolean).join(", ") || "—",
         city: row.city ?? "—",
         phone: row.phone ?? "—",
-        mobile: row.mobile ?? "—",
         email: row.email ?? "—",
         valid_from: fmtDate(row.valid_from),
         valid_to: fmtDate(row.valid_to),
       })),
       onAddClick: () => openTemporal("contact"),
       onRowDoubleClick: (index) => {
-        const row = contactRows[index];
+        const row = filteredContactRows[index];
         if (row) openTemporal("contact", toPrefillRecord(row));
       },
     },
@@ -1474,7 +1971,8 @@ export default function EmployeeCardPage() {
       columns: [
         { key: "org_unit_name", label: "יחידה ארגונית" },
         { key: "position_name", label: "תפקיד" },
-        { key: "company", label: "חברה" },
+        { key: "branch_name", label: "סניף / חברה" },
+        { key: "manager_name", label: "מנהל" },
         { key: "employment_type", label: "סוג העסקה" },
         { key: "start_date", label: "תאריך תחילה" },
         { key: "valid_from", label: "מ-" },
@@ -1483,7 +1981,8 @@ export default function EmployeeCardPage() {
       rows: buildTemporalRows(employmentRows, (row) => ({
         org_unit_name: row.org_unit_name ?? "—",
         position_name: row.position_name ?? "—",
-        company: row.company ?? "—",
+        branch_name: row.branch_name ?? "—",
+        manager_name: row.manager_name ?? "—",
         employment_type: row.employment_type ? EMPLOYMENT_TYPE_MAP[row.employment_type] ?? row.employment_type : "—",
         start_date: fmtDate(row.start_date),
         valid_from: fmtDate(row.valid_from),
@@ -1501,18 +2000,18 @@ export default function EmployeeCardPage() {
       temporalFilter: true,
       emptyMessage: "אין רכיבי שכר",
       columns: [
-        { key: "comp_code", label: "קוד" },
-        { key: "comp_name", label: "שם רכיב" },
-        { key: "amount", label: "סכום" },
-        { key: "percentage", label: "%" },
+        { key: "base_salary", label: "שכר בסיס" },
+        { key: "currency", label: "מטבע" },
+        { key: "pay_cycle", label: "מחזור" },
+        { key: "cost_center", label: "מרכז עלות" },
         { key: "valid_from", label: "מ-" },
         { key: "valid_to", label: "עד" },
       ],
       rows: buildTemporalRows(compensationRows, (row) => ({
-        comp_code: row.comp_code ?? "—",
-        comp_name: row.comp_name ?? "—",
-        amount: row.amount ?? "—",
-        percentage: row.percentage ?? "—",
+        base_salary: row.base_salary ?? "—",
+        currency: row.currency ?? "—",
+        pay_cycle: row.pay_cycle ?? "—",
+        cost_center: row.cost_center ?? "—",
         valid_from: fmtDate(row.valid_from),
         valid_to: fmtDate(row.valid_to),
       })),
@@ -1531,8 +2030,8 @@ export default function EmployeeCardPage() {
         { key: "bank_name", label: "בנק" },
         { key: "branch", label: "סניף" },
         { key: "account", label: "חשבון" },
+        { key: "payment_method", label: "שיטת תשלום" },
         { key: "pct_payment", label: "% לתשלום" },
-        { key: "fixed_amount", label: "סכום קבוע" },
         { key: "valid_from", label: "מ-" },
         { key: "valid_to", label: "עד" },
       ],
@@ -1540,8 +2039,8 @@ export default function EmployeeCardPage() {
         bank_name: row.bank_name ?? "—",
         branch: row.branch ?? "—",
         account: row.account ?? "—",
+        payment_method: row.payment_method ?? "—",
         pct_payment: row.pct_payment ?? "—",
-        fixed_amount: row.fixed_amount ?? "—",
         valid_from: fmtDate(row.valid_from),
         valid_to: fmtDate(row.valid_to),
       })),
@@ -1549,6 +2048,32 @@ export default function EmployeeCardPage() {
       onRowDoubleClick: (index) => {
         const row = bankRows[index];
         if (row) openTemporal("bank", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "children",
+      label: "פרטי ילדים",
+      emptyMessage: "אין ילדים רשומים",
+      columns: [
+        { key: "child_name", label: "שם" },
+        { key: "gender", label: "מגדר" },
+        { key: "birth_date", label: "תאריך לידה" },
+        { key: "id_number", label: "ת.ז." },
+        { key: "receives_allowance", label: "קצבת ילדים" },
+        { key: "in_custody", label: "בחוקת העובד" },
+      ],
+      rows: (card?.children ?? []).map((row) => ({
+        child_name: [row.first_name, row.last_name].filter(Boolean).join(" "),
+        gender: row.gender ? GENDER_MAP[row.gender] ?? row.gender : "—",
+        birth_date: fmtDate(row.birth_date),
+        id_number: row.id_number ?? "—",
+        receives_allowance: row.receives_allowance ? "כן" : "לא",
+        in_custody: row.in_custody ? "כן" : "לא",
+      })),
+      onAddClick: () => { setEditingChild(undefined); setShowChildModal(true); },
+      onRowDoubleClick: (index) => {
+        const row = card?.children[index];
+        if (row) { setEditingChild(row); setShowChildModal(true); }
       },
     },
     {
@@ -1585,7 +2110,6 @@ export default function EmployeeCardPage() {
         reason: row.reason ?? "—",
         description: row.description ?? "—",
       })),
-      onAddClick: () => setShowEventModal(true),
     },
   ];
 
@@ -1619,14 +2143,6 @@ export default function EmployeeCardPage() {
               <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">יחידה ארגונית</div>
               <div className="text-xs font-medium text-slate-700">{activeEmployment?.org_unit_name ?? "—"}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowStatusModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50"
-            >
-              <ShieldCheck size={13} className="text-brand-600" />
-              שנה סטטוס
-            </button>
           </div>
         </div>
 
@@ -1647,7 +2163,7 @@ export default function EmployeeCardPage() {
           </div>
           <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-100">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">רכיב שכר נוכחי</div>
-            <div className="mt-1 text-xs text-slate-700">{activeCompensation?.comp_name ?? activeBank?.bank_name ?? "—"}</div>
+            <div className="mt-1 text-xs text-slate-700">{activeCompensation?.base_salary ?? activeBank?.bank_name ?? "—"}</div>
           </div>
         </div>
       </div>
@@ -1669,10 +2185,7 @@ export default function EmployeeCardPage() {
         backHref="/admin/core"
         backLabel="רשימת עובדים"
         status={statusType && statusLabel ? { label: statusLabel, type: statusType } : undefined}
-        primaryActions={card ? [{
-          label: "מחק עובד",
-          onClick: () => setShowDeleteModal(true),
-        }] : []}
+        primaryActions={[]}
         parentContent={parentContent}
         parentContentMode="compact"
         formTabs={[]}
@@ -1712,29 +2225,16 @@ export default function EmployeeCardPage() {
         />
       ) : null}
 
-      {showStatusModal && tenantId && card && resolvedEmployeeId ? (
-        <StatusModal
+      {showChildModal && tenantId && resolvedEmployeeId ? (
+        <ChildModal
           tenantId={tenantId}
           employeeId={resolvedEmployeeId}
-          current={card.status}
-          onClose={() => setShowStatusModal(false)}
+          editRow={editingChild}
+          onClose={() => { setShowChildModal(false); setEditingChild(undefined); }}
           onSaved={loadCard}
         />
       ) : null}
 
-      {showDeleteModal && tenantId && card && resolvedEmployeeId ? (
-        <DeleteEmployeeModal
-          tenantId={tenantId}
-          employeeId={resolvedEmployeeId}
-          employeeNumber={card.employee_number}
-          fullName={card.full_name}
-          onClose={() => setShowDeleteModal(false)}
-          onDeleted={() => {
-            setShowDeleteModal(false);
-            router.push("/admin/core");
-          }}
-        />
-      ) : null}
     </>
   );
 }
