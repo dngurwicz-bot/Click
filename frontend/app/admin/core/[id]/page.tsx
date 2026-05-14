@@ -1,285 +1,172 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { CardPage, type ChildTab, type FormTab } from "@/components/layout/CardPage";
-import { AdminSectionCard } from "@/components/layout/AdminShell";
-import { FormField } from "@/components/ui/FormField";
-import { api, canManageSensitive, isLoggedIn } from "@/lib/api";
+import { ShieldCheck, UserRound } from "lucide-react";
+
+import { api, ApiRequestError, isLoggedIn } from "@/lib/api";
+import { CardPage, type ChildTab } from "@/components/layout/CardPage";
+import { useWorkspace } from "@/components/layout/WorkspaceShell";
 import {
-  ADMIN_MODAL_ACTION_DANGER,
-  ADMIN_MODAL_ACTION_PRIMARY,
-  ADMIN_MODAL_ACTION_SECONDARY,
-  ADMIN_MODAL_ACTION_WARNING,
-  ADMIN_MODAL_DATE_INPUT,
-  ADMIN_MODAL_GRID,
-  ADMIN_MODAL_HELP,
-  ADMIN_MODAL_INPUT,
-  ADMIN_MODAL_LABEL,
-  ADMIN_MODAL_TEXTAREA,
   AdminDateFields,
-  AdminField,
   AdminModal,
   AdminModalBody,
   AdminModalFooter,
   AdminModalHeader,
   AdminModalMessage,
   AdminModalPanel,
+  ADMIN_MODAL_ACTION_DANGER,
+  ADMIN_MODAL_ACTION_PRIMARY,
+  ADMIN_MODAL_ACTION_SECONDARY,
+  ADMIN_MODAL_ACTION_WARNING,
+  ADMIN_MODAL_GRID,
+  ADMIN_MODAL_INPUT,
 } from "@/components/ui/AdminModal";
-import { SplitActionButton } from "@/components/ui/SplitActionButton";
+import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { SplitActionButton } from "@/components/ui/SplitActionButton";
 
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-interface EmployeeIdentity {
+interface IdentityRow {
   id: string;
-  valid_from: string;
-  valid_to?: string | null;
   first_name: string;
   last_name: string;
-  preferred_name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  birth_date?: string | null;
-  immigration_date?: string | null;
-  gender?: string | null;
-  marital_status?: string | null;
-  children_count?: number | null;
-  spouse_name?: string | null;
-  spouse_legal_id?: string | null;
-  legal_id_type: string;
-  legal_id_number?: string | null;
-  nationality?: string | null;
-  address_line1?: string | null;
-  address_line2?: string | null;
-  city?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
-}
-
-interface EmployeeEmployment {
-  id: string;
+  first_name_en?: string;
+  last_name_en?: string;
+  id_number?: string;
+  title?: string;
+  gender?: string;
+  username?: string;
+  api_username?: string;
+  is_partner?: boolean;
+  is_manager?: boolean;
   valid_from: string;
   valid_to?: string | null;
-  org_unit_id?: string | null;
-  manager_employee_id?: string | null;
-  position_id?: string | null;
-  org_unit_name?: string | null;
-  manager_name?: string | null;
-  position_title?: string | null;
-  employment_status: string;
-  employment_type: string;
-  salary_type: string;
-  start_date: string;
-  end_date?: string | null;
-  employment_scope_pct: number;
-  branch_name?: string | null;
-  work_site?: string | null;
-  time_clock_id?: string | null;
-  notes?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeCompensation {
+interface PersonalRow {
   id: string;
+  birth_date?: string;
+  birth_country?: string;
+  citizenship1?: string;
+  citizenship2?: string;
+  marital_status?: string;
+  num_children?: number;
   valid_from: string;
   valid_to?: string | null;
-  base_salary?: number | null;
-  currency: string;
-  pay_cycle: string;
-  cost_center?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeDocument {
+interface ContactRow {
   id: string;
-  document_type: string;
-  file_name: string;
-  status: string;
-  issued_on?: string | null;
-  expires_on?: string | null;
-  storage_path?: string | null;
-  notes?: string | null;
+  address1?: string;
+  address2?: string;
+  city?: string;
+  zip_code?: string;
+  country?: string;
+  phone?: string;
+  mobile?: string;
+  home_phone?: string;
+  fax?: string;
+  email?: string;
   valid_from: string;
   valid_to?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeChild {
+interface EmploymentRow {
   id: string;
-  child_name: string;
-  last_name?: string | null;
-  legal_id_number?: string | null;
-  birth_date?: string | null;
-  gender?: string | null;
-  military_service_status?: string | null;
-  service_start_date?: string | null;
-  service_end_date?: string | null;
-  allowance_eligible?: boolean | null;
-  notes?: string | null;
-}
-
-interface EmployeeBankAccount {
-  id: string;
+  org_unit_id?: string;
+  org_unit_name?: string;
+  position_id?: string;
+  position_name?: string;
+  company?: string;
+  employment_type?: string;
+  manager_id?: string;
+  start_date?: string;
   valid_from: string;
   valid_to?: string | null;
-  bank_code?: string | null;
-  bank_name?: string | null;
-  branch_number?: string | null;
-  branch_description?: string | null;
-  account_number?: string | null;
-  account_holder_name?: string | null;
-  payment_method?: string | null;
-  payment_percent?: number | null;
-  fixed_amount?: number | null;
-  payment_priority?: number | null;
-  company_name?: string | null;
-  notes?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeAward {
+interface CompensationRow {
   id: string;
-  award_type: string;
-  award_date?: string | null;
-  description?: string | null;
-  granted_by?: string | null;
-  notes?: string | null;
-}
-
-interface EmployeeCertification {
-  id: string;
+  comp_code?: string;
+  comp_name?: string;
+  amount?: number;
+  percentage?: number;
   valid_from: string;
   valid_to?: string | null;
-  certification_type: string;
-  issuer?: string | null;
-  issued_on?: string | null;
-  expires_on?: string | null;
-  status?: string | null;
-  notes?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeCourse {
+interface BankRow {
   id: string;
+  payment_code?: string;
+  bank_code?: string;
+  bank_name?: string;
+  branch?: string;
+  account?: string;
+  pct_payment?: number;
+  fixed_amount?: number;
+  signature_date?: string;
   valid_from: string;
   valid_to?: string | null;
-  course_name: string;
-  provider?: string | null;
-  started_on?: string | null;
-  completed_on?: string | null;
-  status?: string | null;
-  score?: string | null;
-  notes?: string | null;
+  created_at?: string;
+  _current?: boolean;
+  _valid_from_raw?: string;
+  _valid_to_raw?: string | null;
 }
 
-interface EmployeeSkill {
-  id: string;
-  skill_name: string;
-  level?: string | null;
-  category?: string | null;
-  source?: string | null;
-  assessed_on?: string | null;
-  notes?: string | null;
-}
-
-interface EmployeeWorkBreak {
-  id: string;
-  valid_from: string;
-  valid_to?: string | null;
-  break_type: string;
-  reason?: string | null;
-  started_on?: string | null;
-  ended_on?: string | null;
-  approved_by?: string | null;
-  notes?: string | null;
-}
-
-interface DepartmentMovement {
-  effective_date: string;
-  previous_org_unit_name?: string | null;
-  next_org_unit_name?: string | null;
-  position_title?: string | null;
-  employment_status?: string | null;
-}
-
-interface PositionHistory {
-  valid_from: string;
-  valid_to?: string | null;
-  position_title?: string | null;
-  employment_type?: string | null;
-  employment_status?: string | null;
-  org_unit_name?: string | null;
-  manager_name?: string | null;
-}
-
-interface TeamMember {
-  employee_id: string;
-  employee_number: string;
-  full_name: string;
-  employment_status?: string | null;
-  org_unit_name?: string | null;
-  position_title?: string | null;
-  start_date?: string | null;
-}
-
-interface EmploymentEvent {
+interface EventRow {
   id: string;
   event_type: string;
-  effective_date: string;
-  notes?: string | null;
-  payload_json?: Record<string, unknown> | null;
-  created_at?: string | null;
+  event_date: string;
+  reason?: string;
+  description?: string;
+  created_at?: string;
 }
 
-interface EmployeeDetailResponse {
-  employee: {
-    id: string;
-    tenant_id: string;
-    employee_number: string;
-    full_name: string;
-    email?: string | null;
-    phone?: string | null;
-    employment_status?: string | null;
-    employment_type?: string | null;
-    branch_name?: string | null;
-    org_unit_name?: string | null;
-    position_title?: string | null;
-    manager_name?: string | null;
-    work_site?: string | null;
-  };
-  current_identity?: EmployeeIdentity | null;
-  current_employment?: EmployeeEmployment | null;
-  current_compensation?: EmployeeCompensation | null;
-  current_bank_account?: EmployeeBankAccount | null;
-  documents: EmployeeDocument[];
-  identity_history: EmployeeIdentity[];
-  employment_history: EmployeeEmployment[];
-  compensation_history: EmployeeCompensation[];
-  bank_accounts: EmployeeBankAccount[];
-  children: EmployeeChild[];
-  awards: EmployeeAward[];
-  certifications: EmployeeCertification[];
-  courses: EmployeeCourse[];
-  skills: EmployeeSkill[];
-  work_breaks: EmployeeWorkBreak[];
-  department_movements: DepartmentMovement[];
-  position_history: PositionHistory[];
-  team_members: TeamMember[];
-  timeline?: EmploymentEvent[];
-}
-
-interface OrgUnitOption {
+interface TrainingRow {
   id: string;
-  code: string;
-  name: string;
+  course_name: string;
+  course_date?: string;
+  score?: string;
+  institute?: string;
+  created_at?: string;
 }
 
-interface PositionOption {
+interface EmployeeCard {
   id: string;
-  code: string;
-  title: string;
+  employee_number: string;
+  status: string;
+  full_name: string;
+  id_number?: string;
+  photo_url?: string;
+  created_at?: string;
+  identity: IdentityRow[];
+  personal: PersonalRow[];
+  contact: ContactRow[];
+  employment: EmploymentRow[];
+  compensation: CompensationRow[];
+  bank: BankRow[];
+  events: EventRow[];
+  training: TrainingRow[];
 }
 
 interface EmployeeOption {
@@ -288,348 +175,714 @@ interface EmployeeOption {
   full_name: string;
 }
 
-type RecordFormValue = string | number | null;
-type RecordForm = Record<string, RecordFormValue>;
-type ModalKind =
-  | "identity"
-  | "employment"
-  | "compensation"
-  | "document"
-  | "child"
-  | "bank"
-  | "award"
-  | "certification"
-  | "course"
-  | "skill"
-  | "work_break";
-
-type TemporalAction = "update" | "add" | "set" | "close" | "delete";
-
-interface ModalState {
-  kind: ModalKind;
-  title: string;
-  form: RecordForm;
-  recordId?: string | null;
-  isNew?: boolean;
-}
-
-interface FieldConfig {
+interface LookupOption {
+  id: string;
+  code?: string;
   name: string;
-  label: string;
-  type: "text" | "textarea" | "date" | "number" | "select";
-  options?: SelectOption[];
-  required?: boolean;
-  placeholder?: string;
-  min?: number;
-  max?: number;
 }
+
+type TemporalSection = "identity" | "personal" | "contact" | "employment" | "compensation" | "bank";
+type TemporalMode = "add" | "update" | "set" | "close" | "delete";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+interface TemporalModalState {
+  section: TemporalSection;
+  mode: TemporalMode;
+  recordId?: string;
+  prefill?: Record<string, unknown>;
+}
+
+function normalizeEmployeeCard(card: EmployeeCard): EmployeeCard {
+  return {
+    ...card,
+    identity: card.identity ?? [],
+    personal: card.personal ?? [],
+    contact: card.contact ?? [],
+    employment: card.employment ?? [],
+    compensation: card.compensation ?? [],
+    bank: card.bank ?? [],
+    events: card.events ?? [],
+    training: card.training ?? [],
+  };
+}
+
+const fmtDate = (value?: string | null) => (value ? new Date(value).toLocaleDateString("he-IL") : "—");
+
+function todayIso() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function getApiError(err: unknown, fallback: string) {
+  if (err instanceof ApiRequestError) return err.error ?? fallback;
+  const candidate = err as { error?: string; details?: { error?: string } };
+  return candidate?.error ?? candidate?.details?.error ?? fallback;
+}
+
+function toPrefillRecord<T extends object>(value: T | undefined): Record<string, unknown> | undefined {
+  return value ? ({ ...value } as unknown as Record<string, unknown>) : undefined;
+}
+
+const STATUS_CFG: Record<string, "active" | "trial" | "suspended" | "cancelled"> = {
+  active: "active",
+  inactive: "trial",
+  terminated: "suspended",
+};
 
 const STATUS_LABELS: Record<string, string> = {
   active: "פעיל",
-  future: "עתידי",
-  leave_of_absence: 'חל"ת',
-  unpaid_leave: "חופשה ללא תשלום",
-  terminated: "סיום העסקה",
-  suspended: "מושהה",
+  inactive: "לא פעיל",
+  terminated: "מסיים",
 };
 
-const STATUS_TYPES: Record<string, "active" | "trial" | "suspended" | "cancelled"> = {
-  active: "active",
-  future: "trial",
-  leave_of_absence: "suspended",
-  unpaid_leave: "suspended",
-  terminated: "cancelled",
-  suspended: "suspended",
+const GENDER_MAP: Record<string, string> = {
+  M: "זכר",
+  F: "נקבה",
 };
 
-const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  employee: "עובד",
-  temporary: "זמני",
-  contractor: "קבלן",
-  intern: "מתמחה",
-  consultant: "יועץ",
-};
-
-const SALARY_TYPE_LABELS: Record<string, string> = {
-  monthly: "חודשי",
-  hourly: "שעתי",
-  daily: "יומי",
-  global: "גלובלי",
-};
-
-const PAY_CYCLE_LABELS: Record<string, string> = {
-  monthly: "חודשי",
-  biweekly: "דו-שבועי",
-  weekly: "שבועי",
-  hourly: "שעתי",
-};
-
-const GENDER_LABELS: Record<string, string> = {
-  female: "נקבה",
-  male: "זכר",
-  other: "אחר",
-};
-
-const LEGAL_ID_TYPE_LABELS: Record<string, string> = {
-  national_id: "תעודת זהות",
-  passport: "דרכון",
-  resident: "תושב",
-  other: "אחר",
-};
-
-const MARITAL_STATUS_LABELS: Record<string, string> = {
+const MARITAL_MAP: Record<string, string> = {
   single: "רווק/ה",
-  married: "נשוי/אה",
+  married: "נשוי/נשואה",
   divorced: "גרוש/ה",
   widowed: "אלמן/ה",
-  other: "אחר",
 };
 
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  bank_transfer: "העברה בנקאית",
-  cash: "מזומן",
-  check: "המחאה",
+const EMPLOYMENT_TYPE_MAP: Record<string, string> = {
+  full_time: "משרה מלאה",
+  part_time: "משרה חלקית",
+  contract: "חוזה",
+  freelance: "עצמאי",
 };
 
-const EVENT_LABELS: Record<string, string> = {
-  hire: "קליטה",
-  org_assignment_change: "שינוי שיוך ארגוני",
-  status_change: "שינוי סטטוס",
-  compensation_change: "שינוי שכר",
-  leave_of_absence: "יציאה להפסקה",
-  termination: "סיום העסקה",
-  return_from_leave: "חזרה מהפסקה",
-  identity_update: "עדכון פרטים אישיים",
-  document_update: "עדכון מסמך",
-};
-
-function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString("he-IL") : "—";
-}
-
-function formatDateInput(value?: string | null) {
-  return value ?? "";
-}
-
-function formatMoney(value?: number | string | null, currency = "ILS") {
-  if (value === null || value === undefined || value === "") return "—";
-  return new Intl.NumberFormat("he-IL", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value));
-}
-
-function safe(value?: string | number | null) {
-  return value === null || value === undefined || value === "" ? "—" : String(value);
-}
-
-function summarizePayload(payload?: Record<string, unknown> | null) {
-  if (!payload || Object.keys(payload).length === 0) return "—";
-  return Object.entries(payload)
-    .slice(0, 3)
-    .map(([key, value]) => `${key}: ${Array.isArray(value) ? `${value.length} פריטים` : String(value)}`)
-    .join(" | ");
-}
-
-function sortTemporalRows<T extends { valid_from: string; valid_to?: string | null }>(rows: T[]) {
-  return [...rows].sort((a, b) => {
-    const aCurrent = !a.valid_to ? 1 : 0;
-    const bCurrent = !b.valid_to ? 1 : 0;
-    if (aCurrent !== bCurrent) return bCurrent - aCurrent;
-    return new Date(b.valid_from).getTime() - new Date(a.valid_from).getTime();
-  });
-}
-
-function toSelectOptions(items: SelectOption[]) {
-  return [{ value: "", label: "—" }, ...items];
-}
-
-function FieldRenderer({
-  field,
-  value,
-  onChange,
+function ModalSection({
+  title,
+  description,
+  children,
 }: {
-  field: FieldConfig;
-  value: RecordFormValue;
-  onChange: (name: string, nextValue: RecordFormValue) => void;
+  title: string;
+  description?: string;
+  children: ReactNode;
 }) {
-  if (field.type === "textarea") {
-    return (
-      <AdminField label={field.label}>
-        <textarea
-          className={ADMIN_MODAL_TEXTAREA}
-          value={String(value ?? "")}
-          placeholder={field.placeholder}
-          onChange={(event) => onChange(field.name, event.target.value)}
-        />
-      </AdminField>
-    );
-  }
-
-  if (field.type === "date") {
-    return (
-      <AdminField label={field.label}>
-        <HebrewDatePicker
-          className={ADMIN_MODAL_DATE_INPUT}
-          value={String(value ?? "")}
-          onChange={(nextValue) => onChange(field.name, nextValue)}
-        />
-      </AdminField>
-    );
-  }
-
-  if (field.type === "select") {
-    return (
-      <AdminField label={field.label}>
-        <select
-          className={ADMIN_MODAL_INPUT}
-          value={String(value ?? "")}
-          onChange={(event) => onChange(field.name, event.target.value)}
-        >
-          {(field.options ?? []).map((option) => (
-            <option key={`${field.name}-${option.value}`} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </AdminField>
-    );
-  }
-
   return (
-    <AdminField label={field.label}>
-      <input
-        className={ADMIN_MODAL_INPUT}
-        type={field.type === "number" ? "number" : "text"}
-        min={field.min}
-        max={field.max}
-        value={String(value ?? "")}
-        placeholder={field.placeholder}
-        onChange={(event) =>
-          onChange(
-            field.name,
-            field.type === "number"
-              ? event.target.value === ""
-                ? null
-                : Number(event.target.value)
-              : event.target.value
-          )
-        }
-      />
-    </AdminField>
+    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        {description ? <p className="text-[11px] text-slate-500">{description}</p> : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
-function TemporalRecordModal({
-  state,
-  fields,
-  onClose,
-  onChange,
-  onSubmit,
-  warning,
+function ModalField({
+  label,
+  required = false,
+  span = 1,
+  children,
 }: {
-  state: ModalState;
-  fields: FieldConfig[];
-  onClose: () => void;
-  onChange: (name: string, value: RecordFormValue) => void;
-  onSubmit: (action: TemporalAction) => Promise<void>;
-  warning?: string;
+  label: string;
+  required?: boolean;
+  span?: 1 | 2;
+  children: ReactNode;
 }) {
-  const [action, setAction] = useState<TemporalAction>(state.isNew ? "add" : "update");
-  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div className={span === 2 ? "md:col-span-2" : undefined}>
+      <label className="mb-1 block text-xs font-semibold text-slate-600">
+        {required ? <span className="text-red-500 ml-0.5">*</span> : null}
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
 
-  useEffect(() => {
-    setAction(state.isNew ? "add" : "update");
-    setMenuOpen(false);
-  }, [state]);
+function ModalTextField({
+  label,
+  value,
+  onChange,
+  required = false,
+  type = "text",
+  span = 1,
+}: {
+  label: string;
+  value?: string | null;
+  onChange: (value: string) => void;
+  required?: boolean;
+  type?: "text" | "email";
+  span?: 1 | 2;
+}) {
+  return (
+    <ModalField label={label} required={required} span={span}>
+      <input
+        type={type}
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        className={ADMIN_MODAL_INPUT}
+      />
+    </ModalField>
+  );
+}
 
-  const showFields = action !== "close" && action !== "delete";
-  const showDateFields = action !== "delete";
-  const message =
-    action === "set"
-      ? "פעולת קבע תקופה עלולה לפצל או להחליף רשומות חופפות."
-      : action === "close"
-      ? "הרשומה תישאר בהיסטוריה ותיסגר בתאריך הסיום שתבחר."
-      : action === "delete"
-      ? "מחיקה מבטלת את הרשומה לצמיתות."
-      : warning;
+function ModalSelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "בחר...",
+  span = 1,
+}: {
+  label: string;
+  value?: string | null;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  span?: 1 | 2;
+}) {
+  return (
+    <ModalField label={label} span={span}>
+      <select className={ADMIN_MODAL_INPUT} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </ModalField>
+  );
+}
 
-  const footerButton =
-    action === "close"
-      ? ADMIN_MODAL_ACTION_WARNING
-      : action === "delete"
-      ? ADMIN_MODAL_ACTION_DANGER
-      : ADMIN_MODAL_ACTION_PRIMARY;
+function ModalDateField({
+  label,
+  value,
+  onChange,
+  span = 1,
+}: {
+  label: string;
+  value?: string | null;
+  onChange: (value: string) => void;
+  span?: 1 | 2;
+}) {
+  return (
+    <ModalField label={label} span={span}>
+      <HebrewDatePicker value={value ?? ""} onChange={onChange} className={ADMIN_MODAL_INPUT} />
+    </ModalField>
+  );
+}
 
-  const footerLabel =
-    action === "add"
-      ? "הוסף רשומה"
-      : action === "set"
-      ? "קבע תקופה"
-      : action === "close"
-      ? "סגור תקופה"
-      : action === "delete"
-      ? "מחק רשומה"
-      : "שמור";
+const EVENT_TYPE_MAP: Record<string, string> = {
+  hire: "גיוס",
+  promotion: "קידום",
+  transfer: "העברה",
+  leave: "חופשה",
+  termination: "סיום עבודה",
+  other: "אחר",
+};
+
+function getSectionTitle(section: TemporalSection) {
+  switch (section) {
+    case "identity":
+      return "פרטים כלליים";
+    case "personal":
+      return "פרטים אישיים";
+    case "contact":
+      return "פרטי קשר";
+    case "employment":
+      return "תפקיד ושיוך";
+    case "compensation":
+      return "שכר";
+    case "bank":
+      return "חשבון בנק";
+  }
+}
+
+function buildTemporalRows<T extends { _current?: boolean; _valid_from_raw?: string; _valid_to_raw?: string | null }>(
+  rows: T[],
+  mapRow: (row: T) => Record<string, unknown>,
+) {
+  return rows.map((row) => ({
+    ...mapRow(row),
+    _current: row._current,
+    _valid_from_raw: row._valid_from_raw,
+    _valid_to_raw: row._valid_to_raw,
+  }));
+}
+
+function TemporalModal({
+  state,
+  tenantId,
+  employeeId,
+  orgUnitOptions,
+  positionOptions,
+  managerOptions,
+  onClose,
+  onSaved,
+}: {
+  state: TemporalModalState;
+  tenantId: string;
+  employeeId: string;
+  orgUnitOptions: LookupOption[];
+  positionOptions: LookupOption[];
+  managerOptions: EmployeeOption[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<TemporalMode>(state.mode);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [validFrom, setValidFrom] = useState((state.prefill?.valid_from as string) ?? todayIso());
+  const [validTo, setValidTo] = useState((state.prefill?.valid_to as string) ?? "");
+  const [form, setForm] = useState<Record<string, string>>(() => {
+    const prefill = state.prefill ?? {};
+    const next: Record<string, string> = {};
+    Object.entries(prefill).forEach(([key, value]) => {
+      if (!["id", "valid_from", "valid_to", "created_at", "_current", "_valid_from_raw", "_valid_to_raw"].includes(key)) {
+        next[key] = value == null ? "" : String(value);
+      }
+    });
+    return next;
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setField(key: string, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function switchMode(nextMode: TemporalMode) {
+    setDropdownOpen(false);
+    setError(null);
+    setMode(nextMode);
+    if (nextMode === "add" || nextMode === "set") {
+      setValidFrom(todayIso());
+      setValidTo("");
+    }
+    if (nextMode === "close") {
+      setValidTo(todayIso());
+    }
+  }
+
+  function isPayloadValid() {
+    if (mode === "close") return Boolean(validTo);
+    if (mode === "set") return Boolean(validFrom && validTo) && isFormValid();
+    if (mode === "delete") return Boolean(validFrom);
+    return Boolean(validFrom) && isFormValid();
+  }
+
+  function isFormValid() {
+    if (mode === "close" || mode === "delete") return true;
+
+    if (state.section === "identity") {
+      return Boolean(form.first_name?.trim() && form.last_name?.trim());
+    }
+
+    if (state.section === "compensation") {
+      return Boolean(form.comp_code?.trim() || form.comp_name?.trim());
+    }
+
+    return true;
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+
+    const body: Record<string, unknown> = {
+      action: mode,
+      valid_from: validFrom || todayIso(),
+    };
+
+    if (validTo) body.valid_to = validTo;
+    if (state.recordId) body.record_id = state.recordId;
+
+    const toNum = (value: string) => (value ? Number(value) : undefined);
+    const toDate = (value: string) => value || undefined;
+
+    if (mode !== "delete" && mode !== "close") {
+      if (state.section === "identity") {
+        Object.assign(body, {
+          first_name: form.first_name?.trim() || undefined,
+          last_name: form.last_name?.trim() || undefined,
+          first_name_en: form.first_name_en?.trim() || undefined,
+          last_name_en: form.last_name_en?.trim() || undefined,
+          id_number: form.id_number?.trim() || undefined,
+          title: form.title?.trim() || undefined,
+          gender: form.gender || undefined,
+          username: form.username?.trim() || undefined,
+          api_username: form.api_username?.trim() || undefined,
+          is_partner: form.is_partner ? form.is_partner === "true" : undefined,
+          is_manager: form.is_manager ? form.is_manager === "true" : undefined,
+        });
+      } else if (state.section === "personal") {
+        Object.assign(body, {
+          birth_date: toDate(form.birth_date),
+          birth_country: form.birth_country?.trim() || undefined,
+          citizenship1: form.citizenship1?.trim() || undefined,
+          citizenship2: form.citizenship2?.trim() || undefined,
+          marital_status: form.marital_status || undefined,
+          num_children: form.num_children ? toNum(form.num_children) : undefined,
+        });
+      } else if (state.section === "contact") {
+        Object.assign(body, {
+          address1: form.address1?.trim() || undefined,
+          address2: form.address2?.trim() || undefined,
+          city: form.city?.trim() || undefined,
+          zip_code: form.zip_code?.trim() || undefined,
+          country: form.country?.trim() || undefined,
+          phone: form.phone?.trim() || undefined,
+          mobile: form.mobile?.trim() || undefined,
+          home_phone: form.home_phone?.trim() || undefined,
+          fax: form.fax?.trim() || undefined,
+          email: form.email?.trim() || undefined,
+        });
+      } else if (state.section === "employment") {
+        Object.assign(body, {
+          org_unit_id: form.org_unit_id || undefined,
+          position_id: form.position_id || undefined,
+          company: form.company?.trim() || undefined,
+          employment_type: form.employment_type || undefined,
+          manager_id: form.manager_id || undefined,
+          start_date: toDate(form.start_date),
+        });
+      } else if (state.section === "compensation") {
+        Object.assign(body, {
+          comp_code: form.comp_code?.trim() || undefined,
+          comp_name: form.comp_name?.trim() || undefined,
+          amount: form.amount ? toNum(form.amount) : undefined,
+          percentage: form.percentage ? toNum(form.percentage) : undefined,
+        });
+      } else if (state.section === "bank") {
+        Object.assign(body, {
+          payment_code: form.payment_code?.trim() || undefined,
+          bank_code: form.bank_code?.trim() || undefined,
+          bank_name: form.bank_name?.trim() || undefined,
+          branch: form.branch?.trim() || undefined,
+          account: form.account?.trim() || undefined,
+          pct_payment: form.pct_payment ? toNum(form.pct_payment) : undefined,
+          fixed_amount: form.fixed_amount ? toNum(form.fixed_amount) : undefined,
+          signature_date: toDate(form.signature_date),
+        });
+      }
+    }
+
+    try {
+      await api.put(`/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`, body);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getApiError(err, "לא ניתן לשמור את הרשומה"));
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+  }
+
+  const title =
+    mode === "delete" ? `בטל רשומה — ${getSectionTitle(state.section)}`
+    : mode === "set" ? `קבע תקופה — ${getSectionTitle(state.section)}`
+    : mode === "close" ? `סגור תקופה — ${getSectionTitle(state.section)}`
+    : mode === "add" ? `הוסף רשומה — ${getSectionTitle(state.section)}`
+    : `עדכון — ${getSectionTitle(state.section)}`;
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="relative flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
-        <AdminModalHeader title={state.title} subtitle="רשומת עובד טמפורלית" onClose={onClose} />
-        <AdminModalBody className="space-y-4 overflow-y-auto">
-          {message ? <AdminModalMessage tone={action === "delete" ? "danger" : action === "close" || action === "set" ? "warning" : "info"}>{message}</AdminModalMessage> : null}
-          {showFields ? (
-            <div className={ADMIN_MODAL_GRID}>
-              {fields.map((field) => (
-                <FieldRenderer
-                  key={field.name}
-                  field={field}
-                  value={state.form[field.name] ?? ""}
-                  onChange={onChange}
-                />
-              ))}
+      <AdminModalPanel className="relative max-w-3xl overflow-hidden" onClick={() => setDropdownOpen(false)}>
+        <AdminModalHeader
+          title={
+            <span className="flex items-center gap-2 text-[#1a3a6e]">
+              <span className="rounded-xl bg-white/60 p-2 text-brand-600">
+                <ShieldCheck size={16} />
+              </span>
+              <span>{title}</span>
+            </span>
+          }
+          onClose={onClose}
+        />
+        <AdminModalBody className="space-y-4">
+          {mode === "delete" ? (
+            <AdminModalMessage tone="danger">
+              פעולה זו תבטל את הרשומה מההיסטוריה. השתמש בה רק אם הרשומה נפתחה בטעות.
+            </AdminModalMessage>
+          ) : null}
+
+          {mode === "close" ? (
+            <AdminModalMessage tone="warning">
+              סגירת תקופה תשאיר את הרשומה בהיסטוריה ותגדיר לה תאריך סיום.
+            </AdminModalMessage>
+          ) : null}
+
+          {mode === "set" ? (
+            <AdminModalMessage tone="warning">
+              קביעת תקופה תחליף, תפצל או תסיר רשומות חופפות של אותה ישות בטווח התאריכים שתבחר.
+            </AdminModalMessage>
+          ) : null}
+
+          {mode !== "delete" && mode !== "close" ? (
+            <>
+              {state.section === "identity" ? (
+                <div className="space-y-4">
+                  <ModalSection title="זהות בסיסית" description="פרטי הזיהוי העיקריים של העובד כפי שהם מוצגים במערכת.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="שם פרטי" required value={form.first_name ?? ""} onChange={(value) => setField("first_name", value)} />
+                      <ModalTextField label="שם משפחה" required value={form.last_name ?? ""} onChange={(value) => setField("last_name", value)} />
+                      <ModalTextField label="שם פרטי (לועזית)" value={form.first_name_en ?? ""} onChange={(value) => setField("first_name_en", value)} />
+                      <ModalTextField label="שם משפחה (לועזית)" value={form.last_name_en ?? ""} onChange={(value) => setField("last_name_en", value)} />
+                      <ModalTextField label="ת.ז." value={form.id_number ?? ""} onChange={(value) => setField("id_number", value)} />
+                      <ModalTextField label="תואר" value={form.title ?? ""} onChange={(value) => setField("title", value)} />
+                      <ModalSelectField
+                        label="מגדר"
+                        value={form.gender ?? ""}
+                        onChange={(value) => setField("gender", value)}
+                        options={[
+                          { value: "M", label: "זכר" },
+                          { value: "F", label: "נקבה" },
+                        ]}
+                      />
+                    </div>
+                  </ModalSection>
+
+                  <ModalSection title="הרשאות וסיווג" description="נתוני גישה וסימוני תפקיד שמשפיעים על התנהגות העובד במערכת.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="שם משתמש" value={form.username ?? ""} onChange={(value) => setField("username", value)} />
+                      <ModalTextField label="שם API" value={form.api_username ?? ""} onChange={(value) => setField("api_username", value)} />
+                      <ModalSelectField
+                        label="שותף"
+                        value={form.is_partner ?? ""}
+                        onChange={(value) => setField("is_partner", value)}
+                        placeholder="לא הוגדר"
+                        options={[
+                          { value: "true", label: "כן" },
+                          { value: "false", label: "לא" },
+                        ]}
+                      />
+                      <ModalSelectField
+                        label="מנהל"
+                        value={form.is_manager ?? ""}
+                        onChange={(value) => setField("is_manager", value)}
+                        placeholder="לא הוגדר"
+                        options={[
+                          { value: "true", label: "כן" },
+                          { value: "false", label: "לא" },
+                        ]}
+                      />
+                    </div>
+                  </ModalSection>
+                </div>
+              ) : null}
+
+              {state.section === "personal" ? (
+                <ModalSection title="פרטים אישיים" description="נתונים אישיים ודמוגרפיים של העובד לצרכי משאבי אנוש ודיווח.">
+                  <div className={ADMIN_MODAL_GRID}>
+                    <ModalDateField label="תאריך לידה" value={form.birth_date ?? ""} onChange={(value) => setField("birth_date", value)} />
+                    <ModalTextField label="ארץ לידה" value={form.birth_country ?? ""} onChange={(value) => setField("birth_country", value)} />
+                    <ModalTextField label="אזרחות 1" value={form.citizenship1 ?? ""} onChange={(value) => setField("citizenship1", value)} />
+                    <ModalTextField label="אזרחות 2" value={form.citizenship2 ?? ""} onChange={(value) => setField("citizenship2", value)} />
+                    <ModalSelectField
+                      label="מצב משפחתי"
+                      value={form.marital_status ?? ""}
+                      onChange={(value) => setField("marital_status", value)}
+                      options={[
+                        { value: "single", label: "רווק/ה" },
+                        { value: "married", label: "נשוי/נשואה" },
+                        { value: "divorced", label: "גרוש/ה" },
+                        { value: "widowed", label: "אלמן/ה" },
+                      ]}
+                    />
+                    <ModalTextField label="מספר ילדים" value={form.num_children ?? ""} onChange={(value) => setField("num_children", value)} />
+                  </div>
+                </ModalSection>
+              ) : null}
+
+              {state.section === "contact" ? (
+                <div className="space-y-4">
+                  <ModalSection title="כתובת" description="מיקום וכתובת למשלוח, תקשורת ומסמכים.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="כתובת שורה 1" value={form.address1 ?? ""} onChange={(value) => setField("address1", value)} span={2} />
+                      <ModalTextField label="כתובת שורה 2" value={form.address2 ?? ""} onChange={(value) => setField("address2", value)} span={2} />
+                      <ModalTextField label="עיר" value={form.city ?? ""} onChange={(value) => setField("city", value)} />
+                      <ModalTextField label="מיקוד" value={form.zip_code ?? ""} onChange={(value) => setField("zip_code", value)} />
+                      <ModalTextField label="ארץ" value={form.country ?? ""} onChange={(value) => setField("country", value)} />
+                    </div>
+                  </ModalSection>
+
+                  <ModalSection title="ערוצי קשר" description="פרטי ההתקשרות הישירים של העובד.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="טלפון" value={form.phone ?? ""} onChange={(value) => setField("phone", value)} />
+                      <ModalTextField label="נייד" value={form.mobile ?? ""} onChange={(value) => setField("mobile", value)} />
+                      <ModalTextField label="טלפון בית" value={form.home_phone ?? ""} onChange={(value) => setField("home_phone", value)} />
+                      <ModalTextField label="פקס" value={form.fax ?? ""} onChange={(value) => setField("fax", value)} />
+                      <ModalTextField label="דוא״ל" type="email" value={form.email ?? ""} onChange={(value) => setField("email", value)} span={2} />
+                    </div>
+                  </ModalSection>
+                </div>
+              ) : null}
+
+              {state.section === "employment" ? (
+                <div className="space-y-4">
+                  <ModalSection title="שיוך ארגוני" description="היחידה, התפקיד והדיווח הישיר של העובד בארגון.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalField label="יחידה ארגונית">
+                        <select className={ADMIN_MODAL_INPUT} value={form.org_unit_id ?? ""} onChange={(event) => setField("org_unit_id", event.target.value)}>
+                          <option value="">בחר יחידה</option>
+                          {orgUnitOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.code ? `${option.code} - ${option.name}` : option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </ModalField>
+                      <ModalField label="תפקיד">
+                        <select className={ADMIN_MODAL_INPUT} value={form.position_id ?? ""} onChange={(event) => setField("position_id", event.target.value)}>
+                          <option value="">בחר תפקיד</option>
+                          {positionOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.code ? `${option.code} - ${option.name}` : option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </ModalField>
+                      <ModalField label="מנהל ישיר" span={2}>
+                        <select className={ADMIN_MODAL_INPUT} value={form.manager_id ?? ""} onChange={(event) => setField("manager_id", event.target.value)}>
+                          <option value="">ללא מנהל משויך</option>
+                          {managerOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {`${option.employee_number} - ${option.full_name}`}
+                            </option>
+                          ))}
+                        </select>
+                      </ModalField>
+                    </div>
+                  </ModalSection>
+
+                  <ModalSection title="מאפייני העסקה" description="פרטי מסגרת ההעסקה כפי שהם מנוהלים בכרטיס העובד.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="חברה" value={form.company ?? ""} onChange={(value) => setField("company", value)} />
+                      <ModalSelectField
+                        label="סוג העסקה"
+                        value={form.employment_type ?? ""}
+                        onChange={(value) => setField("employment_type", value)}
+                        options={[
+                          { value: "full_time", label: "משרה מלאה" },
+                          { value: "part_time", label: "משרה חלקית" },
+                          { value: "contract", label: "חוזה" },
+                          { value: "freelance", label: "עצמאי" },
+                        ]}
+                      />
+                      <ModalDateField label="תאריך תחילה" value={form.start_date ?? ""} onChange={(value) => setField("start_date", value)} span={2} />
+                    </div>
+                  </ModalSection>
+                </div>
+              ) : null}
+
+              {state.section === "compensation" ? (
+                <ModalSection title="רכיב שכר" description="הגדרת רכיב התגמול, הערך וסוג החישוב.">
+                  <div className={ADMIN_MODAL_GRID}>
+                    <ModalTextField label="קוד רכיב" value={form.comp_code ?? ""} onChange={(value) => setField("comp_code", value)} />
+                    <ModalTextField label="שם רכיב" value={form.comp_name ?? ""} onChange={(value) => setField("comp_name", value)} />
+                    <ModalTextField label="סכום" value={form.amount ?? ""} onChange={(value) => setField("amount", value)} />
+                    <ModalTextField label="אחוז" value={form.percentage ?? ""} onChange={(value) => setField("percentage", value)} />
+                  </div>
+                </ModalSection>
+              ) : null}
+
+              {state.section === "bank" ? (
+                <div className="space-y-4">
+                  <ModalSection title="נתוני העברה" description="הקודים והסימונים שמשמשים את מנגנון התשלום.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="קוד תשלום" value={form.payment_code ?? ""} onChange={(value) => setField("payment_code", value)} />
+                      <ModalTextField label="% לתשלום" value={form.pct_payment ?? ""} onChange={(value) => setField("pct_payment", value)} />
+                      <ModalTextField label="סכום קבוע" value={form.fixed_amount ?? ""} onChange={(value) => setField("fixed_amount", value)} />
+                    </div>
+                  </ModalSection>
+
+                  <ModalSection title="חשבון בנק" description="פרטי הבנק שאליו ישויך התשלום לעובד.">
+                    <div className={ADMIN_MODAL_GRID}>
+                      <ModalTextField label="קוד בנק" value={form.bank_code ?? ""} onChange={(value) => setField("bank_code", value)} />
+                      <ModalTextField label="שם בנק" value={form.bank_name ?? ""} onChange={(value) => setField("bank_name", value)} />
+                      <ModalTextField label="סניף" value={form.branch ?? ""} onChange={(value) => setField("branch", value)} />
+                      <ModalTextField label="חשבון" value={form.account ?? ""} onChange={(value) => setField("account", value)} />
+                      <ModalDateField label="תאריך חתימה" value={form.signature_date ?? ""} onChange={(value) => setField("signature_date", value)} />
+                    </div>
+                  </ModalSection>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {mode === "close" ? (
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">עד תאריך</label>
+              <HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_INPUT} />
             </div>
-          ) : null}
-          {showDateFields ? (
+          ) : mode !== "delete" ? (
             <AdminDateFields
-              fromField={
-                <HebrewDatePicker
-                  className={ADMIN_MODAL_DATE_INPUT}
-                  value={String(state.form.valid_from ?? "")}
-                  onChange={(value) => onChange("valid_from", value)}
-                />
-              }
-              toField={
-                <HebrewDatePicker
-                  className={ADMIN_MODAL_DATE_INPUT}
-                  value={String(state.form.valid_to ?? "")}
-                  onChange={(value) => onChange("valid_to", value)}
-                />
-              }
+              fromField={<HebrewDatePicker value={validFrom} onChange={setValidFrom} className={ADMIN_MODAL_INPUT} />}
+              toField={<HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_INPUT} />}
             />
           ) : null}
+
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
         </AdminModalBody>
-        <AdminModalFooter>
-          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
-          {state.isNew ? (
-            <button onClick={() => void onSubmit("add")} className={ADMIN_MODAL_ACTION_PRIMARY}>הוסף רשומה</button>
-          ) : (
+        <AdminModalFooter className="px-6">
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+
+          {state.recordId && mode === "update" ? (
             <SplitActionButton
-              primaryLabel={footerLabel}
-              onPrimaryClick={() => void onSubmit(action)}
-              menuOpen={menuOpen}
-              onMenuToggle={() => setMenuOpen((open) => !open)}
+              primaryLabel={saving ? "שומר..." : "שמור"}
+              onPrimaryClick={handleSave}
+              primaryDisabled={saving || !isPayloadValid()}
+              menuOpen={dropdownOpen}
+              onMenuToggle={() => setDropdownOpen((open) => !open)}
+              buttonClassName="bg-brand-600 hover:bg-brand-700 text-white"
+              minMenuWidthClassName="min-w-[170px]"
               actions={[
-                { label: "רשומה חדשה", onClick: () => { setAction("add"); setMenuOpen(false); } },
-                { label: "שמור", onClick: () => { setAction("update"); setMenuOpen(false); } },
-                { label: "קבע תקופה", tone: "warning", onClick: () => { setAction("set"); setMenuOpen(false); } },
-                { label: "סגור תקופה", tone: "warning", onClick: () => { setAction("close"); setMenuOpen(false); } },
-                { label: "מחק/בטל רשומה", tone: "danger", onClick: () => { setAction("delete"); setMenuOpen(false); } },
+                {
+                  label: "רשומה חדשה",
+                  onClick: () => switchMode("add"),
+                },
+                {
+                  label: "קבע תקופה",
+                  onClick: () => switchMode("set"),
+                  tone: "warning",
+                },
+                {
+                  label: "סגור תקופה",
+                  onClick: () => switchMode("close"),
+                  tone: "warning",
+                },
+                {
+                  label: "בטל רשומה",
+                  onClick: () => switchMode("delete"),
+                  tone: "danger",
+                },
               ]}
-              buttonClassName={footerButton.replace("rounded-md ", "")}
             />
+          ) : (
+            <button
+              onClick={handleSave}
+              disabled={saving || !isPayloadValid()}
+              className={
+                mode === "delete"
+                  ? ADMIN_MODAL_ACTION_DANGER
+                  : mode === "close" || mode === "set"
+                    ? ADMIN_MODAL_ACTION_WARNING
+                    : ADMIN_MODAL_ACTION_PRIMARY
+              }
+            >
+              {saving
+                ? "שומר..."
+                : mode === "delete"
+                  ? "בטל רשומה"
+                  : mode === "close"
+                    ? "סגור תקופה"
+                    : mode === "set"
+                      ? "קבע תקופה"
+                      : mode === "add"
+                        ? "הוסף רשומה"
+                        : "שמור"}
+            </button>
           )}
         </AdminModalFooter>
       </AdminModalPanel>
@@ -637,44 +890,76 @@ function TemporalRecordModal({
   );
 }
 
-function CrudRecordModal({
-  state,
-  fields,
+function EventModal({
+  tenantId,
+  employeeId,
   onClose,
-  onChange,
-  onSave,
-  onDelete,
+  onSaved,
 }: {
-  state: ModalState;
-  fields: FieldConfig[];
+  tenantId: string;
+  employeeId: string;
   onClose: () => void;
-  onChange: (name: string, value: RecordFormValue) => void;
-  onSave: () => Promise<void>;
-  onDelete?: () => Promise<void>;
+  onSaved: () => void;
 }) {
+  const [form, setForm] = useState({ event_type: "", event_date: todayIso(), reason: "", description: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setField(key: string, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSave() {
+    if (!form.event_type || !form.event_date) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/core/employees/${employeeId}/events?tenant_id=${tenantId}`, {
+        event_type: form.event_type,
+        event_date: form.event_date,
+        reason: form.reason || undefined,
+        description: form.description || undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getApiError(err, "שגיאה בשמירה"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="relative flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
-        <AdminModalHeader title={state.title} onClose={onClose} />
-        <AdminModalBody className="space-y-4 overflow-y-auto">
-          <div className={ADMIN_MODAL_GRID}>
-            {fields.map((field) => (
-              <FieldRenderer
-                key={field.name}
-                field={field}
-                value={state.form[field.name] ?? ""}
-                onChange={onChange}
-              />
-            ))}
+      <AdminModalPanel className="max-w-md overflow-hidden">
+        <AdminModalHeader title="הוסף אירוע" onClose={onClose} />
+        <AdminModalBody className="space-y-3">
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-500">סוג אירוע *</label>
+            <select className={ADMIN_MODAL_INPUT} value={form.event_type} onChange={(event) => setField("event_type", event.target.value)}>
+              <option value="">בחר...</option>
+              <option value="hire">גיוס</option>
+              <option value="promotion">קידום</option>
+              <option value="transfer">העברה</option>
+              <option value="leave">חופשה</option>
+              <option value="termination">סיום עבודה</option>
+              <option value="other">אחר</option>
+            </select>
           </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-500">תאריך *</label>
+            <HebrewDatePicker value={form.event_date} onChange={(value) => setField("event_date", value)} className={ADMIN_MODAL_INPUT} />
+          </div>
+          <FormField label="סיבה" value={form.reason} readOnly={false} onChange={(value) => setField("reason", value)} />
+          <FormField label="תיאור" value={form.description} readOnly={false} onChange={(value) => setField("description", value)} />
         </AdminModalBody>
         <AdminModalFooter>
-          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
-          {onDelete && !state.isNew ? (
-            <button onClick={() => void onDelete()} className={ADMIN_MODAL_ACTION_DANGER}>מחק</button>
-          ) : null}
-          <button onClick={() => void onSave()} className={ADMIN_MODAL_ACTION_PRIMARY}>
-            {state.isNew ? "הוסף" : "שמור"}
+          <button onClick={handleSave} disabled={saving || !form.event_type || !form.event_date} className={ADMIN_MODAL_ACTION_PRIMARY}>
+            {saving ? "שומר..." : "שמור"}
+          </button>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
           </button>
         </AdminModalFooter>
       </AdminModalPanel>
@@ -682,1513 +967,684 @@ function CrudRecordModal({
   );
 }
 
-function InnerTabs({
-  tabs,
+function TrainingModal({
+  tenantId,
+  employeeId,
+  onClose,
+  onSaved,
 }: {
-  tabs: { id: string; label: string; content: React.ReactNode }[];
+  tenantId: string;
+  employeeId: string;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState(tabs[0]?.id ?? "");
+  const [form, setForm] = useState({ course_name: "", course_date: "", score: "", institute: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (tabs.length > 0 && !tabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(tabs[0].id);
+  function setField(key: string, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSave() {
+    if (!form.course_name.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/core/employees/${employeeId}/training?tenant_id=${tenantId}`, {
+        course_name: form.course_name.trim(),
+        course_date: form.course_date || undefined,
+        score: form.score || undefined,
+        institute: form.institute || undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getApiError(err, "שגיאה בשמירה"));
+    } finally {
+      setSaving(false);
     }
-  }, [tabs, activeTab]);
-
-  const currentTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === tab.id
-                ? "bg-brand-600 text-white shadow-sm"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      <div>{currentTab?.content}</div>
-    </div>
-  );
-}
-
-function InfoTable({
-  columns,
-  rows,
-  emptyMessage,
-}: {
-  columns: { key: string; label: string; width?: string }[];
-  rows: Array<Record<string, React.ReactNode>>;
-  emptyMessage: string;
-}) {
-  if (rows.length === 0) {
-    return <div className="py-8 text-center text-sm text-slate-400">{emptyMessage}</div>;
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200">
-      <table className="w-full min-w-max text-xs">
-        <thead className="bg-slate-50 text-slate-600">
-          <tr>
-            {columns.map((column) => (
-              <th key={column.key} className={`px-3 py-2 text-right ${column.width ?? ""}`}>
-                {column.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={`row-${index}`} className="border-t border-slate-100">
-              {columns.map((column) => (
-                <td key={`${index}-${column.key}`} className={`px-3 py-2 align-top ${column.width ?? ""}`}>
-                  {row[column.key] ?? "—"}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-md overflow-hidden">
+        <AdminModalHeader title="הוסף קורס" onClose={onClose} />
+        <AdminModalBody className="space-y-3">
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+          <FormField label="שם קורס" required value={form.course_name} readOnly={false} onChange={(value) => setField("course_name", value)} />
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-500">תאריך</label>
+            <HebrewDatePicker value={form.course_date} onChange={(value) => setField("course_date", value)} className={ADMIN_MODAL_INPUT} />
+          </div>
+          <FormField label="ציון" value={form.score} readOnly={false} onChange={(value) => setField("score", value)} />
+          <FormField label="גוף מלמד" value={form.institute} readOnly={false} onChange={(value) => setField("institute", value)} />
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={handleSave} disabled={saving || !form.course_name.trim()} className={ADMIN_MODAL_ACTION_PRIMARY}>
+            {saving ? "שומר..." : "שמור"}
+          </button>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
-function ParentSummary({ data }: { data: EmployeeDetailResponse }) {
-  const identity = data.current_identity;
-  const employment = data.current_employment;
-  const compensation = data.current_compensation;
-  const bankAccount = data.current_bank_account;
-  const currentValidity = employment?.valid_to
-    ? `${formatDate(employment.valid_from)} עד ${formatDate(employment.valid_to)}`
-    : employment?.valid_from
-      ? `מ-${formatDate(employment.valid_from)}`
-      : "—";
-  const fieldGridClass = "grid gap-2 md:grid-cols-2 xl:grid-cols-3";
-  const employmentStatusLabel =
-    STATUS_LABELS[employment?.employment_status ?? data.employee.employment_status ?? ""] ??
-    employment?.employment_status ??
-    data.employee.employment_status ??
-    "—";
-
-  return (
-    <div className="border-b border-slate-200 bg-white px-4 py-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-right">
-          <div className="text-sm font-semibold text-slate-800">{data.employee.full_name}</div>
-          <div className="text-xs text-slate-500">מספר עובד: {data.employee.employee_number}</div>
-        </div>
-        <div className="text-xs font-medium text-slate-500">
-          סטטוס: <span className="text-slate-700">{employmentStatusLabel}</span>
-        </div>
-      </div>
-      <div className="grid gap-3 xl:grid-cols-[1.05fr_1.35fr]">
-        <AdminSectionCard title="פרטי עובד">
-          <div className={fieldGridClass}>
-            <FormField label="מספר עובד" value={safe(data.employee.employee_number)} />
-            <FormField label="שם עובד" value={safe(data.employee.full_name)} />
-            <FormField label="מספר מזהה" value={safe(identity?.legal_id_number)} />
-            <FormField label="סוג מזהה" value={safe(LEGAL_ID_TYPE_LABELS[identity?.legal_id_type ?? ""] ?? identity?.legal_id_type)} />
-            <FormField label='דוא"ל' value={safe(identity?.email || data.employee.email)} />
-            <FormField label="טלפון" value={safe(identity?.phone || data.employee.phone)} />
-            <FormField label="מגדר" value={safe(GENDER_LABELS[identity?.gender ?? ""] ?? identity?.gender)} />
-            <FormField label="תאריך לידה" value={safe(formatDate(identity?.birth_date))} />
-            <FormField label="מצב משפחתי" value={safe(MARITAL_STATUS_LABELS[identity?.marital_status ?? ""] ?? identity?.marital_status)} />
-          </div>
-        </AdminSectionCard>
-        <AdminSectionCard title="העסקה נוכחית">
-          <div className={fieldGridClass}>
-            <FormField label="סטטוס העסקה" value={safe(employmentStatusLabel)} />
-            <FormField label="סוג העסקה" value={safe(EMPLOYMENT_TYPE_LABELS[employment?.employment_type ?? ""] ?? employment?.employment_type)} />
-            <FormField label="תוקף נוכחי" value={safe(currentValidity)} />
-            <FormField label="תחילת העסקה" value={safe(formatDate(employment?.start_date))} />
-            <FormField label="אחוז משרה" value={safe(employment?.employment_scope_pct !== undefined ? `${employment.employment_scope_pct}%` : null)} />
-            <FormField label="סוג שכר" value={safe(SALARY_TYPE_LABELS[employment?.salary_type ?? ""] ?? employment?.salary_type)} />
-            <FormField label="שכר בסיס" value={safe(formatMoney(compensation?.base_salary, compensation?.currency ?? "ILS"))} />
-            <FormField label="מחזור שכר" value={safe(PAY_CYCLE_LABELS[compensation?.pay_cycle ?? ""] ?? compensation?.pay_cycle)} />
-            <FormField label="יחידה" value={safe(employment?.org_unit_name || data.employee.org_unit_name)} />
-            <FormField label="מנהל ישיר" value={safe(employment?.manager_name || data.employee.manager_name)} />
-            <FormField label="תפקיד" value={safe(employment?.position_title || data.employee.position_title)} />
-            <FormField label="סניף" value={safe(employment?.branch_name || data.employee.branch_name)} />
-            <FormField label="אתר עבודה" value={safe(employment?.work_site || data.employee.work_site)} />
-            <FormField label="חשבון בנק פעיל" value={safe(bankAccount?.account_number)} />
-          </div>
-        </AdminSectionCard>
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({
-  title,
-  subtitle,
-  action,
+function StatusModal({
+  tenantId,
+  employeeId,
+  current,
+  onClose,
+  onSaved,
 }: {
-  title: string;
-  subtitle?: string;
-  action?: React.ReactNode;
+  tenantId: string;
+  employeeId: string;
+  current: string;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
+  const [status, setStatus] = useState(current);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/api/core/employees/${employeeId}/status?tenant_id=${tenantId}`, { status });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getApiError(err, "שגיאה בשמירה"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="mb-4 flex items-start justify-between gap-3">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-        {subtitle ? <p className="mt-1 text-xs text-slate-500">{subtitle}</p> : null}
-      </div>
-      {action}
-    </div>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-sm overflow-hidden">
+        <AdminModalHeader title="שינוי סטטוס עובד" onClose={onClose} />
+        <AdminModalBody className="space-y-3">
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-slate-500">סטטוס</label>
+            <select className={ADMIN_MODAL_INPUT} value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="active">פעיל</option>
+              <option value="inactive">לא פעיל</option>
+              <option value="terminated">מסיים</option>
+            </select>
+          </div>
+          {status === "terminated" ? (
+            <AdminModalMessage tone="warning">שינוי לסטטוס מסיים הוא פעולה משמעותית המשפיעה על כל מחזור החיים של העובד.</AdminModalMessage>
+          ) : null}
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button
+            onClick={handleSave}
+            disabled={saving || status === current}
+            className={status === "terminated" ? ADMIN_MODAL_ACTION_DANGER : ADMIN_MODAL_ACTION_PRIMARY}
+          >
+            {saving ? "שומר..." : "שמור"}
+          </button>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
-export default function CoreEmployeeDetailPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const employeeId = Array.isArray(params.id) ? params.id[0] : params.id;
-  const [data, setData] = useState<EmployeeDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<ModalState | null>(null);
+function DeleteEmployeeModal({
+  tenantId,
+  employeeId,
+  employeeNumber,
+  fullName,
+  onClose,
+  onDeleted,
+}: {
+  tenantId: string;
+  employeeId: string;
+  employeeNumber: number;
+  fullName: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
   const [saving, setSaving] = useState(false);
-  const [orgUnits, setOrgUnits] = useState<OrgUnitOption[]>([]);
-  const [positions, setPositions] = useState<PositionOption[]>([]);
-  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const hasSensitiveAccess = canManageSensitive("core");
+  async function handleDelete() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.delete(`/api/core/employees/${employeeId}?tenant_id=${tenantId}`);
+      onDeleted();
+    } catch (err) {
+      setError(getApiError(err, "לא ניתן למחוק את העובד"));
+      setSaving(false);
+    }
+  }
 
-  const loadData = useCallback(() => {
+  return (
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-md overflow-hidden">
+        <AdminModalHeader title="מחיקת עובד" onClose={onClose} />
+        <AdminModalBody className="space-y-4">
+          <AdminModalMessage tone="danger">
+            <strong>פעולה בלתי הפיכה.</strong> העובד <strong>{fullName}</strong> (מס׳ עובד {employeeNumber}) יימחק יחד עם
+            היסטוריית הפרטים, השיוכים, השכר, חשבונות הבנק, האירועים והקורסים שלו.
+          </AdminModalMessage>
+          <AdminModalMessage tone="warning">
+            אם רצית רק להפסיק פעילות, עדיף להשתמש בשינוי סטטוס או סגירת תקופה במקום מחיקה מלאה.
+          </AdminModalMessage>
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={handleDelete} disabled={saving} className={ADMIN_MODAL_ACTION_DANGER}>
+            {saving ? "מוחק..." : "מחק עובד"}
+          </button>
+          <button onClick={onClose} disabled={saving} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
+  );
+}
+
+export default function EmployeeCardPage() {
+  const router = useRouter();
+  const params = useParams();
+  const employeeRouteParam = params.id as string;
+  const workspace = useWorkspace();
+  const tenantId = workspace?.selectedTenantId ?? "";
+
+  const [card, setCard] = useState<EmployeeCard | null>(null);
+  const [resolvedEmployeeId, setResolvedEmployeeId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [temporalModal, setTemporalModal] = useState<TemporalModalState | null>(null);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [showTrainingModal, setShowTrainingModal] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [orgUnitOptions, setOrgUnitOptions] = useState<LookupOption[]>([]);
+  const [positionOptions, setPositionOptions] = useState<LookupOption[]>([]);
+  const [managerOptions, setManagerOptions] = useState<EmployeeOption[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadCard = useCallback(() => {
+    if (!tenantId) return;
     setLoading(true);
-    api.get<EmployeeDetailResponse>(`/api/core/employees/${employeeId}`)
-      .then((payload) => {
-        setData(payload);
-        setError(null);
-      })
-      .catch((err: unknown) => setError((err as { message?: string })?.message ?? "שגיאה בטעינת העובד"))
-      .finally(() => setLoading(false));
-  }, [employeeId]);
+    setLoadError(null);
 
-  const loadOptions = useCallback((tenantId: string) => {
+    const resolveEmployeeId = async () => {
+      if (UUID_PATTERN.test(employeeRouteParam)) return employeeRouteParam;
+
+      const employees = await api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${tenantId}`);
+      const match = employees.find((employee) => String(employee.employee_number) === employeeRouteParam);
+      if (!match) {
+        throw new Error(`Employee ${employeeRouteParam} not found`);
+      }
+      return match.id;
+    };
+
+    resolveEmployeeId()
+      .then((employeeId) => {
+        setResolvedEmployeeId(employeeId);
+        return api.get<EmployeeCard>(`/api/core/employees/${employeeId}?tenant_id=${tenantId}`);
+      })
+      .then((data) => setCard(normalizeEmployeeCard(data)))
+      .catch((error) => {
+        console.error(error);
+        setCard(null);
+        setResolvedEmployeeId(null);
+        setLoadError("לא הצלחנו לטעון את פרטי העובד. בדוק שהעובד קיים בארגון הפעיל.");
+      })
+      .finally(() => setLoading(false));
+  }, [employeeRouteParam, tenantId]);
+
+  const loadEmploymentLookups = useCallback(() => {
+    if (!tenantId) {
+      setOrgUnitOptions([]);
+      setPositionOptions([]);
+      setManagerOptions([]);
+      return;
+    }
+
     Promise.all([
-      api.get<OrgUnitOption[]>(`/api/core/org-units?tenant_id=${tenantId}`),
-      api.get<PositionOption[]>(`/api/core/positions?tenant_id=${tenantId}`),
+      api.get<Array<{ id: string; code?: string; name: string }>>(`/api/core/org-units?tenant_id=${tenantId}`),
+      api.get<Array<{ id: string; code?: string; name: string }>>(`/api/core/positions?tenant_id=${tenantId}`),
       api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${tenantId}`),
     ])
-      .then(([orgUnitsData, positionsData, employeesData]) => {
-        setOrgUnits(orgUnitsData);
-        setPositions(positionsData);
-        setEmployeeOptions(employeesData.filter((item) => item.id !== employeeId));
+      .then(([orgUnits, positions, employees]) => {
+        setOrgUnitOptions(orgUnits);
+        setPositionOptions(positions);
+        setManagerOptions(employees);
       })
-      .catch(() => {
-        setOrgUnits([]);
-        setPositions([]);
-        setEmployeeOptions([]);
-      });
-  }, [employeeId]);
+      .catch(console.error);
+  }, [tenantId]);
 
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
-      return;
     }
-    if (employeeId) {
-      loadData();
-    }
-  }, [employeeId, loadData, router]);
+  }, [router]);
 
   useEffect(() => {
-    if (data?.employee.tenant_id) {
-      loadOptions(data.employee.tenant_id);
-    }
-  }, [data?.employee.tenant_id, loadOptions]);
+    if (!tenantId) return;
+    loadCard();
+    loadEmploymentLookups();
+  }, [tenantId, loadCard, loadEmploymentLookups]);
 
-  function updateModalField(name: string, value: RecordFormValue) {
-    setModal((current) => (current ? { ...current, form: { ...current.form, [name]: value } } : current));
+  const identityRows = card?.identity ?? [];
+  const personalRows = card?.personal ?? [];
+  const contactRows = card?.contact ?? [];
+  const employmentRows = card?.employment ?? [];
+  const compensationRows = card?.compensation ?? [];
+  const bankRows = card?.bank ?? [];
+
+  const activeIdent = identityRows.find((row) => row._current) ?? identityRows[0];
+  const activePersonal = personalRows.find((row) => row._current) ?? personalRows[0];
+  const activeContact = contactRows.find((row) => row._current) ?? contactRows[0];
+  const activeEmployment = employmentRows.find((row) => row._current) ?? employmentRows[0];
+  const activeCompensation = compensationRows.find((row) => row._current) ?? compensationRows[0];
+  const activeBank = bankRows.find((row) => row._current) ?? bankRows[0];
+
+  function openTemporal(section: TemporalSection, row?: Record<string, unknown>, mode: TemporalMode = row ? "update" : "add") {
+    setTemporalModal({
+      section,
+      mode,
+      recordId: typeof row?.id === "string" ? row.id : undefined,
+      prefill: row,
+    });
   }
 
-  function openModal(state: ModalState) {
-    setModal(state);
-  }
-
-  function closeModal() {
-    setModal(null);
-    setSaving(false);
-  }
-
-  function buildIdentityForm(identity?: EmployeeIdentity | null): RecordForm {
-    return {
-      first_name: identity?.first_name ?? "",
-      last_name: identity?.last_name ?? "",
-      preferred_name: identity?.preferred_name ?? "",
-      email: identity?.email ?? "",
-      phone: identity?.phone ?? "",
-      birth_date: formatDateInput(identity?.birth_date),
-      immigration_date: formatDateInput(identity?.immigration_date),
-      gender: identity?.gender ?? "",
-      marital_status: identity?.marital_status ?? "",
-      children_count: identity?.children_count ?? null,
-      spouse_name: identity?.spouse_name ?? "",
-      spouse_legal_id: identity?.spouse_legal_id ?? "",
-      legal_id_type: identity?.legal_id_type ?? "national_id",
-      legal_id_number: identity?.legal_id_number ?? "",
-      nationality: identity?.nationality ?? "",
-      address_line1: identity?.address_line1 ?? "",
-      address_line2: identity?.address_line2 ?? "",
-      city: identity?.city ?? "",
-      postal_code: identity?.postal_code ?? "",
-      country: identity?.country ?? "IL",
-      emergency_contact_name: identity?.emergency_contact_name ?? "",
-      emergency_contact_phone: identity?.emergency_contact_phone ?? "",
-      valid_from: formatDateInput(identity?.valid_from),
-      valid_to: formatDateInput(identity?.valid_to),
-    };
-  }
-
-  function buildEmploymentForm(employment?: EmployeeEmployment | null): RecordForm {
-    return {
-      org_unit_id: employment?.org_unit_id ?? "",
-      manager_employee_id: employment?.manager_employee_id ?? "",
-      position_id: employment?.position_id ?? "",
-      employment_status: employment?.employment_status ?? "active",
-      employment_type: employment?.employment_type ?? "employee",
-      salary_type: employment?.salary_type ?? "monthly",
-      start_date: formatDateInput(employment?.start_date),
-      end_date: formatDateInput(employment?.end_date),
-      employment_scope_pct: employment?.employment_scope_pct ?? 100,
-      branch_name: employment?.branch_name ?? "",
-      work_site: employment?.work_site ?? "",
-      time_clock_id: employment?.time_clock_id ?? "",
-      notes: employment?.notes ?? "",
-      valid_from: formatDateInput(employment?.valid_from),
-      valid_to: formatDateInput(employment?.valid_to),
-    };
-  }
-
-  function buildCompensationForm(compensation?: EmployeeCompensation | null): RecordForm {
-    return {
-      base_salary: compensation?.base_salary ?? null,
-      currency: compensation?.currency ?? "ILS",
-      pay_cycle: compensation?.pay_cycle ?? "monthly",
-      cost_center: compensation?.cost_center ?? "",
-      valid_from: formatDateInput(compensation?.valid_from),
-      valid_to: formatDateInput(compensation?.valid_to),
-    };
-  }
-
-  function buildDocumentForm(record?: EmployeeDocument): RecordForm {
-    return {
-      document_type: record?.document_type ?? "",
-      file_name: record?.file_name ?? "",
-      storage_path: record?.storage_path ?? "",
-      issued_on: formatDateInput(record?.issued_on),
-      expires_on: formatDateInput(record?.expires_on),
-      status: record?.status ?? "active",
-      notes: record?.notes ?? "",
-      valid_from: formatDateInput(record?.valid_from),
-      valid_to: formatDateInput(record?.valid_to),
-    };
-  }
-
-  function buildChildForm(child?: EmployeeChild): RecordForm {
-    return {
-      child_name: child?.child_name ?? "",
-      last_name: child?.last_name ?? "",
-      legal_id_number: child?.legal_id_number ?? "",
-      birth_date: formatDateInput(child?.birth_date),
-      gender: child?.gender ?? "",
-      military_service_status: child?.military_service_status ?? "",
-      service_start_date: formatDateInput(child?.service_start_date),
-      service_end_date: formatDateInput(child?.service_end_date),
-      allowance_eligible: child?.allowance_eligible ? "yes" : "no",
-      notes: child?.notes ?? "",
-    };
-  }
-
-  function buildBankForm(record?: EmployeeBankAccount): RecordForm {
-    return {
-      bank_code: record?.bank_code ?? "",
-      bank_name: record?.bank_name ?? "",
-      branch_number: record?.branch_number ?? "",
-      branch_description: record?.branch_description ?? "",
-      account_number: record?.account_number ?? "",
-      account_holder_name: record?.account_holder_name ?? "",
-      payment_method: record?.payment_method ?? "bank_transfer",
-      payment_percent: record?.payment_percent ?? null,
-      fixed_amount: record?.fixed_amount ?? null,
-      payment_priority: record?.payment_priority ?? null,
-      company_name: record?.company_name ?? "",
-      notes: record?.notes ?? "",
-      valid_from: formatDateInput(record?.valid_from),
-      valid_to: formatDateInput(record?.valid_to),
-    };
-  }
-
-  function buildAwardForm(record?: EmployeeAward): RecordForm {
-    return {
-      award_type: record?.award_type ?? "",
-      award_date: formatDateInput(record?.award_date),
-      description: record?.description ?? "",
-      granted_by: record?.granted_by ?? "",
-      notes: record?.notes ?? "",
-    };
-  }
-
-  function buildCertificationForm(record?: EmployeeCertification): RecordForm {
-    return {
-      certification_type: record?.certification_type ?? "",
-      issuer: record?.issuer ?? "",
-      issued_on: formatDateInput(record?.issued_on),
-      expires_on: formatDateInput(record?.expires_on),
-      status: record?.status ?? "",
-      notes: record?.notes ?? "",
-      valid_from: formatDateInput(record?.valid_from),
-      valid_to: formatDateInput(record?.valid_to),
-    };
-  }
-
-  function buildCourseForm(record?: EmployeeCourse): RecordForm {
-    return {
-      course_name: record?.course_name ?? "",
-      provider: record?.provider ?? "",
-      started_on: formatDateInput(record?.started_on),
-      completed_on: formatDateInput(record?.completed_on),
-      status: record?.status ?? "",
-      score: record?.score ?? "",
-      notes: record?.notes ?? "",
-      valid_from: formatDateInput(record?.valid_from),
-      valid_to: formatDateInput(record?.valid_to),
-    };
-  }
-
-  function buildSkillForm(record?: EmployeeSkill): RecordForm {
-    return {
-      skill_name: record?.skill_name ?? "",
-      level: record?.level ?? "",
-      category: record?.category ?? "",
-      source: record?.source ?? "",
-      assessed_on: formatDateInput(record?.assessed_on),
-      notes: record?.notes ?? "",
-    };
-  }
-
-  function buildWorkBreakForm(record?: EmployeeWorkBreak): RecordForm {
-    return {
-      break_type: record?.break_type ?? "",
-      reason: record?.reason ?? "",
-      started_on: formatDateInput(record?.started_on),
-      ended_on: formatDateInput(record?.ended_on),
-      approved_by: record?.approved_by ?? "",
-      notes: record?.notes ?? "",
-      valid_from: formatDateInput(record?.valid_from),
-      valid_to: formatDateInput(record?.valid_to),
-    };
-  }
-
-  function normalizeChildPayload(form: RecordForm) {
-    return {
-      ...form,
-      allowance_eligible:
-        form.allowance_eligible === "yes"
-          ? true
-          : form.allowance_eligible === "no"
-            ? false
-            : null,
-    };
-  }
-
-  async function submitModal(actionOverride?: TemporalAction) {
-    if (!modal) return;
-    setSaving(true);
-    const action = actionOverride ?? "update";
-    const form = modal.form;
-    try {
-      switch (modal.kind) {
-        case "identity":
-          await api.put(`/api/core/employees/${employeeId}/identity/record`, {
-            action,
-            ...form,
-          });
-          break;
-        case "employment":
-          await api.put(`/api/core/employees/${employeeId}/employment/record`, {
-            action,
-            ...form,
-          });
-          break;
-        case "compensation":
-          await api.put(`/api/core/employees/${employeeId}/compensation/record`, {
-            action,
-            ...form,
-          });
-          break;
-        case "document":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/documents`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/documents/${modal.recordId}/record`, {
-              action,
-              ...form,
-            });
-          }
-          break;
-        case "child":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/children`, normalizeChildPayload(form));
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/children/${modal.recordId}`, normalizeChildPayload(form));
-          }
-          break;
-        case "bank":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/bank-accounts`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/bank-accounts/${modal.recordId}/record`, {
-              action,
-              ...form,
-            });
-          }
-          break;
-        case "award":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/awards`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/awards/${modal.recordId}`, form);
-          }
-          break;
-        case "certification":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/certifications`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/certifications/${modal.recordId}/record`, {
-              action,
-              ...form,
-            });
-          }
-          break;
-        case "course":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/courses`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/courses/${modal.recordId}/record`, {
-              action,
-              ...form,
-            });
-          }
-          break;
-        case "skill":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/skills`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/skills/${modal.recordId}`, form);
-          }
-          break;
-        case "work_break":
-          if (modal.isNew) {
-            await api.post(`/api/core/employees/${employeeId}/work-breaks`, form);
-          } else {
-            await api.put(`/api/core/employees/${employeeId}/work-breaks/${modal.recordId}/record`, {
-              action,
-              ...form,
-            });
-          }
-          break;
-      }
-      closeModal();
-      loadData();
-    } catch (err: unknown) {
-      setError((err as { message?: string })?.message ?? "לא ניתן לשמור את הרשומה");
-      setSaving(false);
-    }
-  }
-
-  async function deleteModalRecord() {
-    if (!modal?.recordId) return;
-    setSaving(true);
-    try {
-      switch (modal.kind) {
-        case "document":
-        case "bank":
-        case "certification":
-        case "course":
-        case "work_break":
-          await submitModal("delete");
-          return;
-        case "child":
-          await api.delete(`/api/core/employees/${employeeId}/children/${modal.recordId}`);
-          break;
-        case "award":
-          await api.delete(`/api/core/employees/${employeeId}/awards/${modal.recordId}`);
-          break;
-        case "skill":
-          await api.delete(`/api/core/employees/${employeeId}/skills/${modal.recordId}`);
-          break;
-        default:
-          return;
-      }
-      closeModal();
-      loadData();
-    } catch (err: unknown) {
-      setError((err as { message?: string })?.message ?? "לא ניתן למחוק את הרשומה");
-      setSaving(false);
-    }
-  }
-
-  const identityFields: FieldConfig[] = [
-    { name: "first_name", label: "שם פרטי", type: "text" },
-    { name: "last_name", label: "שם משפחה", type: "text" },
-    { name: "preferred_name", label: "שם מועדף", type: "text" },
-    { name: "email", label: 'דוא"ל', type: "text" },
-    { name: "phone", label: "טלפון", type: "text" },
-    { name: "birth_date", label: "תאריך לידה", type: "date" },
-    { name: "immigration_date", label: "תאריך עליה", type: "date" },
-    { name: "gender", label: "מגדר", type: "select", options: toSelectOptions([{ value: "female", label: "נקבה" }, { value: "male", label: "זכר" }, { value: "other", label: "אחר" }]) },
-    { name: "marital_status", label: "מצב משפחתי", type: "select", options: toSelectOptions([{ value: "single", label: "רווק/ה" }, { value: "married", label: "נשוי/אה" }, { value: "divorced", label: "גרוש/ה" }, { value: "widowed", label: "אלמן/ה" }, { value: "other", label: "אחר" }]) },
-    { name: "children_count", label: "מספר ילדים", type: "number", min: 0 },
-    { name: "spouse_name", label: "שם בן/בת זוג", type: "text" },
-    { name: "spouse_legal_id", label: "ת.ז בן/בת זוג", type: "text" },
-    { name: "legal_id_type", label: "סוג מזהה", type: "select", options: toSelectOptions([{ value: "national_id", label: "תעודת זהות" }, { value: "passport", label: "דרכון" }, { value: "resident", label: "תושב" }, { value: "other", label: "אחר" }]) },
-    { name: "legal_id_number", label: "מספר מזהה", type: "text" },
-    { name: "nationality", label: "אזרחות", type: "text" },
-    { name: "address_line1", label: "כתובת", type: "text" },
-    { name: "address_line2", label: "כתובת 2", type: "text" },
-    { name: "city", label: "עיר", type: "text" },
-    { name: "postal_code", label: "מיקוד", type: "text" },
-    { name: "country", label: "מדינה", type: "text" },
-    { name: "emergency_contact_name", label: "איש קשר חירום", type: "text" },
-    { name: "emergency_contact_phone", label: "טלפון חירום", type: "text" },
-  ];
-
-  const employmentFields: FieldConfig[] = [
-    { name: "org_unit_id", label: "יחידה", type: "select", options: toSelectOptions(orgUnits.map((item) => ({ value: item.id, label: `${item.code} - ${item.name}` }))) },
-    { name: "position_id", label: "תפקיד", type: "select", options: toSelectOptions(positions.map((item) => ({ value: item.id, label: `${item.code} - ${item.title}` }))) },
-    { name: "manager_employee_id", label: "מנהל ישיר", type: "select", options: toSelectOptions(employeeOptions.map((item) => ({ value: item.id, label: `${item.employee_number} - ${item.full_name}` }))) },
-    { name: "employment_status", label: "סטטוס העסקה", type: "select", options: toSelectOptions(Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))) },
-    { name: "employment_type", label: "סוג העסקה", type: "select", options: toSelectOptions(Object.entries(EMPLOYMENT_TYPE_LABELS).map(([value, label]) => ({ value, label }))) },
-    { name: "salary_type", label: "סוג שכר", type: "select", options: toSelectOptions(Object.entries(SALARY_TYPE_LABELS).map(([value, label]) => ({ value, label }))) },
-    { name: "start_date", label: "תחילת העסקה", type: "date" },
-    { name: "end_date", label: "סיום העסקה", type: "date" },
-    { name: "employment_scope_pct", label: "אחוז משרה", type: "number", min: 0, max: 100 },
-    { name: "branch_name", label: "סניף", type: "text" },
-    { name: "work_site", label: "אתר עבודה", type: "text" },
-    { name: "time_clock_id", label: "מספר כרטיס", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const compensationFields: FieldConfig[] = [
-    { name: "base_salary", label: "שכר בסיס", type: "number", min: 0 },
-    { name: "currency", label: "מטבע", type: "text" },
-    { name: "pay_cycle", label: "מחזור", type: "select", options: toSelectOptions(Object.entries(PAY_CYCLE_LABELS).map(([value, label]) => ({ value, label }))) },
-    { name: "cost_center", label: "מרכז עלות", type: "text" },
-  ];
-
-  const documentFields: FieldConfig[] = [
-    { name: "document_type", label: "סוג מסמך", type: "text" },
-    { name: "file_name", label: "שם קובץ", type: "text" },
-    { name: "storage_path", label: "קישור/נתיב", type: "text" },
-    { name: "issued_on", label: "הונפק", type: "date" },
-    { name: "expires_on", label: "בתוקף עד", type: "date" },
-    { name: "status", label: "סטטוס", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const childFields: FieldConfig[] = [
-    { name: "child_name", label: "שם הילד", type: "text" },
-    { name: "last_name", label: "שם משפחה", type: "text" },
-    { name: "legal_id_number", label: "מספר זהות", type: "text" },
-    { name: "birth_date", label: "תאריך לידה", type: "date" },
-    { name: "gender", label: "מגדר", type: "select", options: toSelectOptions([{ value: "female", label: "נקבה" }, { value: "male", label: "זכר" }, { value: "other", label: "אחר" }]) },
-    { name: "military_service_status", label: "מצב שירות", type: "text" },
-    { name: "service_start_date", label: "תחילת שירות", type: "date" },
-    { name: "service_end_date", label: "סיום שירות", type: "date" },
-    { name: "allowance_eligible", label: "זכאי/ת להטבה", type: "select", options: toSelectOptions([{ value: "yes", label: "כן" }, { value: "no", label: "לא" }]) },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const bankFields: FieldConfig[] = [
-    { name: "bank_code", label: "קוד בנק", type: "text" },
-    { name: "bank_name", label: "בנק", type: "text" },
-    { name: "branch_number", label: "סניף", type: "text" },
-    { name: "branch_description", label: "תיאור סניף", type: "text" },
-    { name: "account_number", label: "מספר חשבון", type: "text" },
-    { name: "account_holder_name", label: "בעל החשבון", type: "text" },
-    { name: "payment_method", label: "אמצעי תשלום", type: "select", options: toSelectOptions(Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => ({ value, label }))) },
-    { name: "payment_percent", label: "אחוז תשלום", type: "number", min: 0, max: 100 },
-    { name: "fixed_amount", label: "סכום קבוע", type: "number", min: 0 },
-    { name: "payment_priority", label: "עדיפות", type: "number", min: 1 },
-    { name: "company_name", label: "חברה משלמת", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const awardFields: FieldConfig[] = [
-    { name: "award_type", label: "סוג הוקרה", type: "text" },
-    { name: "award_date", label: "תאריך", type: "date" },
-    { name: "granted_by", label: "ניתן על ידי", type: "text" },
-    { name: "description", label: "תיאור", type: "textarea" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const certificationFields: FieldConfig[] = [
-    { name: "certification_type", label: "הסמכה", type: "text" },
-    { name: "issuer", label: "מנפיק", type: "text" },
-    { name: "issued_on", label: "הונפק", type: "date" },
-    { name: "expires_on", label: "בתוקף עד", type: "date" },
-    { name: "status", label: "סטטוס", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const courseFields: FieldConfig[] = [
-    { name: "course_name", label: "קורס", type: "text" },
-    { name: "provider", label: "ספק/מוסד", type: "text" },
-    { name: "started_on", label: "התחלה", type: "date" },
-    { name: "completed_on", label: "סיום", type: "date" },
-    { name: "status", label: "סטטוס", type: "text" },
-    { name: "score", label: "ציון", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const skillFields: FieldConfig[] = [
-    { name: "skill_name", label: "כישור", type: "text" },
-    { name: "level", label: "רמה", type: "text" },
-    { name: "category", label: "קטגוריה", type: "text" },
-    { name: "source", label: "מקור", type: "text" },
-    { name: "assessed_on", label: "נבדק בתאריך", type: "date" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const workBreakFields: FieldConfig[] = [
-    { name: "break_type", label: "סוג הפסקה", type: "text" },
-    { name: "reason", label: "סיבה", type: "textarea" },
-    { name: "started_on", label: "מתאריך", type: "date" },
-    { name: "ended_on", label: "עד תאריך", type: "date" },
-    { name: "approved_by", label: "אושר על ידי", type: "text" },
-    { name: "notes", label: "הערות", type: "textarea" },
-  ];
-
-  const formTabs: FormTab[] = useMemo(() => {
-    if (!data) return [];
-    const identity = data.current_identity;
-    const employment = data.current_employment;
-    const compensation = data.current_compensation;
-    const bank = data.current_bank_account;
-
-    return [
-      {
-        id: "personal",
-        label: "פרטים אישיים",
-        content: (
-          <div className="bg-white p-4">
-            <AdminSectionCard title="פרטים אישיים">
-              <SectionHeader
-                title="פרטים אישיים"
-                subtitle="רשומת הזהות הפעילה של העובד, עם חלוקה פנימית לפי אזורי מידע"
-                action={
-                  <button
-                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                    onClick={() =>
-                      openModal({
-                        kind: "identity",
-                        title: "עריכת פרטים אישיים",
-                        form: buildIdentityForm(identity),
-                        recordId: identity?.id ?? null,
-                        isNew: !identity,
-                      })
-                    }
-                  >
-                    {identity ? "ערוך" : "הוסף"}
-                  </button>
-                }
-              />
-              <InnerTabs
-                tabs={[
-                  {
-                    id: "personal-main",
-                    label: "פרטים אישיים",
-                    content: (
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <FormField label="שם פרטי" value={safe(identity?.first_name)} />
-                        <FormField label="שם משפחה" value={safe(identity?.last_name)} />
-                        <FormField label="שם מועדף" value={safe(identity?.preferred_name)} />
-                        <FormField label='דוא"ל' value={safe(identity?.email)} />
-                        <FormField label="טלפון" value={safe(identity?.phone)} />
-                        <FormField label="אזרחות ראשית" value={safe(identity?.nationality)} />
-                        <FormField label="מגדר" value={safe(GENDER_LABELS[identity?.gender ?? ""] ?? identity?.gender)} />
-                        <FormField label="תאריך לידה" value={safe(formatDate(identity?.birth_date))} />
-                        <FormField label="תאריך עליה" value={safe(formatDate(identity?.immigration_date))} />
-                        <FormField label="סוג מזהה" value={safe(LEGAL_ID_TYPE_LABELS[identity?.legal_id_type ?? ""] ?? identity?.legal_id_type)} />
-                        <FormField label="מספר מזהה" value={safe(identity?.legal_id_number)} />
-                        <FormField label="מדינה" value={safe(identity?.country)} />
-                      </div>
-                    ),
-                  },
-                  {
-                    id: "personal-family",
-                    label: "פרטי אישות ומשפחה",
-                    content: (
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <FormField label="מצב משפחתי" value={safe(MARITAL_STATUS_LABELS[identity?.marital_status ?? ""] ?? identity?.marital_status)} />
-                        <FormField label="מספר ילדים" value={safe(identity?.children_count)} />
-                        <FormField label="שם בן/בת זוג" value={safe(identity?.spouse_name)} />
-                        <FormField label="ת.ז בן/בת זוג" value={safe(identity?.spouse_legal_id)} />
-                        <FormField label="איש קשר חירום" value={safe(identity?.emergency_contact_name)} />
-                        <FormField label="טלפון חירום" value={safe(identity?.emergency_contact_phone)} />
-                      </div>
-                    ),
-                  },
-                  {
-                    id: "personal-extra",
-                    label: "פרטים נוספים",
-                    content: (
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <FormField label="כתובת" value={safe(identity?.address_line1)} />
-                        <FormField label="כתובת 2" value={safe(identity?.address_line2)} />
-                        <FormField label="עיר" value={safe(identity?.city)} />
-                        <FormField label="מיקוד" value={safe(identity?.postal_code)} />
-                        <FormField label="רשומה פעילה מתאריך" value={safe(formatDate(identity?.valid_from))} />
-                        <FormField label="רשומה פעילה עד" value={safe(formatDate(identity?.valid_to))} />
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            </AdminSectionCard>
-          </div>
-        ),
+  const childTabs: ChildTab[] = [
+    {
+      id: "identity",
+      label: "פרטים כלליים",
+      temporalFilter: true,
+      emptyMessage: "אין פרטי זהות רשומים",
+      columns: [
+        { key: "first_name", label: "שם פרטי" },
+        { key: "last_name", label: "שם משפחה" },
+        { key: "id_number", label: "ת.ז." },
+        { key: "title", label: "תואר" },
+        { key: "gender", label: "מגדר" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(identityRows, (row) => ({
+        first_name: row.first_name,
+        last_name: row.last_name,
+        id_number: row.id_number ?? "—",
+        title: row.title ?? "—",
+        gender: row.gender ? GENDER_MAP[row.gender] ?? row.gender : "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("identity"),
+      onRowDoubleClick: (index) => {
+        const row = identityRows[index];
+        if (row) openTemporal("identity", toPrefillRecord(row));
       },
-      {
-        id: "children",
-        label: "פרטי ילדים",
-        content: (
-          <div className="bg-white p-4">
-            <AdminSectionCard title="פרטי ילדים">
-              <SectionHeader
-                title="פרטי ילדים"
-                subtitle="רשומות משפחתיות לא טמפורליות"
-                action={
-                  <button
-                    className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-                    onClick={() => openModal({ kind: "child", title: "הוספת ילד", form: buildChildForm(), isNew: true })}
-                  >
-                    הוסף
-                  </button>
-                }
-              />
-              {data.children.length === 0 ? (
-                <div className="py-8 text-center text-sm text-slate-400">אין ילדים רשומים לעובד</div>
-              ) : (
-                <InfoTable
-                  columns={[
-                    { key: "child_name", label: "שם פרטי" },
-                    { key: "last_name", label: "שם משפחה" },
-                    { key: "legal_id_number", label: "מספר זהות" },
-                    { key: "birth_date", label: "תאריך לידה" },
-                    { key: "gender", label: "מגדר" },
-                    { key: "military_service_status", label: "מצב שירות" },
-                    { key: "allowance_eligible", label: "זכאות" },
-                    { key: "actions", label: "פעולות" },
-                  ]}
-                  rows={data.children.map((child) => ({
-                    child_name: child.child_name,
-                    last_name: safe(child.last_name),
-                    legal_id_number: safe(child.legal_id_number),
-                    birth_date: formatDate(child.birth_date),
-                    gender: GENDER_LABELS[child.gender ?? ""] ?? safe(child.gender),
-                    military_service_status: safe(child.military_service_status),
-                    allowance_eligible: child.allowance_eligible === null || child.allowance_eligible === undefined ? "—" : child.allowance_eligible ? "כן" : "לא",
-                    actions: (
-                      <button
-                        className="text-brand-600 hover:underline"
-                        onClick={() =>
-                          openModal({
-                            kind: "child",
-                            title: "עריכת ילד",
-                            form: buildChildForm(child),
-                            recordId: child.id,
-                            isNew: false,
-                          })
-                        }
-                      >
-                        ערוך
-                      </button>
-                    ),
-                  }))}
-                  emptyMessage="אין ילדים רשומים לעובד"
-                />
-              )}
-            </AdminSectionCard>
-          </div>
-        ),
+    },
+    {
+      id: "personal",
+      label: "פרטים אישיים",
+      temporalFilter: true,
+      emptyMessage: "אין פרטים אישיים רשומים",
+      columns: [
+        { key: "birth_date", label: "תאריך לידה" },
+        { key: "birth_country", label: "ארץ לידה" },
+        { key: "marital_status", label: "מצב משפחתי" },
+        { key: "num_children", label: "מס' ילדים" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(personalRows, (row) => ({
+        birth_date: fmtDate(row.birth_date),
+        birth_country: row.birth_country ?? "—",
+        marital_status: row.marital_status ? MARITAL_MAP[row.marital_status] ?? row.marital_status : "—",
+        num_children: row.num_children ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("personal"),
+      onRowDoubleClick: (index) => {
+        const row = personalRows[index];
+        if (row) openTemporal("personal", toPrefillRecord(row));
       },
-      {
-        id: "employment",
-        label: "נתונים לחברה נוכחית",
-        content: (
-          <div className="bg-white p-4">
-            <AdminSectionCard title="נתונים לחברה נוכחית">
-              <SectionHeader
-                title="נתונים לחברה נוכחית"
-                subtitle="חלוקה פנימית לפרטים, הרשאות לנתונים ושונות"
-                action={
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                      onClick={() =>
-                        openModal({
-                          kind: "employment",
-                          title: "עריכת נתוני העסקה",
-                          form: buildEmploymentForm(employment),
-                          recordId: employment?.id ?? null,
-                          isNew: !employment,
-                        })
-                      }
-                    >
-                      {employment ? "ערוך העסקה" : "הוסף העסקה"}
-                    </button>
-                    {hasSensitiveAccess ? (
-                      <button
-                        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                        onClick={() =>
-                          openModal({
-                            kind: "compensation",
-                            title: "עריכת שכר",
-                            form: buildCompensationForm(compensation),
-                            recordId: compensation?.id ?? null,
-                            isNew: !compensation,
-                          })
-                        }
-                      >
-                        {compensation ? "ערוך שכר" : "הוסף שכר"}
-                      </button>
-                    ) : null}
-                  </div>
-                }
-              />
-              <InnerTabs
-                tabs={[
-                  {
-                    id: "employment-main",
-                    label: "פרטים",
-                    content: (
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <FormField label="יחידה" value={safe(employment?.org_unit_name)} />
-                          <FormField label="תפקיד" value={safe(employment?.position_title)} />
-                          <FormField label="מנהל ישיר" value={safe(employment?.manager_name)} />
-                          <FormField label="סטטוס העסקה" value={safe(STATUS_LABELS[employment?.employment_status ?? ""] ?? employment?.employment_status)} />
-                          <FormField label="סוג העסקה" value={safe(EMPLOYMENT_TYPE_LABELS[employment?.employment_type ?? ""] ?? employment?.employment_type)} />
-                          <FormField label="סוג שכר" value={safe(SALARY_TYPE_LABELS[employment?.salary_type ?? ""] ?? employment?.salary_type)} />
-                          <FormField label="תחילת העסקה" value={safe(formatDate(employment?.start_date))} />
-                          <FormField label="סיום העסקה" value={safe(formatDate(employment?.end_date))} />
-                          <FormField label="אחוז משרה" value={safe(employment?.employment_scope_pct !== undefined ? `${employment.employment_scope_pct}%` : null)} />
-                          <FormField label="סניף" value={safe(employment?.branch_name)} />
-                          <FormField label="אתר עבודה" value={safe(employment?.work_site)} />
-                          <FormField label="מספר כרטיס" value={safe(employment?.time_clock_id)} />
-                        </div>
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <FormField label="שכר בסיס" value={safe(formatMoney(compensation?.base_salary, compensation?.currency ?? "ILS"))} />
-                          <FormField label="מטבע" value={safe(compensation?.currency)} />
-                          <FormField label="מחזור" value={safe(PAY_CYCLE_LABELS[compensation?.pay_cycle ?? ""] ?? compensation?.pay_cycle)} />
-                          <FormField label="מרכז עלות" value={safe(compensation?.cost_center)} />
-                          <FormField label="רשומת העסקה מתאריך" value={safe(formatDate(employment?.valid_from))} />
-                          <FormField label="רשומת העסקה עד" value={safe(formatDate(employment?.valid_to))} />
-                          {!hasSensitiveAccess ? <div className={`${ADMIN_MODAL_HELP} md:col-span-2`}>נתוני שכר מוצגים בהתאם להרשאות שלך.</div> : null}
-                        </div>
-                      </div>
-                    ),
-                  },
-                  {
-                    id: "employment-permissions",
-                    label: "הרשאות לנתונים",
-                    content: (
-                      <div className="space-y-4">
-                        <InfoTable
-                          columns={[
-                            { key: "scope", label: "תחום" },
-                            { key: "item", label: "פריט" },
-                            { key: "access", label: "רמת גישה" },
-                            { key: "notes", label: "הערה", width: "min-w-[220px]" },
-                          ]}
-                          rows={[
-                            { scope: "חברה", item: safe(employment?.branch_name), access: "פעיל", notes: "חיבור ראשוני קיים דרך נתוני ההעסקה" },
-                            { scope: "אתר עבודה", item: safe(employment?.work_site), access: "פעיל", notes: "שדות הרשאה מפורטים יתווספו כשה-API יורחב" },
-                          ]}
-                          emptyMessage="אין הרשאות להצגה"
-                        />
-                      </div>
-                    ),
-                  },
-                  {
-                    id: "employment-misc",
-                    label: "שונות",
-                    content: (
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <FormField label="הערות" value={safe(employment?.notes)} />
-                        <FormField label="שם עובד" value={safe(data.employee.full_name)} />
-                        <FormField label="מספר עובד" value={safe(data.employee.employee_number)} />
-                        <FormField label="מנהל ישיר" value={safe(data.employee.manager_name)} />
-                        <FormField label="יחידה" value={safe(data.employee.org_unit_name)} />
-                        <FormField label="אתר עבודה" value={safe(data.employee.work_site)} />
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            </AdminSectionCard>
-          </div>
-        ),
+    },
+    {
+      id: "contact",
+      label: "פרטי קשר",
+      temporalFilter: true,
+      emptyMessage: "אין פרטי קשר רשומים",
+      columns: [
+        { key: "address", label: "כתובת" },
+        { key: "city", label: "עיר" },
+        { key: "phone", label: "טלפון" },
+        { key: "mobile", label: "נייד" },
+        { key: "email", label: 'דוא"ל' },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(contactRows, (row) => ({
+        address: [row.address1, row.address2].filter(Boolean).join(", ") || "—",
+        city: row.city ?? "—",
+        phone: row.phone ?? "—",
+        mobile: row.mobile ?? "—",
+        email: row.email ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("contact"),
+      onRowDoubleClick: (index) => {
+        const row = contactRows[index];
+        if (row) openTemporal("contact", toPrefillRecord(row));
       },
-      {
-        id: "bank",
-        label: "פרטי חשבון בנק לעובד",
-        content: (
-          <div className="bg-white p-4">
-            <AdminSectionCard title="חשבון בנק פעיל">
-              <SectionHeader
-                title="חשבון בנק פעיל"
-                subtitle={hasSensitiveAccess ? "היסטוריה טמפורלית מלאה" : "מידע רגיש מוגבל לפי הרשאה"}
-                action={
-                  hasSensitiveAccess ? (
-                    <button
-                      className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-                      onClick={() =>
-                        openModal({
-                          kind: "bank",
-                          title: "הוספת חשבון בנק",
-                          form: buildBankForm(bank ?? undefined),
-                          recordId: bank?.id ?? null,
-                          isNew: !bank,
-                        })
-                      }
-                    >
-                      {bank ? "ערוך פעיל" : "הוסף"}
-                    </button>
-                  ) : null
-                }
-              />
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                <FormField label="קוד בנק" value={safe(bank?.bank_code)} />
-                <FormField label="בנק" value={safe(bank?.bank_name)} />
-                <FormField label="סניף" value={safe(bank?.branch_number)} />
-                <FormField label="תיאור סניף" value={safe(bank?.branch_description)} />
-                <FormField label="מספר חשבון" value={safe(bank?.account_number)} />
-                <FormField label="בעל החשבון" value={safe(bank?.account_holder_name)} />
-                <FormField label="אמצעי תשלום" value={safe(PAYMENT_METHOD_LABELS[bank?.payment_method ?? ""] ?? bank?.payment_method)} />
-                <FormField label="אחוז תשלום" value={safe(bank?.payment_percent !== undefined && bank?.payment_percent !== null ? `${bank.payment_percent}%` : null)} />
-                <FormField label="סכום קבוע" value={safe(formatMoney(bank?.fixed_amount, compensation?.currency ?? "ILS"))} />
-                <FormField label="עדיפות" value={safe(bank?.payment_priority)} />
-                <FormField label="חברה" value={safe(bank?.company_name)} />
-                <FormField label="תוקף" value={safe(bank?.valid_from ? `${formatDate(bank.valid_from)}${bank.valid_to ? ` עד ${formatDate(bank.valid_to)}` : ""}` : null)} />
+    },
+    {
+      id: "employment",
+      label: "תפקיד ושיוך",
+      temporalFilter: true,
+      emptyMessage: "אין רשומות העסקה",
+      columns: [
+        { key: "org_unit_name", label: "יחידה ארגונית" },
+        { key: "position_name", label: "תפקיד" },
+        { key: "company", label: "חברה" },
+        { key: "employment_type", label: "סוג העסקה" },
+        { key: "start_date", label: "תאריך תחילה" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(employmentRows, (row) => ({
+        org_unit_name: row.org_unit_name ?? "—",
+        position_name: row.position_name ?? "—",
+        company: row.company ?? "—",
+        employment_type: row.employment_type ? EMPLOYMENT_TYPE_MAP[row.employment_type] ?? row.employment_type : "—",
+        start_date: fmtDate(row.start_date),
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("employment"),
+      onRowDoubleClick: (index) => {
+        const row = employmentRows[index];
+        if (row) openTemporal("employment", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "settings",
+      label: "הגדרות",
+      temporalFilter: true,
+      emptyMessage: "אין הגדרות מתקדמות",
+      columns: [
+        { key: "username", label: "שם משתמש" },
+        { key: "api_username", label: "שם API" },
+        { key: "is_partner", label: "שותף" },
+        { key: "is_manager", label: "מנהל" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(identityRows, (row) => ({
+        username: row.username ?? "—",
+        api_username: row.api_username ?? "—",
+        is_partner: row.is_partner ? "כן" : "לא",
+        is_manager: row.is_manager ? "כן" : "לא",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("identity"),
+      onRowDoubleClick: (index) => {
+        const row = identityRows[index];
+        if (row) openTemporal("identity", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "compensation",
+      label: "שכר",
+      temporalFilter: true,
+      emptyMessage: "אין רכיבי שכר",
+      columns: [
+        { key: "comp_code", label: "קוד" },
+        { key: "comp_name", label: "שם רכיב" },
+        { key: "amount", label: "סכום" },
+        { key: "percentage", label: "%" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(compensationRows, (row) => ({
+        comp_code: row.comp_code ?? "—",
+        comp_name: row.comp_name ?? "—",
+        amount: row.amount ?? "—",
+        percentage: row.percentage ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("compensation"),
+      onRowDoubleClick: (index) => {
+        const row = compensationRows[index];
+        if (row) openTemporal("compensation", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "bank",
+      label: "חשבון בנק",
+      temporalFilter: true,
+      emptyMessage: "אין חשבונות בנק",
+      columns: [
+        { key: "bank_name", label: "בנק" },
+        { key: "branch", label: "סניף" },
+        { key: "account", label: "חשבון" },
+        { key: "pct_payment", label: "% לתשלום" },
+        { key: "fixed_amount", label: "סכום קבוע" },
+        { key: "valid_from", label: "מ-" },
+        { key: "valid_to", label: "עד" },
+      ],
+      rows: buildTemporalRows(bankRows, (row) => ({
+        bank_name: row.bank_name ?? "—",
+        branch: row.branch ?? "—",
+        account: row.account ?? "—",
+        pct_payment: row.pct_payment ?? "—",
+        fixed_amount: row.fixed_amount ?? "—",
+        valid_from: fmtDate(row.valid_from),
+        valid_to: fmtDate(row.valid_to),
+      })),
+      onAddClick: () => openTemporal("bank"),
+      onRowDoubleClick: (index) => {
+        const row = bankRows[index];
+        if (row) openTemporal("bank", toPrefillRecord(row));
+      },
+    },
+    {
+      id: "training",
+      label: "קורסים",
+      emptyMessage: "אין קורסים",
+      columns: [
+        { key: "course_name", label: "שם קורס" },
+        { key: "course_date", label: "תאריך" },
+        { key: "score", label: "ציון" },
+        { key: "institute", label: "גוף מלמד" },
+      ],
+      rows: (card?.training ?? []).map((row) => ({
+        course_name: row.course_name,
+        course_date: fmtDate(row.course_date),
+        score: row.score ?? "—",
+        institute: row.institute ?? "—",
+      })),
+      onAddClick: () => setShowTrainingModal(true),
+    },
+    {
+      id: "events",
+      label: "אירועים",
+      emptyMessage: "אין אירועים",
+      columns: [
+        { key: "event_type", label: "סוג אירוע" },
+        { key: "event_date", label: "תאריך" },
+        { key: "reason", label: "סיבה" },
+        { key: "description", label: "תיאור" },
+      ],
+      rows: (card?.events ?? []).map((row) => ({
+        event_type: EVENT_TYPE_MAP[row.event_type] ?? row.event_type,
+        event_date: fmtDate(row.event_date),
+        reason: row.reason ?? "—",
+        description: row.description ?? "—",
+      })),
+      onAddClick: () => setShowEventModal(true),
+    },
+  ];
+
+  const parentContent = (
+    <div className="border-b border-slate-200 bg-white px-4 py-4">
+      <div className="rounded-2xl border border-slate-200 bg-gradient-to-l from-white to-slate-50 p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+              <UserRound size={24} />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-base font-semibold text-slate-800">
+                {card?.full_name ?? "כרטיס עובד"}
               </div>
-              <div className="mt-5">
-                <div className="mb-2 text-xs font-semibold text-slate-600">היסטוריה</div>
-                {data.bank_accounts.length === 0 ? (
-                  <div className="text-xs text-slate-400">אין היסטוריית חשבונות בנק</div>
-                ) : (
-                  <InfoTable
-                    columns={[
-                      { key: "valid_from", label: "מתאריך" },
-                      { key: "valid_to", label: "עד תאריך" },
-                      { key: "bank_code", label: "קוד בנק" },
-                      { key: "bank_name", label: "בנק" },
-                      { key: "branch_number", label: "סניף" },
-                      { key: "account_number", label: "חשבון" },
-                      { key: "payment_percent", label: "% תשלום" },
-                      { key: "fixed_amount", label: "סכום קבוע" },
-                      { key: "payment_priority", label: "עדיפות" },
-                      { key: "actions", label: "פעולות" },
-                    ]}
-                    rows={sortTemporalRows(data.bank_accounts).map((record) => ({
-                      valid_from: formatDate(record.valid_from),
-                      valid_to: formatDate(record.valid_to),
-                      bank_code: safe(record.bank_code),
-                      bank_name: safe(record.bank_name),
-                      branch_number: safe(record.branch_number),
-                      account_number: safe(record.account_number),
-                      payment_percent: safe(record.payment_percent !== undefined && record.payment_percent !== null ? `${record.payment_percent}%` : null),
-                      fixed_amount: safe(formatMoney(record.fixed_amount, compensation?.currency ?? "ILS")),
-                      payment_priority: safe(record.payment_priority),
-                      actions: hasSensitiveAccess ? (
-                        <button
-                          className="text-brand-600 hover:underline"
-                          onClick={() =>
-                            openModal({
-                              kind: "bank",
-                              title: "עריכת חשבון בנק",
-                              form: buildBankForm(record),
-                              recordId: record.id,
-                              isNew: false,
-                            })
-                          }
-                        >
-                          ערוך
-                        </button>
-                      ) : "—",
-                    }))}
-                    emptyMessage="אין היסטוריית חשבונות בנק"
-                  />
-                )}
+              <div className="mt-1 text-xs text-slate-500">
+                מס׳ עובד: {card?.employee_number ?? "—"}
               </div>
-            </AdminSectionCard>
+              <div className="text-xs text-slate-500">
+                ת.ז.: {card?.id_number ?? "—"}
+              </div>
+            </div>
           </div>
-        ),
-      },
-    ];
-  }, [data, hasSensitiveAccess]);
 
-  const childTabs: ChildTab[] = useMemo(() => {
-    if (!data) return [];
-    return [
-      {
-        id: "movements",
-        label: "ניוד בין מחלקות",
-        columns: [
-          { key: "effective_date", label: "תאריך" },
-          { key: "previous_org_unit_name", label: "יחידה קודמת" },
-          { key: "next_org_unit_name", label: "יחידה חדשה" },
-          { key: "position_title", label: "תפקיד" },
-          { key: "employment_status", label: "סטטוס" },
-          { key: "branch_name", label: "סניף" },
-          { key: "work_site", label: "אתר עבודה" },
-        ],
-        rows: data.department_movements.map((row) => ({
-          effective_date: formatDate(row.effective_date),
-          previous_org_unit_name: safe(row.previous_org_unit_name),
-          next_org_unit_name: safe(row.next_org_unit_name),
-          position_title: safe(row.position_title),
-          employment_status: safe(STATUS_LABELS[row.employment_status ?? ""] ?? row.employment_status),
-          branch_name: safe(data.current_employment?.branch_name),
-          work_site: safe(data.current_employment?.work_site),
-        })),
-        emptyMessage: "אין תנועות בין מחלקות להצגה",
-      },
-      {
-        id: "jobs",
-        label: "משרות לעובד",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "position_title", label: "תפקיד" },
-          { key: "employment_type", label: "סוג העסקה" },
-          { key: "employment_status", label: "סטטוס" },
-          { key: "org_unit_name", label: "יחידה" },
-          { key: "manager_name", label: "מנהל" },
-        ],
-        rows: sortTemporalRows(data.employment_history).map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          position_title: safe(row.position_title),
-          employment_type: safe(EMPLOYMENT_TYPE_LABELS[row.employment_type] ?? row.employment_type),
-          employment_status: safe(STATUS_LABELS[row.employment_status] ?? row.employment_status),
-          org_unit_name: safe(row.org_unit_name),
-          manager_name: safe(row.manager_name),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        emptyMessage: "אין משרות להצגה",
-      },
-      {
-        id: "position_history",
-        label: "היסטוריה של תפקידים",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "position_title", label: "תפקיד" },
-          { key: "manager_name", label: "מנהל" },
-          { key: "employment_status", label: "סטטוס" },
-          { key: "org_unit_name", label: "יחידה" },
-        ],
-        rows: data.position_history.map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          position_title: safe(row.position_title),
-          manager_name: safe(row.manager_name),
-          employment_status: safe(STATUS_LABELS[row.employment_status ?? ""] ?? row.employment_status),
-          org_unit_name: safe(row.org_unit_name),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        emptyMessage: "אין היסטוריית תפקידים להצגה",
-      },
-      {
-        id: "team",
-        label: "אנשים בצוות",
-        columns: [
-          { key: "employee_number", label: "מספר עובד" },
-          { key: "full_name", label: "שם מלא" },
-          { key: "position_title", label: "תפקיד" },
-          { key: "org_unit_name", label: "יחידה" },
-          { key: "employment_status", label: "סטטוס" },
-          { key: "start_date", label: "תחילת העסקה" },
-          { key: "open", label: "כרטיס" },
-        ],
-        rows: data.team_members.map((row) => ({
-          employee_number: row.employee_number,
-          full_name: row.full_name,
-          position_title: safe(row.position_title),
-          org_unit_name: safe(row.org_unit_name),
-          employment_status: safe(STATUS_LABELS[row.employment_status ?? ""] ?? row.employment_status),
-          start_date: formatDate(row.start_date),
-          open: (
-            <Link href={`/admin/core/${row.employee_id}`} className="text-brand-600 hover:underline">
-              פתח כרטיס
-            </Link>
-          ),
-        })),
-        emptyMessage: "אין עובדים שמדווחים לעובד זה",
-      },
-      {
-        id: "documents",
-        label: "מסמכים",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "document_type", label: "סוג מסמך" },
-          { key: "file_name", label: "שם קובץ", width: "min-w-[220px]" },
-          { key: "status", label: "סטטוס" },
-          { key: "issued_on", label: "הונפק" },
-          { key: "expires_on", label: "בתוקף עד" },
-          { key: "notes", label: "הערות", width: "min-w-[220px]" },
-        ],
-        rows: sortTemporalRows(data.documents).map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          document_type: row.document_type,
-          file_name: row.storage_path ? `${row.file_name} (${row.storage_path})` : row.file_name,
-          status: safe(row.status),
-          issued_on: formatDate(row.issued_on),
-          expires_on: formatDate(row.expires_on),
-          notes: safe(row.notes),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from ?? null,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        onAddClick: () => openModal({ kind: "document", title: "הוספת מסמך", form: buildDocumentForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = sortTemporalRows(data.documents)[rowIndex];
-          if (!row) return;
-          openModal({ kind: "document", title: "עריכת מסמך", form: buildDocumentForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין מסמכים להצגה",
-      },
-      {
-        id: "timeline",
-        label: "טיימליין",
-        columns: [
-          { key: "effective_date", label: "תאריך" },
-          { key: "event_type", label: "אירוע" },
-          { key: "notes", label: "הערות", width: "min-w-[220px]" },
-          { key: "payload", label: "פירוט", width: "min-w-[260px]" },
-          { key: "created_at", label: "נוצר" },
-        ],
-        rows: (data.timeline ?? []).map((row) => ({
-          effective_date: formatDate(row.effective_date),
-          event_type: safe(EVENT_LABELS[row.event_type] ?? row.event_type),
-          notes: safe(row.notes),
-          payload: summarizePayload(row.payload_json),
-          created_at: formatDate(row.created_at),
-        })),
-        emptyMessage: "אין אירועים להצגה",
-      },
-      {
-        id: "awards",
-        label: "אותות הוקרה לעובד",
-        columns: [
-          { key: "award_date", label: "תאריך" },
-          { key: "award_type", label: "סוג הוקרה" },
-          { key: "granted_by", label: "ניתן על ידי" },
-          { key: "description", label: "תיאור", width: "min-w-[220px]" },
-        ],
-        rows: [...data.awards]
-          .sort((a, b) => new Date(b.award_date ?? "").getTime() - new Date(a.award_date ?? "").getTime())
-          .map((row) => ({
-            award_date: formatDate(row.award_date),
-            award_type: row.award_type,
-            granted_by: safe(row.granted_by),
-            description: safe(row.description),
-          })),
-        onAddClick: () => openModal({ kind: "award", title: "הוספת אות הוקרה", form: buildAwardForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = [...data.awards].sort((a, b) => new Date(b.award_date ?? "").getTime() - new Date(a.award_date ?? "").getTime())[rowIndex];
-          if (!row) return;
-          openModal({ kind: "award", title: "עריכת אות הוקרה", form: buildAwardForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין אותות הוקרה להצגה",
-      },
-      {
-        id: "certifications",
-        label: "הסמכות",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "certification_type", label: "הסמכה" },
-          { key: "issuer", label: "מנפיק" },
-          { key: "status", label: "סטטוס" },
-        ],
-        rows: sortTemporalRows(data.certifications).map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          certification_type: row.certification_type,
-          issuer: safe(row.issuer),
-          status: safe(row.status),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        onAddClick: () => openModal({ kind: "certification", title: "הוספת הסמכה", form: buildCertificationForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = sortTemporalRows(data.certifications)[rowIndex];
-          if (!row) return;
-          openModal({ kind: "certification", title: "עריכת הסמכה", form: buildCertificationForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין הסמכות להצגה",
-      },
-      {
-        id: "courses",
-        label: "קורסים",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "course_name", label: "קורס" },
-          { key: "provider", label: "ספק" },
-          { key: "status", label: "סטטוס" },
-        ],
-        rows: sortTemporalRows(data.courses).map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          course_name: row.course_name,
-          provider: safe(row.provider),
-          status: safe(row.status),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        onAddClick: () => openModal({ kind: "course", title: "הוספת קורס", form: buildCourseForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = sortTemporalRows(data.courses)[rowIndex];
-          if (!row) return;
-          openModal({ kind: "course", title: "עריכת קורס", form: buildCourseForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין קורסים להצגה",
-      },
-      {
-        id: "skills",
-        label: "כישורים",
-        columns: [
-          { key: "skill_name", label: "כישור" },
-          { key: "level", label: "רמה" },
-          { key: "category", label: "קטגוריה" },
-          { key: "source", label: "מקור" },
-          { key: "assessed_on", label: "נבדק בתאריך" },
-        ],
-        rows: data.skills.map((row) => ({
-          skill_name: row.skill_name,
-          level: safe(row.level),
-          category: safe(row.category),
-          source: safe(row.source),
-          assessed_on: formatDate(row.assessed_on),
-        })),
-        onAddClick: () => openModal({ kind: "skill", title: "הוספת כישור", form: buildSkillForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = data.skills[rowIndex];
-          if (!row) return;
-          openModal({ kind: "skill", title: "עריכת כישור", form: buildSkillForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין כישורים להצגה",
-      },
-      {
-        id: "breaks",
-        label: "הפסקות עבודה",
-        columns: [
-          { key: "valid_from", label: "מתאריך" },
-          { key: "valid_to", label: "עד תאריך" },
-          { key: "break_type", label: "סוג הפסקה" },
-          { key: "approved_by", label: "אושר על ידי" },
-          { key: "started_on", label: "תחילת הפסקה" },
-        ],
-        rows: sortTemporalRows(data.work_breaks).map((row) => ({
-          valid_from: formatDate(row.valid_from),
-          valid_to: formatDate(row.valid_to),
-          break_type: row.break_type,
-          approved_by: safe(row.approved_by),
-          started_on: formatDate(row.started_on),
-          _current: !row.valid_to,
-          _valid_from_raw: row.valid_from,
-          _valid_to_raw: row.valid_to ?? null,
-        })),
-        temporalFilter: true,
-        onAddClick: () => openModal({ kind: "work_break", title: "הוספת הפסקת עבודה", form: buildWorkBreakForm(), isNew: true }),
-        onRowDoubleClick: (rowIndex) => {
-          const row = sortTemporalRows(data.work_breaks)[rowIndex];
-          if (!row) return;
-          openModal({ kind: "work_break", title: "עריכת הפסקת עבודה", form: buildWorkBreakForm(row), recordId: row.id, isNew: false });
-        },
-        emptyMessage: "אין הפסקות עבודה להצגה",
-      },
-    ];
-  }, [data]);
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-right">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">תפקיד נוכחי</div>
+              <div className="text-xs font-medium text-slate-700">{activeEmployment?.position_name ?? "—"}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-right">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">יחידה ארגונית</div>
+              <div className="text-xs font-medium text-slate-700">{activeEmployment?.org_unit_name ?? "—"}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowStatusModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50"
+            >
+              <ShieldCheck size={13} className="text-brand-600" />
+              שנה סטטוס
+            </button>
+          </div>
+        </div>
 
-  const currentStatus = data?.current_employment?.employment_status ?? data?.employee.employment_status ?? "";
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-100">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">פרטי קשר</div>
+            <div className="mt-1 text-xs text-slate-700">{activeContact?.email ?? activeContact?.mobile ?? "אין נתון פעיל"}</div>
+          </div>
+          <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-100">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">תאריך תחילה</div>
+            <div className="mt-1 text-xs text-slate-700">{fmtDate(activeEmployment?.start_date)}</div>
+          </div>
+          <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-100">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">מצב משפחתי</div>
+            <div className="mt-1 text-xs text-slate-700">
+              {activePersonal?.marital_status ? MARITAL_MAP[activePersonal.marital_status] ?? activePersonal.marital_status : "—"}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-100">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">רכיב שכר נוכחי</div>
+            <div className="mt-1 text-xs text-slate-700">{activeCompensation?.comp_name ?? activeBank?.bank_name ?? "—"}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const statusType = card ? STATUS_CFG[card.status] : undefined;
+  const statusLabel = card ? STATUS_LABELS[card.status] ?? card.status : undefined;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-gray-100">
-      <main className="flex-1 overflow-hidden">
-        <CardPage
-          title="כרטיס עובד"
-          backHref="/admin/core"
-          backLabel="CORE עובדים וארגון"
-          status={
-            data
-              ? {
-                  label: STATUS_LABELS[currentStatus] ?? currentStatus ?? "—",
-                  type: STATUS_TYPES[currentStatus] ?? "trial",
-                }
-              : undefined
-          }
-          parentContent={data ? <ParentSummary data={data} /> : undefined}
-          formTabs={formTabs}
-          childTabs={childTabs}
-          loading={loading}
-        />
-        {error && !loading ? (
-          <div className="pointer-events-none absolute inset-x-4 top-24 z-20 mx-auto max-w-4xl">
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-              {error}
-            </div>
-          </div>
-        ) : null}
-        {saving ? (
-          <div className="pointer-events-none fixed inset-0 z-40 bg-black/10">
-            <div className="absolute left-1/2 top-8 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-xs font-medium text-slate-600 shadow">
-              שומר...
-            </div>
-          </div>
-        ) : null}
-      </main>
+    <>
+      {loadError && !loading ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {loadError}
+        </div>
+      ) : null}
+      <CardPage
+        title={card ? `${card.full_name} — עובד ${card.employee_number}` : "כרטיס עובד"}
+        backHref="/admin/core"
+        backLabel="רשימת עובדים"
+        status={statusType && statusLabel ? { label: statusLabel, type: statusType } : undefined}
+        primaryActions={card ? [{
+          label: "מחק עובד",
+          onClick: () => setShowDeleteModal(true),
+        }] : []}
+        parentContent={parentContent}
+        parentContentMode="compact"
+        formTabs={[]}
+        childTabs={childTabs}
+        childTabsStorageKey="click_employee_card_tab_order"
+        loading={loading}
+      />
 
-      {modal?.kind === "identity" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={hasSensitiveAccess ? identityFields : identityFields.filter((field) => !["legal_id_number", "spouse_legal_id"].includes(field.name))}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
+      {temporalModal && tenantId && resolvedEmployeeId ? (
+        <TemporalModal
+          state={temporalModal}
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          orgUnitOptions={orgUnitOptions}
+          positionOptions={positionOptions}
+          managerOptions={managerOptions}
+          onClose={() => setTemporalModal(null)}
+          onSaved={loadCard}
         />
       ) : null}
 
-      {modal?.kind === "employment" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={employmentFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
+      {showEventModal && tenantId && resolvedEmployeeId ? (
+        <EventModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          onClose={() => setShowEventModal(false)}
+          onSaved={loadCard}
         />
       ) : null}
 
-      {modal?.kind === "compensation" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={compensationFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
-          warning="נתוני שכר נשמרים היסטורית ונגישים רק לבעלי הרשאה מתאימה."
+      {showTrainingModal && tenantId && resolvedEmployeeId ? (
+        <TrainingModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          onClose={() => setShowTrainingModal(false)}
+          onSaved={loadCard}
         />
       ) : null}
 
-      {modal?.kind === "document" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={documentFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
+      {showStatusModal && tenantId && card && resolvedEmployeeId ? (
+        <StatusModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          current={card.status}
+          onClose={() => setShowStatusModal(false)}
+          onSaved={loadCard}
         />
       ) : null}
 
-      {modal?.kind === "bank" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={bankFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
-          warning="פרטי חשבון בנק הם מידע רגיש."
+      {showDeleteModal && tenantId && card && resolvedEmployeeId ? (
+        <DeleteEmployeeModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          employeeNumber={card.employee_number}
+          fullName={card.full_name}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => {
+            setShowDeleteModal(false);
+            router.push("/admin/core");
+          }}
         />
       ) : null}
-
-      {modal?.kind === "certification" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={certificationFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
-        />
-      ) : null}
-
-      {modal?.kind === "course" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={courseFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
-        />
-      ) : null}
-
-      {modal?.kind === "work_break" ? (
-        <TemporalRecordModal
-          state={modal}
-          fields={workBreakFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSubmit={submitModal}
-        />
-      ) : null}
-
-      {modal?.kind === "child" ? (
-        <CrudRecordModal
-          state={modal}
-          fields={childFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSave={() => submitModal()}
-          onDelete={!modal.isNew ? deleteModalRecord : undefined}
-        />
-      ) : null}
-
-      {modal?.kind === "award" ? (
-        <CrudRecordModal
-          state={modal}
-          fields={awardFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSave={() => submitModal()}
-          onDelete={!modal.isNew ? deleteModalRecord : undefined}
-        />
-      ) : null}
-
-      {modal?.kind === "skill" ? (
-        <CrudRecordModal
-          state={modal}
-          fields={skillFields}
-          onClose={closeModal}
-          onChange={updateModalField}
-          onSave={() => submitModal()}
-          onDelete={!modal.isNew ? deleteModalRecord : undefined}
-        />
-      ) : null}
-    </div>
+    </>
   );
 }

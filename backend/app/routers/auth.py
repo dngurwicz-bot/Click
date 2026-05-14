@@ -93,7 +93,7 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
         resp = await client.post(
             f"{settings.SUPABASE_URL}/auth/v1/token?grant_type=password",
             headers={
-                "apikey": settings.SUPABASE_ANON_KEY,
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
                 "Content-Type": "application/json",
             },
             json={"email": body.email, "password": body.password},

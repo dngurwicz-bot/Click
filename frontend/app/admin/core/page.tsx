@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, isLoggedIn } from "@/lib/api";
-import {
-  AdminActionBar,
-  AdminCountLabel,
-  AdminSearchField,
-  AdminStatusBar,
-  AdminTitleBar,
-} from "@/components/layout/AdminShell";
+import { ApiRequestError, isLoggedIn, api } from "@/lib/api";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
-import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
+import { Plus } from "lucide-react";
 import {
   AdminModal,
   AdminModalBody,
@@ -22,518 +15,285 @@ import {
   AdminModalPanel,
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
-  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_INPUT,
 } from "@/components/ui/AdminModal";
-import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
-import {
-  createDefaultTemporalFilterState,
-  getTemporalFilterError,
-  overlapsTemporalFilter,
-  type TemporalFilterState,
-} from "@/lib/temporalFilter";
-import { FolderTree, Plus, ShieldCheck } from "lucide-react";
+import { FormField } from "@/components/ui/FormField";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface EmployeeListItem {
   id: string;
-  tenant_id: string;
   employee_number: string;
   full_name: string;
-  email?: string | null;
-  phone?: string | null;
-  employment_status?: string | null;
-  employment_type?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  org_unit_name?: string | null;
-  manager_name?: string | null;
-  position_title?: string | null;
-  branch_name?: string | null;
-  work_site?: string | null;
+  id_number: string | null;
+  status: string;
+  created_at: string;
 }
 
-interface EmployeeCreatePayload {
-  tenant_id: string;
-  employee_number: string;
-  external_ref?: string | null;
-  identity: {
-    first_name: string;
-    last_name: string;
-    preferred_name?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    birth_date?: string | null;
-    immigration_date?: string | null;
-    gender?: string | null;
-    marital_status?: string | null;
-    children_count?: number | null;
-    spouse_name?: string | null;
-    spouse_legal_id?: string | null;
-    legal_id_type: string;
-    legal_id_number?: string | null;
-    address_line1?: string | null;
-    address_line2?: string | null;
-    city?: string | null;
-    postal_code?: string | null;
-    country?: string | null;
-    bank_name?: string | null;
-    bank_branch?: string | null;
-    bank_account?: string | null;
-  };
-  employment: {
-    employment_status: string;
-    employment_type: string;
-    salary_type: string;
-    start_date: string;
-    employment_scope_pct: number;
-    branch_name?: string | null;
-    work_site?: string | null;
-    time_clock_id?: string | null;
-    notes?: string | null;
-  };
-  compensation?: {
-    base_salary: number;
-    currency: string;
-    pay_cycle: string;
-    cost_center?: string | null;
-  };
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+const STATUS_CFG: Record<string, { label: string; dot: string; text: string; bg: string }> = {
+  active:     { label: "פעיל",    dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
+  inactive:   { label: "לא פעיל", dot: "bg-amber-400",   text: "text-amber-700",   bg: "bg-amber-50"   },
+  terminated: { label: "מסיים",   dot: "bg-red-400",     text: "text-red-700",     bg: "bg-red-50"     },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const c = STATUS_CFG[status] ?? { label: status, dot: "bg-slate-400", text: "text-slate-500", bg: "bg-slate-100" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.bg} ${c.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {c.label}
+    </span>
+  );
 }
 
-function statusLabel(value?: string | null): string {
-  switch (value) {
-    case "active":
-      return "פעיל";
-    case "leave_of_absence":
-      return "חל\"ת";
-    case "unpaid_leave":
-      return "חופשה ללא תשלום";
-    case "terminated":
-      return "סיום העסקה";
-    case "future":
-      return "עתידי";
-    case "suspended":
-      return "מושהה";
-    default:
-      return value || "—";
-  }
-}
+// ── New Employee Modal ────────────────────────────────────────────────────────
 
-function employmentTypeLabel(value?: string | null): string {
-  switch (value) {
-    case "employee":
-      return "עובד";
-    case "contractor":
-      return "קבלן";
-    case "temporary":
-      return "זמני";
-    case "intern":
-      return "מתמחה";
-    case "consultant":
-      return "יועץ";
-    default:
-      return value || "—";
-  }
-}
-
-function statusBadgeClass(value?: string | null): string {
-  switch (value) {
-    case "active":
-      return "bg-emerald-50 text-emerald-700";
-    case "future":
-      return "bg-sky-50 text-sky-700";
-    case "leave_of_absence":
-    case "unpaid_leave":
-      return "bg-amber-50 text-amber-700";
-    case "terminated":
-      return "bg-red-50 text-red-700";
-    default:
-      return "bg-slate-100 text-slate-600";
-  }
-}
-
-function CreateEmployeeModal({
-  tenantId,
-  onClose,
-  onSaved,
-}: {
+interface NewEmployeeModalProps {
   tenantId: string;
   onClose: () => void;
-  onSaved: () => void;
-}) {
+  onCreated: (id: string) => void;
+}
+
+function NewEmployeeModal({ tenantId, onClose, onCreated }: NewEmployeeModalProps) {
+  const [form, setForm] = useState({
+    first_name: "",
+    last_name: "",
+    id_number: "",
+    employee_number_mode: "candidate" as "candidate" | "manual",
+    employee_number: "",
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState<EmployeeCreatePayload>({
-    tenant_id: tenantId,
-    employee_number: "",
-    external_ref: "",
-    identity: {
-      first_name: "",
-      last_name: "",
-      preferred_name: "",
-      email: "",
-      phone: "",
-      birth_date: "",
-      immigration_date: "",
-      gender: "",
-      marital_status: "",
-      children_count: null,
-      spouse_name: "",
-      spouse_legal_id: "",
-      legal_id_type: "national_id",
-      legal_id_number: "",
-      address_line1: "",
-      address_line2: "",
-      city: "",
-      postal_code: "",
-      country: "IL",
-      bank_name: "",
-      bank_branch: "",
-      bank_account: "",
-    },
-    employment: {
-      employment_status: "active",
-      employment_type: "employee",
-      salary_type: "monthly",
-      start_date: new Date().toISOString().slice(0, 10),
-      employment_scope_pct: 100,
-      branch_name: "",
-      work_site: "",
-      time_clock_id: "",
-      notes: "",
-    },
-    compensation: {
-      base_salary: 0,
-      currency: "ILS",
-      pay_cycle: "monthly",
-      cost_center: "",
-    },
-  });
 
-  function updateIdentity<K extends keyof EmployeeCreatePayload["identity"]>(key: K, value: EmployeeCreatePayload["identity"][K]) {
-    setForm((current) => ({ ...current, identity: { ...current.identity, [key]: value } }));
-  }
-
-  function updateEmployment<K extends keyof EmployeeCreatePayload["employment"]>(key: K, value: EmployeeCreatePayload["employment"][K]) {
-    setForm((current) => ({ ...current, employment: { ...current.employment, [key]: value } }));
-  }
-
-  function updateCompensation<K extends keyof NonNullable<EmployeeCreatePayload["compensation"]>>(key: K, value: NonNullable<EmployeeCreatePayload["compensation"]>[K]) {
-    setForm((current) => ({
-      ...current,
-      compensation: { ...(current.compensation ?? { base_salary: 0, currency: "ILS", pay_cycle: "monthly" }), [key]: value },
-    }));
+  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+  function digitsOnly(value: string) { return value.replace(/\D/g, "").slice(0, 9); }
+  function getUiError(err: unknown) {
+    if (err instanceof ApiRequestError) return err.error ?? err.message ?? "שגיאה ביצירת עובד";
+    if (err instanceof Error) return err.message;
+    return "שגיאה ביצירת עובד";
   }
 
   async function handleSave() {
-    if (!form.employee_number.trim() || !form.identity.first_name.trim() || !form.identity.last_name.trim()) {
-      setError("מספר עובד, שם פרטי ושם משפחה הם שדות חובה");
+    if (
+      !form.first_name.trim() ||
+      !form.last_name.trim() ||
+      !form.id_number.trim() ||
+      (form.employee_number_mode === "manual" && !form.employee_number.trim())
+    ) {
+      setError("יש למלא את כל שדות החובה");
       return;
     }
-    setSaving(true);
-    setError(null);
+    setSaving(true); setError(null);
     try {
-      const payload: EmployeeCreatePayload = {
-        ...form,
-        identity: {
-          ...form.identity,
-          birth_date: form.identity.birth_date || null,
-          immigration_date: form.identity.immigration_date || null,
-          gender: form.identity.gender || null,
-          marital_status: form.identity.marital_status || null,
-          spouse_name: form.identity.spouse_name || null,
-          spouse_legal_id: form.identity.spouse_legal_id || null,
-          address_line1: form.identity.address_line1 || null,
-          address_line2: form.identity.address_line2 || null,
-          postal_code: form.identity.postal_code || null,
-          legal_id_number: form.identity.legal_id_number || null,
-          bank_name: form.identity.bank_name || null,
-          bank_branch: form.identity.bank_branch || null,
-          bank_account: form.identity.bank_account || null,
-        },
-        employment: {
-          ...form.employment,
-          branch_name: form.employment.branch_name || null,
-          work_site: form.employment.work_site || null,
-          time_clock_id: form.employment.time_clock_id || null,
-          notes: form.employment.notes || null,
-        },
-      };
-      await api.post("/api/core/employees", payload);
-      onSaved();
+      const res = await api.post<{ id: string; employee_number: string }>(
+        `/api/core/employees?tenant_id=${tenantId}`,
+        {
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          id_number: form.id_number.trim(),
+          employee_number_mode: form.employee_number_mode,
+          employee_number: form.employee_number_mode === "manual" ? form.employee_number.trim() : undefined,
+        }
+      );
+      onCreated(res.id);
     } catch (err: unknown) {
-      const message =
-        (err as { message?: string })?.message ||
-        (err as { details?: { error?: string } })?.details?.error ||
-        "לא ניתן לשמור את העובד";
-      setError(message);
-      setSaving(false);
-    }
+      setError(getUiError(err));
+    } finally { setSaving(false); }
   }
-
-  const inputCls = ADMIN_MODAL_INPUT;
-  const dateCls = ADMIN_MODAL_DATE_INPUT;
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="relative flex max-h-[90vh] max-w-4xl flex-col overflow-hidden">
-        <AdminModalHeader
-          title={
-            <span className="flex items-center gap-2 text-[#1a3a6e]">
-              <span className="rounded-xl bg-white/60 p-2 text-brand-600"><ShieldCheck size={16} /></span>
-              <span>קליטת עובד חדש</span>
-            </span>
-          }
-          onClose={onClose}
-        />
-        <AdminModalBody className="grid flex-1 gap-5 overflow-y-auto px-6 py-5 md:grid-cols-2">
-          <section className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">פרטים כלליים</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input className={inputCls} placeholder="מספר עובד" value={form.employee_number} onChange={(e) => setForm((c) => ({ ...c, employee_number: e.target.value }))} />
-              <input className={inputCls} placeholder="מספר חיצוני" value={form.external_ref ?? ""} onChange={(e) => setForm((c) => ({ ...c, external_ref: e.target.value }))} />
-              <input className={inputCls} placeholder="שם פרטי" value={form.identity.first_name} onChange={(e) => updateIdentity("first_name", e.target.value)} />
-              <input className={inputCls} placeholder="שם משפחה" value={form.identity.last_name} onChange={(e) => updateIdentity("last_name", e.target.value)} />
-              <input className={inputCls} placeholder="שם מועדף" value={form.identity.preferred_name ?? ""} onChange={(e) => updateIdentity("preferred_name", e.target.value)} />
-              <select className={inputCls} value={form.identity.legal_id_type} onChange={(e) => updateIdentity("legal_id_type", e.target.value)}>
-                <option value="national_id">תעודת זהות</option>
-                <option value="passport">דרכון</option>
-                <option value="resident">תושב</option>
-                <option value="other">אחר</option>
-              </select>
-              <input className={inputCls} placeholder="מספר מזהה" value={form.identity.legal_id_number ?? ""} onChange={(e) => updateIdentity("legal_id_number", e.target.value)} />
-              <select className={inputCls} value={form.identity.gender ?? ""} onChange={(e) => updateIdentity("gender", e.target.value)}>
-                <option value="">מגדר</option>
-                <option value="female">נקבה</option>
-                <option value="male">זכר</option>
-                <option value="other">אחר</option>
-              </select>
-              <HebrewDatePicker className={dateCls} value={form.identity.birth_date ?? ""} onChange={(value) => updateIdentity("birth_date", value)} />
+      <AdminModalPanel className="max-w-sm">
+        <AdminModalHeader title="עובד חדש" onClose={onClose} />
+        <AdminModalBody className="space-y-3">
+          {error && <AdminModalMessage tone="danger">{error}</AdminModalMessage>}
+          <FormField label="שם פרטי" required value={form.first_name} readOnly={false} onChange={(v) => set("first_name", v)} />
+          <FormField label="שם משפחה" required value={form.last_name} readOnly={false} onChange={(v) => set("last_name", v)} />
+          <FormField label="ת.ז." required value={form.id_number} readOnly={false} onChange={(v) => set("id_number", digitsOnly(v))} />
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-slate-700">
+              <span className="ml-0.5 text-red-400">*</span>
+              מספר עובד
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, employee_number_mode: "candidate", employee_number: "" }))}
+                className={`${form.employee_number_mode === "candidate" ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-600"} rounded-md border px-3 py-2 text-xs font-medium`}
+              >
+                מועמד
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, employee_number_mode: "manual" }))}
+                className={`${form.employee_number_mode === "manual" ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-600"} rounded-md border px-3 py-2 text-xs font-medium`}
+              >
+                מספר ידני
+              </button>
             </div>
-            <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">כתובת וטלפון</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input className={inputCls} placeholder="דוא״ל" value={form.identity.email ?? ""} onChange={(e) => updateIdentity("email", e.target.value)} />
-              <input className={inputCls} placeholder="טלפון" value={form.identity.phone ?? ""} onChange={(e) => updateIdentity("phone", e.target.value)} />
-              <input className={inputCls} placeholder="כתובת" value={form.identity.address_line1 ?? ""} onChange={(e) => updateIdentity("address_line1", e.target.value)} />
-              <input className={inputCls} placeholder="כתובת 2" value={form.identity.address_line2 ?? ""} onChange={(e) => updateIdentity("address_line2", e.target.value)} />
-              <input className={inputCls} placeholder="עיר" value={form.identity.city ?? ""} onChange={(e) => updateIdentity("city", e.target.value)} />
-              <input className={inputCls} placeholder="מיקוד" value={form.identity.postal_code ?? ""} onChange={(e) => updateIdentity("postal_code", e.target.value)} />
-            </div>
-          </section>
-          <section className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">פרטים אישיים וחברה נוכחית</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <HebrewDatePicker className={dateCls} value={form.employment.start_date} onChange={(value) => updateEmployment("start_date", value)} />
-              <select className={inputCls} value={form.employment.employment_status} onChange={(e) => updateEmployment("employment_status", e.target.value)}>
-                <option value="active">פעיל</option>
-                <option value="future">עתידי</option>
-              </select>
-              <select className={inputCls} value={form.employment.employment_type} onChange={(e) => updateEmployment("employment_type", e.target.value)}>
-                <option value="employee">עובד</option>
-                <option value="temporary">זמני</option>
-                <option value="contractor">קבלן</option>
-                <option value="intern">מתמחה</option>
-                <option value="consultant">יועץ</option>
-              </select>
-              <select className={inputCls} value={form.employment.salary_type} onChange={(e) => updateEmployment("salary_type", e.target.value)}>
-                <option value="monthly">חודשי</option>
-                <option value="hourly">שעתי</option>
-                <option value="daily">יומי</option>
-                <option value="global">גלובלי</option>
-              </select>
-              <select className={inputCls} value={form.identity.marital_status ?? ""} onChange={(e) => updateIdentity("marital_status", e.target.value)}>
-                <option value="">מצב משפחתי</option>
-                <option value="single">רווק/ה</option>
-                <option value="married">נשוי/אה</option>
-                <option value="divorced">גרוש/ה</option>
-                <option value="widowed">אלמן/ה</option>
-                <option value="other">אחר</option>
-              </select>
-              <HebrewDatePicker className={dateCls} value={form.identity.immigration_date ?? ""} onChange={(value) => updateIdentity("immigration_date", value)} />
-              <input className={inputCls} type="number" min={0} placeholder="מספר ילדים" value={form.identity.children_count ?? ""} onChange={(e) => updateIdentity("children_count", e.target.value ? Number(e.target.value) : null)} />
-              <input className={inputCls} placeholder="שם בן/בת זוג" value={form.identity.spouse_name ?? ""} onChange={(e) => updateIdentity("spouse_name", e.target.value)} />
-              <input className={inputCls} placeholder="ת.ז בן/בת זוג" value={form.identity.spouse_legal_id ?? ""} onChange={(e) => updateIdentity("spouse_legal_id", e.target.value)} />
-              <input className={inputCls} type="number" min={0} max={100} placeholder="אחוז משרה" value={form.employment.employment_scope_pct} onChange={(e) => updateEmployment("employment_scope_pct", Number(e.target.value))} />
-              <input className={inputCls} placeholder="סניף" value={form.employment.branch_name ?? ""} onChange={(e) => updateEmployment("branch_name", e.target.value)} />
-              <input className={inputCls} placeholder="אתר עבודה" value={form.employment.work_site ?? ""} onChange={(e) => updateEmployment("work_site", e.target.value)} />
-              <input className={inputCls} placeholder="מספר כרטיס מגנטי" value={form.employment.time_clock_id ?? ""} onChange={(e) => updateEmployment("time_clock_id", e.target.value)} />
-            </div>
-            <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">שכר ובנק</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input className={inputCls} type="number" min={0} placeholder="שכר בסיס" value={form.compensation?.base_salary ?? 0} onChange={(e) => updateCompensation("base_salary", Number(e.target.value))} />
-              <input className={inputCls} placeholder="מרכז עלות" value={form.compensation?.cost_center ?? ""} onChange={(e) => updateCompensation("cost_center", e.target.value)} />
-              <input className={inputCls} placeholder="בנק" value={form.identity.bank_name ?? ""} onChange={(e) => updateIdentity("bank_name", e.target.value)} />
-              <input className={inputCls} placeholder="סניף בנק" value={form.identity.bank_branch ?? ""} onChange={(e) => updateIdentity("bank_branch", e.target.value)} />
-              <input className={inputCls} placeholder="חשבון בנק" value={form.identity.bank_account ?? ""} onChange={(e) => updateIdentity("bank_account", e.target.value)} />
-            </div>
-          </section>
-          {error ? <AdminModalMessage tone="danger" className="md:col-span-2">{error}</AdminModalMessage> : null}
+            {form.employee_number_mode === "manual" ? (
+              <FormField
+                label="מספר עובד"
+                required
+                value={form.employee_number}
+                readOnly={false}
+                onChange={(v) => set("employee_number", digitsOnly(v))}
+              />
+            ) : (
+              <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                לעובד במצב מועמד יוקצה מספר עובד אוטומטית בעת השמירה.
+              </div>
+            )}
+            <div className="text-[11px] text-slate-400">עד 9 ספרות בלבד.</div>
+          </div>
         </AdminModalBody>
-        <AdminModalFooter className="px-6">
-          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
-          <button onClick={handleSave} disabled={saving} className={ADMIN_MODAL_ACTION_PRIMARY}>
-            {saving ? "שומר..." : "צור עובד"}
+        <AdminModalFooter>
+          <button
+            onClick={handleSave}
+            disabled={
+              saving ||
+              !form.first_name.trim() ||
+              !form.last_name.trim() ||
+              !form.id_number.trim() ||
+              (form.employee_number_mode === "manual" && !form.employee_number.trim())
+            }
+            className={ADMIN_MODAL_ACTION_PRIMARY}
+          >
+            {saving ? "יוצר..." : "צור עובד"}
           </button>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
         </AdminModalFooter>
       </AdminModalPanel>
     </AdminModal>
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function CoreEmployeesPage() {
   const router = useRouter();
   const workspace = useWorkspace();
   const tenantId = workspace?.selectedTenantId ?? "";
+
   const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [temporalFilter, setTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
+  const [showNew, setShowNew] = useState(false);
 
-  useEffect(() => {
-    if (!isLoggedIn()) {
-      router.replace("/login");
-    }
-  }, [router]);
-
-  function loadEmployees(nextTenantId: string) {
-    if (!nextTenantId) return;
+  function loadEmployees() {
+    if (!tenantId) return;
     setLoading(true);
-    api.get<EmployeeListItem[]>(`/api/core/employees?tenant_id=${nextTenantId}`)
+    api.get<EmployeeListItem[]>(`/api/core/employees?tenant_id=${tenantId}`)
       .then(setEmployees)
       .catch(console.error)
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    if (tenantId) loadEmployees(tenantId);
+    if (!isLoggedIn()) { router.replace("/login"); return; }
+  }, [router]);
+
+  useEffect(() => {
+    if (tenantId) loadEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
-  const filteredEmployees = useMemo(
-    () =>
-      employees.filter((row) =>
-        [row.employee_number, row.full_name, row.email ?? "", row.org_unit_name ?? "", row.position_title ?? "", row.manager_name ?? "", row.branch_name ?? "", row.work_site ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      ),
-    [employees, search]
-  );
-  const temporalFilterError = getTemporalFilterError(temporalFilter);
-  const visibleEmployees = useMemo(
-    () =>
-      filteredEmployees.filter((row) =>
-        temporalFilterError ||
-        overlapsTemporalFilter({
-          rowFrom: row.start_date,
-          rowTo: row.end_date,
-          filter: temporalFilter,
-        })
-      ),
-    [filteredEmployees, temporalFilter, temporalFilterError]
-  );
+  const filtered = employees.filter((e) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      e.full_name.toLowerCase().includes(q) ||
+      String(e.employee_number).includes(q) ||
+      (e.id_number ?? "").includes(q)
+    );
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <AdminTitleBar title="CORE עובדים וארגון" onRefresh={() => loadEmployees(tenantId)} />
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <AdminTitleBar title="עובדים" onRefresh={loadEmployees} />
+
         <AdminActionBar
           start={
-            <AdminSearchField value={search} onChange={setSearch} placeholder="חיפוש עובד..." />
-          }
-          end={
-            <div className="flex items-center gap-2">
-              {!loading ? <AdminCountLabel>{visibleEmployees.length} עובדים</AdminCountLabel> : null}
-              <Link
-                href={tenantId ? `/admin/core/structure?tenant_id=${tenantId}` : "/admin/core/structure"}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-              >
-                <FolderTree size={12} />
-                מבנה ארגוני
-              </Link>
+            <>
               <button
-                onClick={() => setShowCreate(true)}
+                onClick={() => setShowNew(true)}
                 disabled={!tenantId}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                className="flex items-center gap-1 bg-brand-600 hover:bg-brand-700 text-white
+                           text-xs font-semibold px-3 py-1.5 rounded-md transition-colors shadow-sm
+                           disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus size={12} />
-                עובד חדש
+                חדש
               </button>
-            </div>
+              <AdminSearchField value={search} onChange={setSearch} />
+            </>
           }
+          end={!loading && tenantId ? <AdminCountLabel>{filtered.length} עובדים</AdminCountLabel> : undefined}
         />
-        {!loading ? (
-          <TemporalFilterBar
-            filter={temporalFilter}
-            onChange={setTemporalFilter}
-            rowRanges={employees.map((row) => ({
-              valid_from: row.start_date,
-              valid_to: row.end_date,
-            }))}
-            idPrefix="core-employees-temporal"
-          />
-        ) : null}
-        <div className="flex-1 overflow-auto bg-white">
-          {loading ? (
-            <div className="flex py-20 items-center justify-center text-sm text-slate-400">טוען עובדים...</div>
-          ) : visibleEmployees.length === 0 ? (
-            <div className="flex py-20 items-center justify-center text-sm text-slate-400">
-              {temporalFilterError ? temporalFilterError : "לא נמצאו עובדים עבור הסינון שנבחר"}
+
+        <div className="flex-1 overflow-auto bg-white min-h-0">
+          {!tenantId ? (
+            <div className="py-20 text-center text-slate-400 text-sm">בחר ארגון כדי לראות עובדים</div>
+          ) : loading ? (
+            <div className="py-20 flex flex-col items-center gap-3 text-slate-400">
+              <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">טוען...</span>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-20 text-center text-slate-400 text-sm">
+              {search ? "לא נמצאו עובדים התואמים לחיפוש" : "אין עובדים בארגון זה"}
             </div>
           ) : (
-            <table className="admin-data-table w-full border-collapse text-xs">
+            <table className="admin-data-table w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {["מתאריך", "עד תאריך", "מספר עובד", "שם מלא", "סטטוס", "סוג העסקה", "סניף", "אתר עבודה", "יחידה", "תפקיד", "מנהל"].map((label) => (
-                    <th key={label} className="border-b border-slate-200 bg-slate-100 px-4 py-2.5 text-right font-semibold text-slate-600">
-                      {label}
+                  {["מס' עובד", "שם מלא", "ת.ז.", "סטטוס", "תאריך יצירה"].map((h) => (
+                    <th key={h} className="text-right px-4 py-2.5 font-semibold text-slate-600 bg-slate-100 border-b border-slate-200 whitespace-nowrap">
+                      {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {visibleEmployees.map((employee, index) => (
+                {filtered.map((e, i) => (
                   <tr
-                    key={employee.id}
-                    onClick={() => router.push(`/admin/core/${employee.id}`)}
-                    className={`cursor-pointer transition-colors ${index % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
+                    key={e.id}
+                    className={`cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
+                    onDoubleClick={() => router.push(`/admin/core/${e.id}`)}
+                    onClick={() => router.push(`/admin/core/${e.id}`)}
                   >
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-500">
-                      {employee.start_date ? new Date(employee.start_date).toLocaleDateString("he-IL") : "—"}
+                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500 font-mono">{e.employee_number}</td>
+                    <td className="px-4 py-2 border-b border-slate-100 text-slate-800 font-medium">{e.full_name}</td>
+                    <td className="px-4 py-2 border-b border-slate-100 text-slate-600">{e.id_number ?? "—"}</td>
+                    <td className="px-4 py-2 border-b border-slate-100"><StatusBadge status={e.status} /></td>
+                    <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
+                      {new Date(e.created_at).toLocaleDateString("he-IL")}
                     </td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-500">
-                      {employee.end_date ? new Date(employee.end_date).toLocaleDateString("he-IL") : "—"}
-                    </td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-700">{employee.employee_number}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 font-medium text-slate-800">{employee.full_name}</td>
-                    <td className="border-b border-slate-100 px-4 py-2">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(employee.employment_status)}`}>
-                        {statusLabel(employee.employment_status)}
-                      </span>
-                    </td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employmentTypeLabel(employee.employment_type)}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employee.branch_name || "—"}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employee.work_site || "—"}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employee.org_unit_name || "—"}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employee.position_title || "—"}</td>
-                    <td className="border-b border-slate-100 px-4 py-2 text-slate-600">{employee.manager_name || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
-        {!loading ? <AdminStatusBar total={visibleEmployees.length} label="עובדים" /> : null}
+
+        {!loading && tenantId && (
+          <AdminStatusBar total={filtered.length} label="עובדים" />
+        )}
       </main>
-      {showCreate && tenantId ? (
-        <CreateEmployeeModal
+
+      {showNew && tenantId && (
+        <NewEmployeeModal
           tenantId={tenantId}
-          onClose={() => setShowCreate(false)}
-          onSaved={() => {
-            setShowCreate(false);
-            loadEmployees(tenantId);
+          onClose={() => setShowNew(false)}
+          onCreated={() => {
+            setShowNew(false);
+            loadEmployees();
           }}
         />
-      ) : null}
+      )}
     </div>
   );
 }
