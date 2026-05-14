@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { MessageSquare, X, Send, Bot, Loader2 } from "lucide-react";
+import { ApiRequestError, api } from "@/lib/api";
 
 interface Message {
   role: "user" | "system" | "assistant";
@@ -35,9 +36,8 @@ export function AIAssistant() {
   }, [messages, isOpen]);
 
   useEffect(() => {
-    fetch("/api/ai/status")
-      .then(async (res) => {
-        const data = (await res.json()) as AIStatus;
+    api.get<AIStatus>("/api/ai/status")
+      .then((data) => {
         setStatus(data);
         if (!data.available) {
           setMessages([
@@ -48,11 +48,14 @@ export function AIAssistant() {
           ]);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        const message = error instanceof ApiRequestError && error.status === 403
+          ? "רכיב ה-AI זמין רק למנהלי מערכת מורשים."
+          : "לא הצלחתי לבדוק את זמינות רכיב ה-AI כרגע.";
         setStatus({
           available: false,
           reason: "status_error",
-          message: "לא הצלחתי לבדוק את זמינות רכיב ה-AI כרגע.",
+          message,
         });
       });
   }, []);
@@ -66,29 +69,18 @@ export function AIAssistant() {
     setIsLoading(true);
 
     try {
-      // Use relative path to leverage Next.js rewrite in next.config.mjs
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
+      const data = await api.post<{ content: string }>("/api/ai/chat", {
+        messages: [...messages, userMessage].map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
       });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Error connecting to AI");
-      }
-
-      const data = await res.json();
       setMessages((prev) => [...prev, { role: "assistant", content: data.content }]);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof ApiRequestError ? error.message : "Error connecting to AI";
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `שגיאה: ${error.message}` },
+        { role: "assistant", content: `שגיאה: ${message}` },
       ]);
     } finally {
       setIsLoading(false);

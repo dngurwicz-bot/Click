@@ -3,8 +3,8 @@
 ## Stack
 - **Backend:** Python 3.12 + FastAPI + SQLAlchemy 2.0 (async) + asyncpg
 - **DB:** PostgreSQL via Supabase
-- **Auth:** Supabase Auth (JWT)
-- **Frontend:** Next.js 14 (App Router) + TypeScript + Tailwind CSS
+- **Auth:** Supabase Auth + server-issued HttpOnly session cookie
+- **Frontend:** Next.js 16 (App Router) + TypeScript + Tailwind CSS
 
 ---
 
@@ -13,10 +13,13 @@
 ### 1. Environment
 ```bash
 cp .env.example .env
-# Edit .env with your Supabase credentials
+# Edit the root .env with your backend and Docker credentials
 cp frontend/.env.local.example frontend/.env.local
-# Edit frontend/.env.local
+# Edit frontend/.env.local for Next.js public variables
 ```
+
+`C:\Click\.env` is the canonical local config for the backend and `docker-compose`.
+`backend/.env` is only a compatibility fallback for local tooling and should not be treated as the source of truth.
 
 ### 2. Database (Docker)
 ```bash
@@ -72,7 +75,8 @@ click/
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/auth/login` | — | Login, returns JWT |
+| POST | `/api/auth/login` | — | Login, sets HttpOnly session cookie |
+| POST | `/api/auth/logout` | any | Clear current session cookie |
 | GET  | `/api/auth/me` | any | Current user info |
 | GET  | `/api/admin/tenants` | admin+ | List all tenants |
 | POST | `/api/admin/tenants` | admin+ | Create tenant (all sub-tables) |

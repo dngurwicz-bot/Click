@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { getStoredUser, logout, type UserInfo } from "@/lib/api";
+import { getStoredUser, logout, restoreSession, type UserInfo } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import {
   ADMIN_SCREEN_IDS,
@@ -82,7 +82,13 @@ export function TopNav() {
   const { modules } = useTenantModuleNav(workspace?.selectedTenantId ?? "");
 
   useEffect(() => {
-    setUser(getStoredUser());
+    const storedUser = getStoredUser();
+    setUser(storedUser);
+    if (!storedUser) {
+      void restoreSession()
+        .then((nextUser) => setUser(nextUser))
+        .catch(() => undefined);
+    }
   }, []);
 
   const visibleScreens = useMemo(
@@ -139,8 +145,8 @@ export function TopNav() {
     setScreenMenu(null);
   }, [pathname]);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

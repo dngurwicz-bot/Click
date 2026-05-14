@@ -15,7 +15,7 @@ import {
   type ScreenMenuState,
 } from "@/components/layout/DashboardScreenContextMenu";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
-import { getStoredUser, isLoggedIn, type UserInfo } from "@/lib/api";
+import { getStoredUser, isLoggedIn, restoreSession, type UserInfo } from "@/lib/api";
 import {
   getVisibleDashboardScreens,
   readPinnedDashboardScreenIds,
@@ -110,7 +110,15 @@ export default function DashboardPage() {
 
   const loadDashboard = useCallback(() => {
     const nextUser = getStoredUser();
-    if (nextUser) setUser(nextUser);
+    if (nextUser) {
+      setUser(nextUser);
+    } else {
+      void restoreSession()
+        .then((resolvedUser) => {
+          if (resolvedUser) setUser(resolvedUser);
+        })
+        .catch(() => undefined);
+    }
     reload();
   }, [reload]);
 

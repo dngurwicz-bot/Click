@@ -23,3 +23,6 @@ out/
 # Misc
 *.log
 .DS_Store
+.codex-temp/
+frontend/tsconfig.tsbuildinfo
+tmp_alembic_core.sql

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, apiFetch } from "@/lib/api";
 import { HebrewMonthPicker } from "@/components/ui/HebrewMonthPicker";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
 import {
@@ -210,10 +210,8 @@ export function StatusBadge({ cfg }: { cfg: { label: string; cls: string; dot: s
 export async function openInvoicePdf(invoiceId: string, variant: "statement" | "tax") {
   const tab = window.open("", "_blank");
   if (!tab) return;
-  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
-  const token = match ? decodeURIComponent(match[1]) : "";
   const url = `/api/admin/billing/invoices/${invoiceId}/pdf${variant === "tax" ? "?variant=tax" : ""}`;
-  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await apiFetch(url);
   if (!res.ok) { tab.close(); return; }
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
@@ -230,10 +228,8 @@ export async function openInvoicePdf(invoiceId: string, variant: "statement" | "
 export async function openQuotePdf(quoteId: string) {
   const tab = window.open("", "_blank");
   if (!tab) return;
-  const match = document.cookie.match(/(?:^|; )click_token=([^;]*)/);
-  const token = match ? decodeURIComponent(match[1]) : "";
   const url = `/api/admin/billing/quotes/${quoteId}/pdf`;
-  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await apiFetch(url);
   if (!res.ok) { tab.close(); return; }
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);

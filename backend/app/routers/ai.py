@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.config import get_settings
 from sqlalchemy import select, func
 from app.database import AsyncSessionLocal
+from app.middleware.auth import CurrentUser, require_admin
 from app.models import Module, ModulePrice, Tenant, TenantIdentity
 from app.services.temporal import get_active
 from typing import List
@@ -165,11 +166,11 @@ def get_ai_availability() -> AIStatusResponse:
 
 
 @router.get("/status", response_model=AIStatusResponse)
-async def ai_status():
+async def ai_status(_current_user: CurrentUser = Depends(require_admin)):
     return get_ai_availability()
 
 @router.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, _current_user: CurrentUser = Depends(require_admin)):
     availability = get_ai_availability()
     if not availability.available:
         raise HTTPException(status_code=503, detail=availability.message)

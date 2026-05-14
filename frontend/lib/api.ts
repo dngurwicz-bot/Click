@@ -1,29 +1,6 @@
 // Use empty base so requests go through Next.js rewrites proxy -> backend
 const API_BASE = "";
-
-function getCookie(name: string): string | undefined {
-  if (typeof document === "undefined") return undefined;
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
-
-function setCookie(name: string, value: string, maxAgeSeconds: number) {
-  if (typeof document === "undefined") return;
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Strict`;
-}
-
-function removeCookie(name: string) {
-  if (typeof document === "undefined") return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Strict`;
-}
-
-function getAuthHeaders(options?: RequestInit): HeadersInit {
-  const token = getCookie("click_token");
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options?.headers ?? {}),
-  };
-}
+const SESSION_HINT_COOKIE_NAME = "click_session_present";
 
 export interface ApiError {
   error: string;
@@ -76,18 +53,48 @@ function getNetworkErrorMessage(path: string): string {
   return "לא ניתן להתחבר לשרת כרגע. בדוק שהשירות פעיל ונסה שוב.";
 }
 
+function storeUser(user: UserInfo | null) {
+  if (typeof window === "undefined") return;
+  if (user) {
+    window.sessionStorage.setItem("click_user", JSON.stringify(user));
+    return;
+  }
+  window.sessionStorage.removeItem("click_user");
+}
+
+function clearLocalSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem("click_user");
+  window.localStorage.removeItem("click_open_screens");
+  window.localStorage.removeItem("click_recent_screens");
+  window.localStorage.removeItem("click_recent_panel_open");
+  window.localStorage.removeItem("click_recent_drawer_open");
+  window.localStorage.removeItem("click_selected_tenant_id");
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    credentials: "include",
+  });
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getCookie("click_token");
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await apiFetch(path, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers ?? {}),
       },
     });
@@ -108,7 +115,7 @@ async function request<T>(
     const detail = body.detail ?? body;
     const fallbackMessage = `Request failed with status ${res.status}`;
 
-    if (res.status === 401 && token && path !== "/api/auth/login") {
+    if (res.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/logout") {
       logout();
       if (typeof window !== "undefined" && window.location.pathname !== "/login") {
         const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -143,10 +150,9 @@ export const api = {
   postForm: async <T>(path: string, body: FormData): Promise<T> => {
     let res: Response;
     try {
-      res = await fetch(`${API_BASE}${path}`, {
+      res = await apiFetch(path, {
         method: "POST",
         body,
-        headers: getAuthHeaders(),
       });
     } catch (error: unknown) {
       throw new ApiRequestError({
@@ -172,6 +178,10 @@ export const api = {
       });
     }
 
+    if (res.status === 204) {
+      return undefined as T;
+    }
+
     return res.json() as Promise<T>;
   },
 };
@@ -194,8 +204,6 @@ export interface UserInfo {
 }
 
 export interface LoginResponse {
-  access_token: string;
-  token_type: string;
   user: UserInfo;
 }
 
@@ -203,29 +211,34 @@ export interface LoginResponse {
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const data = await api.post<LoginResponse>("/api/auth/login", { email, password });
-  setCookie("click_token", data.access_token, 60 * 60 * 24);
-  localStorage.setItem("click_user", JSON.stringify(data.user));
+  storeUser(data.user);
   return data;
 }
 
-export function logout() {
-  removeCookie("click_token");
-  localStorage.removeItem("click_user");
-  localStorage.removeItem("click_open_screens");
-  localStorage.removeItem("click_recent_screens");
-  localStorage.removeItem("click_active_screen");
-  localStorage.removeItem("click_recent_panel_open");
-  localStorage.removeItem("click_selected_tenant_id");
+export async function logout() {
+  try {
+    await apiFetch("/api/auth/logout", { method: "POST", keepalive: true });
+  } catch {
+    // Clear local state even if the server cannot be reached.
+  } finally {
+    clearLocalSession();
+  }
+}
+
+export async function restoreSession(): Promise<UserInfo | null> {
+  const user = await api.get<UserInfo>("/api/auth/me");
+  storeUser(user);
+  return user;
 }
 
 export function getStoredUser(): UserInfo | null {
   if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem("click_user");
+  const raw = window.sessionStorage.getItem("click_user");
   return raw ? (JSON.parse(raw) as UserInfo) : null;
 }
 
 export function isLoggedIn(): boolean {
-  return !!getCookie("click_token");
+  return readCookie(SESSION_HINT_COOKIE_NAME) === "1";
 }
 
 // ── Permission helpers ─────────────────────────────────────────────────────

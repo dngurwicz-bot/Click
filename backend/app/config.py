@@ -4,7 +4,10 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=("backend/.env", ".env", "../.env"),
+        extra="ignore",
+    )
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/click_db"

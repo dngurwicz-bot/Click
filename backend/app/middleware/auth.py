@@ -5,7 +5,7 @@ Validates JWT tokens, extracts user_id + role + permissions.
 from typing import Optional
 import uuid
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import APIKeyCookie
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,7 +14,10 @@ from app.database import get_db
 from app.models.admin_user import AdminUser
 from app.models.admin_user_permission import AdminUserPermission
 
-security = HTTPBearer()
+SESSION_COOKIE_NAME = "click_token"
+SESSION_HINT_COOKIE_NAME = "click_session_present"
+
+cookie_security = APIKeyCookie(name=SESSION_COOKIE_NAME, auto_error=False)
 settings = get_settings()
 
 
@@ -53,10 +56,15 @@ class CurrentUser:
 
 async def get_current_user(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    session_token: str | None = Depends(cookie_security),
     db: AsyncSession = Depends(get_db),
 ) -> CurrentUser:
-    token = credentials.credentials
+    token = session_token or request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Authentication required", "code": "AUTH_REQUIRED"},
+        )
     try:
         payload = jwt.decode(
             token,
