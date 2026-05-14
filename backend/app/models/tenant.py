@@ -103,6 +103,7 @@ class TenantSubscription(Base):
     selected_module_slugs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=0)
     is_price_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    billing_anchor_day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     next_renewal_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -176,6 +177,32 @@ class TenantStatus(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="trial")
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TenantOrgStructureConfig(Base):
+    __tablename__ = "tenant_org_structure_config"
+    __table_args__ = (
+        CheckConstraint(
+            "position_attachment_level IN ('division','department','section','team')",
+            name="ck_tenant_org_structure_position_attachment_level",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to >= valid_from",
+            name="ck_tenant_org_structure_valid_window",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    levels: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    position_attachment_level: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_hierarchical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)

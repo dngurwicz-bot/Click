@@ -123,9 +123,13 @@ def test_permissions_match_billing_feature_flag():
 
     if settings.BILLING_ENABLED:
         assert "billing" in ALL_RESOURCES
+        assert "core" in ALL_RESOURCES
         assert DEFAULT_PERMISSIONS["admin"]["billing"]["can_view"] is True
+        assert DEFAULT_PERMISSIONS["admin"]["core"]["can_manage_sensitive"] is True
         assert DEFAULT_PERMISSIONS["billing"]["billing"]["can_edit"] is True
     else:
         assert "billing" not in ALL_RESOURCES
+        assert "core" in ALL_RESOURCES
+        assert DEFAULT_PERMISSIONS["admin"]["core"]["can_manage_sensitive"] is True
         assert "billing" not in DEFAULT_PERMISSIONS["admin"]
         assert "billing" not in DEFAULT_PERMISSIONS

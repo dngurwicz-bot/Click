@@ -5,9 +5,32 @@ import { useRouter, useParams } from "next/navigation";
 import { ApiRequestError, getStoredUser, isLoggedIn, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
+import {
+  formatOrgStructureSummary,
+  type OrgStructureLevel,
+  type TenantOrgStructureConfigValue,
+} from "@/components/tenants/TenantOrgStructureModal";
 import { LogoUploadField } from "@/components/tenants/LogoUploadField";
+import {
+  AdminDateFields,
+  AdminField,
+  AdminModal,
+  AdminModalBody,
+  AdminModalFooter,
+  AdminModalHeader,
+  AdminModalMessage,
+  AdminModalPanel,
+  ADMIN_MODAL_ACTION_DANGER,
+  ADMIN_MODAL_ACTION_PRIMARY,
+  ADMIN_MODAL_ACTION_SECONDARY,
+  ADMIN_MODAL_ACTION_WARNING,
+  ADMIN_MODAL_GRID,
+  ADMIN_MODAL_INPUT,
+  ADMIN_MODAL_TEXTAREA,
+} from "@/components/ui/AdminModal";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import { X, AlertCircle, CheckCircle2, Send, FileText, Printer, Trash2 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -33,7 +56,7 @@ interface TenantAddressOut extends AuditFields {
 interface TenantSubscriptionOut extends AuditFields {
   id: string; billing_cycle: string; currency: string;
   template_id?: string; seat_count: number; selected_module_slugs: string[];
-  discount_pct: string; is_price_locked: boolean; next_renewal_at?: string;
+  discount_pct: string; is_price_locked: boolean; billing_anchor_day: number; next_renewal_at?: string;
   current_monthly_total_ils: string;
   current_yearly_total_ils: string;
   current_cycle_total_ils: string;
@@ -63,15 +86,39 @@ interface TenantStatusOut extends AuditFields {
   id: string; status: string; reason?: string; notes?: string;
   valid_from: string; valid_to?: string;
 }
+interface TenantOrgStructureConfigOut extends AuditFields, TenantOrgStructureConfigValue {
+  id: string;
+  tenant_id: string;
+  is_locked: boolean;
+  can_force_override: boolean;
+  valid_from: string;
+  valid_to?: string | null;
+}
+interface TenantOrgStructureOverrideImpactOut {
+  converted_units_count: number;
+  reparented_units_count: number;
+  affected_positions_count: number;
+  affected_employments_count: number;
+  warnings: string[];
+}
+interface TenantOrgStructureOverridePreviewOut {
+  tenant_id: string;
+  valid_from: string;
+  current_levels: OrgStructureLevel[];
+  proposed_levels: OrgStructureLevel[];
+  current_position_attachment_level: OrgStructureLevel | null;
+  proposed_position_attachment_level: OrgStructureLevel | null;
+  impact: TenantOrgStructureOverrideImpactOut;
+}
 interface TenantOut extends AuditFields {
   tenant_id: string; org_number: number; created_at: string;
   updated_at?: string; created_by?: string; updated_by?: string;
   identity?: TenantIdentityOut; contact?: TenantContactOut;
-  address?: TenantAddressOut; subscription?: TenantSubscriptionOut; subscription_modules?: TenantSubscriptionModuleOut[]; status?: TenantStatusOut;
+  address?: TenantAddressOut; subscription?: TenantSubscriptionOut; subscription_modules?: TenantSubscriptionModuleOut[]; status?: TenantStatusOut; org_structure?: TenantOrgStructureConfigOut;
 }
 interface TenantHistory {
   identity: TenantIdentityOut[]; contact: TenantContactOut[];
-  address: TenantAddressOut[]; subscription: TenantSubscriptionOut[]; subscription_modules: TenantSubscriptionModuleOut[]; status: TenantStatusOut[];
+  address: TenantAddressOut[]; subscription: TenantSubscriptionOut[]; subscription_modules: TenantSubscriptionModuleOut[]; status: TenantStatusOut[]; org_structure: TenantOrgStructureConfigOut[];
 }
 interface TenantDeleteImpact {
   tenant_id: string;
@@ -85,6 +132,7 @@ interface TenantDeleteImpact {
 }
 
 type SectionKey = "identity" | "contact" | "address" | "subscription" | "status";
+type TenantConfigSectionKey = SectionKey | "org_structure";
 
 // ─── Billing Types ────────────────────────────────────────────────────────────
 
@@ -108,6 +156,26 @@ interface TenantBillingSummary {
   pending_total_ils: string;
   invoiced_total_ils: string;
   paid_total_ils: string;
+}
+
+interface TenantPaymentTrackingItem {
+  billing_period: string;
+  scheduled_charge_date: string;
+  status: "unreported" | "paid" | "unpaid" | "partial" | "waived";
+  amount_ils?: string | null;
+  paid_at?: string | null;
+  external_ref?: string | null;
+  notes?: string | null;
+  source: "derived" | "manual";
+  is_overdue: boolean;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+interface TenantPaymentTrackingSummary {
+  billing_anchor_day?: number | null;
+  next_renewal_at?: string | null;
+  items: TenantPaymentTrackingItem[];
 }
 
 interface TenantInvoiceDetail extends TenantInvoiceItem {
@@ -197,6 +265,13 @@ const BILLING_CYCLE_LABELS: Record<string, string> = {
   monthly: "חודשי",
   quarterly: "רבעוני",
   yearly: "שנתי",
+};
+const PAYMENT_TRACKING_STATUS_LABELS: Record<TenantPaymentTrackingItem["status"], string> = {
+  unreported: "לא סומן",
+  paid: "שולם",
+  unpaid: "לא שולם",
+  partial: "שולם חלקית",
+  waived: "ויתרו / זוכה",
 };
 const STATUS_TYPE_MAP: Record<string, "active" | "trial" | "suspended" | "cancelled"> = {
   active: "active", trial: "trial", suspended: "suspended", cancelled: "cancelled",
@@ -329,7 +404,7 @@ const SECTION_FIELDS: Record<SectionKey, FieldDef[]> = {
       options: [{ value: "monthly", label: "חודשי" }, { value: "quarterly", label: "רבעוני" }, { value: "yearly", label: "שנתי" }] },
     { key: "currency",      label: "מטבע",         required: true, type: "select",
       options: [{ value: "ILS", label: "₪ שקל" }, { value: "USD", label: "$ דולר" }, { value: "EUR", label: "€ יורו" }] },
-    { key: "next_renewal_at", label: "תאריך חיוב הבא", type: "date", helpText: "כאן קובעים מתי המערכת תראה את החידוש/החיוב הבא של הלקוח." },
+    { key: "billing_anchor_day", label: "יום חיוב קבוע", required: true, type: "select", helpText: "מגדירים פעם אחת את יום החיוב הקבוע. תאריך החיוב הבא יחושב אוטומטית לפי היום הזה." },
     { key: "discount_pct",   label: "הנחה %" },
     { key: "is_price_locked", label: "מחיר נעול", type: "checkbox", helpText: "כשזה פעיל, המחיר ללקוח נשאר קבוע ולא מתעדכן אוטומטית לפי מחירון חדש." },
   ],
@@ -427,6 +502,15 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         options: [{ value: "", label: "ללא תבנית" }, ...templateOptions],
       };
     }
+    if (section === "subscription" && field.key === "billing_anchor_day") {
+      return {
+        ...field,
+        options: Array.from({ length: 31 }, (_, index) => {
+          const day = String(index + 1);
+          return { value: day, label: day };
+        }),
+      };
+    }
     return field;
   });
 
@@ -489,6 +573,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
           .filter(Boolean);
       } else if (section === "subscription" && f.key === "seat_count") {
         p[f.key] = parseInt(form[f.key] ?? "0", 10) || 0;
+      } else if (section === "subscription" && f.key === "billing_anchor_day") {
+        p[f.key] = Math.min(31, Math.max(1, parseInt(form[f.key] ?? "1", 10) || 1));
       } else if (f.type === "date") {
         p[f.key] = form[f.key]?.trim() ? form[f.key].trim() : null;
       } else if (f.type === "checkbox") {
@@ -532,6 +618,10 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
 
   async function handleSave(action: "update" | "add" | "set") {
     if (!validFrom) { setError("יש להזין תאריך תוקף"); return; }
+    if (validTo && validTo < validFrom) {
+      setError("תאריך הסיום חייב להיות מאוחר או שווה לתאריך ההתחלה");
+      return;
+    }
     setSaving(true); setError(null);
 
     // Front-end overlap check for הוספה only
@@ -603,11 +693,11 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4" dir="rtl"
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4" dir="rtl"
            onClick={() => setDropdownOpen(false)}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className={`flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg ${headerBg}`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-200 rounded-t-2xl ${headerBg}`}>
           <h2 className={`text-sm font-bold ${headerText}`}>
             {modalTitle}
           </h2>
@@ -617,7 +707,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         </div>
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
-        <div className="px-5 py-4 space-y-3">
+        <div className="px-5 py-4 space-y-4">
 
           {/* ── מחיקה mode ──────────────────────────────────────────────── */}
           {mode === "delete" && (
@@ -665,14 +755,24 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
             </div>
           )}
           {/* Section fields — hidden in add mode when blocked */}
-          <div className={`space-y-3 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
+          <div className={`space-y-4 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
+            <div className="grid gap-4 md:grid-cols-2">
             {fields.map((f) => (
-              <div key={f.key} className="flex items-start gap-3">
-                <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
+              <div
+                key={f.key}
+                className={
+                  section === "identity" && f.key === "logo_url"
+                    ? "md:col-span-2"
+                    : f.type === "textarea" || f.type === "checkbox"
+                    ? "md:col-span-2"
+                    : ""
+                }
+              >
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
                   {f.required && <span className="text-red-500 ml-0.5">*</span>}
                   {f.label}
                 </label>
-                <div className="flex-1">
+                <div>
                   {f.lookupKey ? (
                     <LookupInput
                       value={form[f.key] ?? ""}
@@ -694,14 +794,14 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                       value={form[f.key] ?? ""}
                       onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       rows={2}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400 resize-none"
+                      className={ADMIN_MODAL_TEXTAREA}
                     />
                   ) : f.type === "date" ? (
                     <div className="flex items-center gap-2">
                       <HebrewDatePicker
                         value={form[f.key] ?? ""}
                         onChange={(value) => setForm((prev) => ({ ...prev, [f.key]: value }))}
-                        className="border border-slate-300 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400 bg-white"
+                        className={ADMIN_MODAL_INPUT}
                       />
                       {!!form[f.key] && (
                         <button
@@ -720,12 +820,13 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                       storageKey={tenantId}
                       label=""
                       hint="העלה קובץ תמונה עבור לוגו הארגון"
+                      className="pt-1"
                     />
                   ) : f.type === "select" && f.options ? (
                     <select
                       value={form[f.key] ?? ""}
                       onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400 bg-white"
+                      className={ADMIN_MODAL_INPUT}
                     >
                       {f.options.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
@@ -736,7 +837,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                       type={f.type ?? "text"}
                       value={form[f.key] ?? ""}
                       onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                      className="border border-slate-300 rounded px-2 py-1 text-xs flex-1 w-full focus:outline-none focus:border-blue-400"
+                      className={ADMIN_MODAL_INPUT}
                     />
                   )}
                   {f.helpText ? (
@@ -745,20 +846,21 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                 </div>
               </div>
             ))}
+            </div>
           </div>
 
           {/* Date fields — hidden in add mode when blocked */}
-          <div className={`border-t border-slate-200 pt-3 space-y-2 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
-            {/* valid_from */}
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
+          <div className={`border-t border-slate-200 pt-4 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
+            <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 <span className="text-red-500 ml-0.5">*</span>
-                {mode === "set" ? "תוקף מתאריך" : "תוקף מתאריך"}
+                תוקף מתאריך
               </label>
               <HebrewDatePicker
                 value={validFrom}
                 onChange={setValidFrom}
-                className={`border rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400
+                className={`${ADMIN_MODAL_INPUT}
                   ${mode === "add" ? "border-amber-400 bg-amber-50 font-semibold"
                   : mode === "set" ? "border-amber-400 bg-amber-50 font-semibold"
                   : "border-slate-300"}`}
@@ -766,20 +868,20 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
               {mode === "add" && <span className="text-xs text-amber-700 font-medium">תאריך תחילת תוקף חדש</span>}
               {mode === "set" && <span className="text-xs text-amber-700 font-medium">תחילת תקופת הקביעה</span>}
             </div>
-            {/* valid_to — optional end date for all modes */}
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 תוקף עד (אופציונלי)
               </label>
               <HebrewDatePicker
                 value={validTo}
                 onChange={setValidTo}
-                className={`border rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-blue-400
+                className={`${ADMIN_MODAL_INPUT}
                   ${mode === "set" ? "border-amber-300 bg-amber-50" : "border-slate-300"}`}
               />
-              {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
+              {!validTo && <span className="mt-1 block text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
               {validTo && <span className="text-xs text-blue-600 cursor-pointer hover:underline"
                 onClick={() => setValidTo("")}>✕ נקה</span>}
+            </div>
             </div>
           </div>
 
@@ -798,7 +900,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         </div>
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
           {mode === "delete" ? (
             <>
               <button onClick={switchToUpdateMode}
@@ -860,61 +962,361 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                 className="px-3 py-1.5 text-xs border border-slate-300 rounded text-slate-600 hover:bg-slate-100 transition-colors">
                 ביטול
               </button>
-              <div className="relative flex">
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleSave("update"); }}
-                  disabled={saving}
-                  className="px-4 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-r transition-colors disabled:opacity-50 border-l border-blue-400">
-                  {saving ? "שומר..." : "שמור"}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDropdownOpen((o) => !o); }}
-                  disabled={saving}
-                  className="px-2 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-l transition-colors disabled:opacity-50">
-                  ▾
-                </button>
-                {dropdownOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 bg-white border border-slate-200 rounded shadow-lg z-10 min-w-[150px] text-right">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); switchToAddMode(); }}
-                      disabled={hasActiveRow}
-                      title={hasActiveRow ? "קיימת רשומה פעילה — השתמש בשמור עם תאריך עתידי" : undefined}
-                      className={`w-full px-4 py-2 text-xs text-right block border-b border-slate-100
-                        ${hasActiveRow
-                          ? "text-slate-400 cursor-not-allowed bg-slate-50"
-                          : "text-slate-700 hover:bg-blue-50"}`}>
-                      רשומה חדשה
-                      {hasActiveRow && <span className="block text-[10px] text-slate-400 leading-tight">קיימת רשומה פעילה</span>}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); handleSave("update"); }}
-                      className="w-full px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 text-right block border-b border-slate-100">
-                      שמור
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); switchToSetMode(); }}
-                      className="w-full px-4 py-2 text-xs text-amber-700 hover:bg-amber-50 text-right block font-medium border-b border-slate-100">
-                      קבע תקופה
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); switchToCloseMode(); }}
-                      disabled={!hasActiveRow}
-                      title={!hasActiveRow ? "אין שורה פעילה לסגירה" : undefined}
-                      className={`w-full px-4 py-2 text-xs text-right block border-b border-slate-100
-                        ${!hasActiveRow ? "text-slate-400 cursor-not-allowed" : "text-orange-700 hover:bg-orange-50"}`}>
-                      סגור תקופה
-                      {!hasActiveRow && <span className="block text-[10px] text-slate-400 leading-tight">אין שורה פעילה</span>}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); switchToDeleteMode(); }}
-                      className="w-full px-4 py-2 text-xs text-red-700 hover:bg-red-50 text-right block font-medium">
-                      מחק שורה זו
-                    </button>
-                  </div>
-                )}
-              </div>
+              <SplitActionButton
+                primaryLabel={saving ? "שומר..." : "שמור"}
+                onPrimaryClick={() => handleSave("update")}
+                primaryDisabled={saving}
+                menuOpen={dropdownOpen}
+                onMenuToggle={() => setDropdownOpen((o) => !o)}
+                minMenuWidthClassName="min-w-[150px]"
+                actions={[
+                  {
+                    label: "רשומה חדשה",
+                    onClick: () => switchToAddMode(),
+                    disabled: hasActiveRow,
+                    helperText: hasActiveRow ? "קיימת רשומה פעילה" : undefined,
+                  },
+                  {
+                    label: "שמור",
+                    onClick: () => {
+                      setDropdownOpen(false);
+                      handleSave("update");
+                    },
+                  },
+                  {
+                    label: "קבע תקופה",
+                    onClick: () => switchToSetMode(),
+                    tone: "warning",
+                  },
+                  {
+                    label: "סגור תקופה",
+                    onClick: () => switchToCloseMode(),
+                    disabled: !hasActiveRow,
+                    helperText: !hasActiveRow ? "אין שורה פעילה" : undefined,
+                    tone: "warning",
+                  },
+                  {
+                    label: "מחק שורה זו",
+                    onClick: () => switchToDeleteMode(),
+                    tone: "danger",
+                  },
+                ]}
+              />
             </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function OrgStructureOverrideModal({
+  tenantId,
+  initialRow,
+  onClose,
+  onApplied,
+}: {
+  tenantId: string;
+  initialRow: TenantOrgStructureConfigOut;
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const levelOptions: { value: OrgStructureLevel; label: string; description: string }[] = [
+    { value: "division", label: "חטיבה", description: "הרמה העליונה בשרשרת" },
+    { value: "department", label: "אגף", description: "מתחת לחטיבה או כרמה ראשונה בארגון" },
+    { value: "section", label: "מחלקה", description: "מתחת לאגף" },
+    { value: "team", label: "צוות", description: "מתחת למחלקה או לרמה הפעילה שלפניה" },
+  ];
+  const [levels, setLevels] = useState<OrgStructureLevel[]>(initialRow.levels);
+  const [isHierarchical, setIsHierarchical] = useState(initialRow.is_hierarchical);
+  const [attachPositionToHierarchy, setAttachPositionToHierarchy] = useState(Boolean(initialRow.position_attachment_level));
+  const [positionAttachmentLevel, setPositionAttachmentLevel] = useState<OrgStructureLevel | null>(
+    initialRow.position_attachment_level && initialRow.levels.includes(initialRow.position_attachment_level)
+      ? initialRow.position_attachment_level
+      : initialRow.levels[initialRow.levels.length - 1] ?? null,
+  );
+  const [validFrom, setValidFrom] = useState(todayIsoDate());
+  const [preview, setPreview] = useState<TenantOrgStructureOverridePreviewOut | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+
+  const availableAttachmentLevels = levelOptions.filter((option) => levels.includes(option.value));
+  const nextAttachmentLevel = attachPositionToHierarchy
+    ? (positionAttachmentLevel && levels.includes(positionAttachmentLevel)
+      ? positionAttachmentLevel
+      : (levels[levels.length - 1] ?? null))
+    : null;
+
+  function toggleLevel(level: OrgStructureLevel) {
+    setPreview(null);
+    setConfirmed(false);
+    setLevels((current) => {
+      const nextLevels = current.includes(level)
+        ? current.filter((item) => item !== level)
+        : levelOptions.filter((option) => [...current, level].includes(option.value)).map((option) => option.value);
+      if (!nextLevels.length) {
+        setPositionAttachmentLevel(null);
+        return nextLevels;
+      }
+      if (!attachPositionToHierarchy) {
+        return nextLevels;
+      }
+      if (!positionAttachmentLevel || !nextLevels.includes(positionAttachmentLevel)) {
+        setPositionAttachmentLevel(nextLevels[nextLevels.length - 1]);
+      }
+      return nextLevels;
+    });
+  }
+
+  async function handlePreview() {
+    if (levels.length === 0) {
+      setError("יש לבחור לפחות רמה ארגונית אחת.");
+      return;
+    }
+    if (attachPositionToHierarchy && !nextAttachmentLevel) {
+      setError("יש לבחור רמת שיוך לתפקיד.");
+      return;
+    }
+    setLoadingPreview(true);
+    setError(null);
+    try {
+      const result = await api.post<TenantOrgStructureOverridePreviewOut>(
+        `/api/admin/tenants/${tenantId}/org-structure/preview-override`,
+        {
+          valid_from: validFrom,
+          levels,
+          position_attachment_level: nextAttachmentLevel,
+          is_hierarchical: isHierarchical,
+        },
+      );
+      setPreview(result);
+    } catch (err) {
+      setError(getApiErrorMessage(err, "לא ניתן לחשב השפעת שינוי חריג"));
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  async function handleApply() {
+    if (!preview) {
+      setError("יש לבצע preview לפני החלת השינוי.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/api/admin/tenants/${tenantId}/org-structure`, {
+        action: "update",
+        force_override: true,
+        valid_from: validFrom,
+        levels,
+        position_attachment_level: nextAttachmentLevel,
+        is_hierarchical: isHierarchical,
+      });
+      onApplied();
+      onClose();
+    } catch (err) {
+      setError(getApiErrorMessage(err, "לא ניתן להחיל שינוי חריג למבנה הארגוני"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-3xl">
+        <AdminModalHeader
+          title="שינוי חריג למבנה הארגוני"
+          subtitle="הפעולה זמינה לסופר אדמין בלבד. הנתונים לא יימחקו, אלא יותאמו לרמות הפעילות החדשות."
+          onClose={onClose}
+        />
+        <AdminModalBody className="space-y-4">
+          <AdminModalMessage tone="warning">
+            המבנה הארגוני מוגדר פעם אחת ונעול. שינוי חריג יבצע התאמת נתונים אוטומטית ליחידות, תפקידים והעסקות עובדים.
+          </AdminModalMessage>
+
+          <div className={ADMIN_MODAL_GRID}>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-xs font-semibold text-slate-700">רמות פעילות לפי סדר</div>
+              <div className="mt-3 grid gap-2">
+                {levelOptions.map((option) => (
+                  <label key={option.value} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={levels.includes(option.value)}
+                      onChange={() => toggleLevel(option.value)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span className="flex-1">
+                      <span className="block font-semibold text-slate-800">{option.label}</span>
+                      <span className="block text-[11px] text-slate-500">{option.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700">
+                <div className="font-semibold text-slate-800">כללים קבועים</div>
+                <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={isHierarchical}
+                    onChange={(event) => {
+                      setIsHierarchical(event.target.checked);
+                      setPreview(null);
+                      setConfirmed(false);
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block font-semibold text-slate-800">המבנה היררכי ומקושר בין הרמות</span>
+                    <span className="mt-1 block text-[11px] text-slate-500">
+                      בטל כדי לאפשר מבנה ללא תלות אב-בן בין כל הרמות הפעילות.
+                    </span>
+                  </span>
+                </label>
+
+                <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={attachPositionToHierarchy}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setAttachPositionToHierarchy(checked);
+                      if (checked && levels.length > 0 && !positionAttachmentLevel) {
+                        setPositionAttachmentLevel(levels[levels.length - 1]);
+                      }
+                      setPreview(null);
+                      setConfirmed(false);
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="block font-semibold text-slate-800">התפקיד משויך להיררכיה</span>
+                    <span className="mt-1 block text-[11px] text-slate-500">
+                      בטל כדי לאפשר תפקידים שלא מקושרים לשום רמה בהיררכיה.
+                    </span>
+                  </span>
+                </label>
+
+                {attachPositionToHierarchy ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                    <label className="block text-[11px] font-semibold text-slate-700">רמת שיוך התפקיד</label>
+                    <select
+                      value={positionAttachmentLevel ?? ""}
+                      onChange={(event) => {
+                        setPositionAttachmentLevel((event.target.value || null) as OrgStructureLevel | null);
+                        setPreview(null);
+                        setConfirmed(false);
+                      }}
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                    >
+                      <option value="">בחר רמה</option>
+                      {availableAttachmentLevels.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                    תפקידים יישמרו ללא שיוך להיררכיה.
+                  </div>
+                )}
+              </div>
+
+              {preview ? (
+                <div className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-xs text-brand-900">
+                  <div className="font-semibold">תצוגה מקדימה להשפעה</div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg bg-white/70 px-3 py-2">יחידות שיומרו: <strong>{preview.impact.converted_units_count}</strong></div>
+                    <div className="rounded-lg bg-white/70 px-3 py-2">יחידות שיחוברו מחדש: <strong>{preview.impact.reparented_units_count}</strong></div>
+                    <div className="rounded-lg bg-white/70 px-3 py-2">תפקידים שיושפעו: <strong>{preview.impact.affected_positions_count}</strong></div>
+                    <div className="rounded-lg bg-white/70 px-3 py-2">רשומות העסקה שיושפעו: <strong>{preview.impact.affected_employments_count}</strong></div>
+                  </div>
+                  {preview.impact.warnings.length ? (
+                    <div className="mt-3 space-y-2 text-[11px] text-brand-800">
+                      {preview.impact.warnings.map((warning) => (
+                        <div key={warning} className="rounded-lg border border-brand-100 bg-white/70 px-3 py-2">
+                          {warning}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <AdminModalMessage>
+                  תצוגה מקדימה תוצג כאן אחרי בחירת תאריך והרצת בדיקה, ורק אחריה ניתן יהיה להחיל את השינוי.
+                </AdminModalMessage>
+              )}
+            </div>
+          </div>
+
+          <AdminDateFields
+            fromField={
+              <HebrewDatePicker
+                value={validFrom}
+                onChange={(value) => {
+                  setValidFrom(value);
+                  setPreview(null);
+                  setConfirmed(false);
+                }}
+                className={ADMIN_MODAL_INPUT}
+              />
+            }
+            toLabel="החלה"
+            toField={
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                השינוי יחול מהתאריך שנבחר ללא תאריך סיום, תוך שמירת היסטוריה מלאה של המבנה הקודם.
+              </div>
+            }
+          />
+
+          {preview ? (
+            <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                onChange={(event) => setConfirmed(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-amber-300"
+              />
+              <span>
+                <span className="block font-semibold">אני מאשר/ת לבצע שינוי חריג במבנה הארגוני</span>
+                <span className="mt-1 block text-[11px] text-amber-800">
+                  השינוי ישמר היסטוריה, ימיר רמות ויעדכן שיוכים רלוונטיים בלי למחוק נתוני עובדים.
+                </span>
+              </span>
+            </label>
+          ) : null}
+
+          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
+            ביטול
+          </button>
+          <button
+            onClick={handlePreview}
+            disabled={loadingPreview || saving}
+            className={ADMIN_MODAL_ACTION_WARNING}
+          >
+            {loadingPreview ? "מחשב..." : "תצוגה מקדימה"}
+          </button>
+          <button
+            onClick={handleApply}
+            disabled={saving || !preview || !confirmed}
+            className={ADMIN_MODAL_ACTION_DANGER}
+          >
+            {saving ? "מחיל..." : "החל שינוי חריג"}
+          </button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -931,6 +1333,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
   const billingCycleLabel = subscription?.billing_cycle ?? "—";
   const billingCycleDisplay = BILLING_CYCLE_LABELS[billingCycleLabel] ?? billingCycleLabel;
   const subscriptionCurrency = subscription?.currency ?? "ILS";
+  const billingAnchorDisplay = subscription?.billing_anchor_day ? `בכל ${subscription.billing_anchor_day} לחודש` : "—";
   const cycleChargeLabel = billingCycleLabel === "yearly" ? "חיוב למחזור שנתי" : "חיוב למחזור חודשי";
   const activeModules = (tenant.subscription_modules ?? []).filter((item) => item.status === "active");
   const currentValidity = tenant.identity?.valid_to
@@ -1035,6 +1438,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
               <div className="mt-1 text-[11px] text-violet-700/80">
                 {subscription?.next_renewal_at ? `${cycleChargeLabel} ב-${fmtDate(subscription.next_renewal_at)}` : "תאריך חיוב הבא עדיין לא נקבע"}
               </div>
+              <div className="mt-1 text-[11px] text-violet-700/80">יום חיוב קבוע: {billingAnchorDisplay}</div>
             </div>
           </div>
         </div>
@@ -1072,7 +1476,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
 // ─── Child tab builders ───────────────────────────────────────────────────────
 
 // Sort: current row (no valid_to) first, then by valid_from descending
-function sortRows<T extends { valid_from: string; valid_to?: string }>(rows: T[]): T[] {
+function sortRows<T extends { valid_from: string; valid_to?: string | null }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     const aCurrent = !a.valid_to ? 1 : 0;
     const bCurrent = !b.valid_to ? 1 : 0;
@@ -1206,6 +1610,7 @@ function buildSubscriptionTab(
       { key: "template_id",   label: "תבנית" },
       { key: "billing_cycle", label: "מחזור חיוב",   required: true },
       { key: "currency",      label: "מטבע",         required: true },
+      { key: "billing_anchor_day", label: "יום חיוב" },
       { key: "discount_pct",  label: "הנחה %" },
       { key: "is_price_locked", label: "מחיר נעול" },
       { key: "current_monthly_total_ils", label: "לחודש" },
@@ -1225,6 +1630,7 @@ function buildSubscriptionTab(
       template_id:   (r.template_id ? templateNames[r.template_id] : null) ?? "—",
       billing_cycle: BILLING_CYCLE_LABELS[r.billing_cycle] ?? r.billing_cycle,
       currency:      r.currency,
+      billing_anchor_day: r.billing_anchor_day ? `כל ${r.billing_anchor_day} בחודש` : "—",
       discount_pct:  `${r.discount_pct}%`,
       is_price_locked: r.is_price_locked ? "כן" : "לא",
       current_monthly_total_ils: fmtMoney(r.current_monthly_total_ils, r.currency),
@@ -1273,6 +1679,76 @@ function buildStatusTab(rows: TenantStatusOut[], onDblClick: (i: number) => void
     }),
     temporalFilter: true,
     onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
+  };
+}
+
+function buildOrgStructureTab(rows: TenantOrgStructureConfigOut[], onDblClick: (i: number) => void): ChildTab {
+  const sorted = sortRows(rows);
+  return {
+    id: "org_structure",
+    label: "מבנה ארגוני",
+    columns: [
+      { key: "valid_from", label: "תוקף מ", required: true },
+      { key: "valid_to", label: "תוקף עד" },
+      { key: "levels", label: "רמות פעילות" },
+      { key: "position_attachment_level", label: "שיוך תפקיד" },
+      { key: "is_hierarchical", label: "היררכי" },
+      { key: "created_at", label: "תאריך שינוי" },
+      { key: "created_by", label: "בוצע ע\"י" },
+    ],
+    rows: sorted.map((row) => {
+      const audit = getAuditStamp(row);
+      const summary = formatOrgStructureSummary(row);
+      return {
+        valid_from: fmtDate(row.valid_from),
+        valid_to: row.valid_to ? fmtDate(row.valid_to) : "—",
+        levels: summary.levelsText,
+        position_attachment_level: summary.attachmentText,
+        is_hierarchical: summary.hierarchyText,
+        created_at: fmtDateTime(audit.at),
+        created_by: audit.by ?? "—",
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? null,
+      };
+    }),
+    temporalFilter: true,
+    onRowDoubleClick: (index) => onDblClick(rows.indexOf(sorted[index])),
+  };
+}
+
+function buildPaymentTrackingTab(
+  rows: TenantPaymentTrackingItem[],
+  onDblClick: (i: number) => void,
+): ChildTab {
+  const sorted = [...rows].sort((a, b) => (a.billing_period < b.billing_period ? 1 : -1));
+  return {
+    id: "payment_tracking",
+    label: "מעקב תשלומים",
+    columns: [
+      { key: "billing_period", label: "חודש" },
+      { key: "scheduled_charge_date", label: "תאריך חיוב" },
+      { key: "status", label: "סטטוס" },
+      { key: "amount_ils", label: "סכום" },
+      { key: "paid_at", label: "שולם בתאריך" },
+      { key: "external_ref", label: "אסמכתא" },
+      { key: "notes", label: "הערות" },
+      { key: "source", label: "מקור" },
+    ],
+    rows: sorted.map((row) => ({
+      billing_period: row.billing_period,
+      scheduled_charge_date: fmtDate(row.scheduled_charge_date),
+      status: `${PAYMENT_TRACKING_STATUS_LABELS[row.status]}${row.is_overdue ? " • בפיגור" : ""}`,
+      amount_ils: fmtMoney(row.amount_ils ?? null, "ILS"),
+      paid_at: fmtDate(row.paid_at),
+      external_ref: row.external_ref || "—",
+      notes: row.notes || "—",
+      source: row.source === "manual" ? "עודכן ידנית" : "אוטומטי מהמנוי",
+      _current: row.source === "manual",
+    })),
+    temporalFilter: false,
+    onRowDoubleClick: (i) => onDblClick(rows.indexOf(sorted[i])),
+    emptyMessage: "אין עדיין חודשי מעקב זמינים",
   };
 }
 
@@ -1706,9 +2182,11 @@ function ApplyTemplateModal({
           </div>
         </div>
 
-        {error && (
-          <div className="px-5 pb-2 text-xs text-red-600">{error}</div>
-        )}
+        {error ? (
+          <div className="px-5 pb-3">
+            <AdminModalMessage tone="danger">{error}</AdminModalMessage>
+          </div>
+        ) : null}
 
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
           <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
@@ -1777,6 +2255,10 @@ function SubscriptionModuleModal({
   function switchToMode(nextMode: ModuleMode) {
     setDropdownOpen(false);
     setError(null);
+    if (nextMode === "add") {
+      setValidFrom(today);
+      setValidTo("");
+    }
     setMode(nextMode);
   }
 
@@ -1846,12 +2328,12 @@ function SubscriptionModuleModal({
     mode === "set" ? "bg-amber-50"
     : mode === "delete" ? "bg-red-50"
     : mode === "close" ? "bg-orange-50"
-    : "bg-slate-50";
+    : "bg-[#dce4f0]";
   const headerText =
     mode === "set" ? "text-amber-800"
     : mode === "delete" ? "text-red-800"
     : mode === "close" ? "text-orange-800"
-    : "text-slate-800";
+    : "text-[#1a3a6e]";
   const subtitleMap: Record<ModuleMode, string> = {
     update: "עדכון שורת מודול קיימת תוך שמירה על מבנה זהה לשאר המסכים הטמפורליים.",
     add: "יצירת רשומת מודול חדשה עם טווח תוקף ומבנה זהה לשאר מסכי העריכה.",
@@ -1978,7 +2460,11 @@ function SubscriptionModuleModal({
             </div>
           )}
         </div>
-        {error && <div className="px-5 pb-2 text-xs text-red-600">{error}</div>}
+        {error ? (
+          <div className="px-5 pb-3">
+            <AdminModalMessage tone="danger">{error}</AdminModalMessage>
+          </div>
+        ) : null}
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
           {mode === "delete" ? (
             <>
@@ -2027,38 +2513,36 @@ function SubscriptionModuleModal({
           ) : (
             <>
               <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
-              <div className="relative flex">
-                <button
-                  onClick={() => runAction("update")}
-                  disabled={saving || loading}
-                  className="rounded-r-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50 border-l border-brand-500"
-                >
-                  {saving ? "שומר..." : "שמור"}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDropdownOpen((current) => !current);
-                  }}
-                  disabled={saving || loading}
-                  className="rounded-l-md bg-brand-600 px-2 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-                >
-                  ▾
-                </button>
-                {dropdownOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 min-w-[150px] rounded border border-slate-200 bg-white text-right shadow-lg">
-                    <button onClick={() => switchToMode("set")} className="block w-full border-b border-slate-100 px-4 py-2 text-right text-xs text-amber-700 hover:bg-amber-50">
-                      קבע תקופה
-                    </button>
-                    <button onClick={() => switchToMode("close")} className="block w-full border-b border-slate-100 px-4 py-2 text-right text-xs text-orange-700 hover:bg-orange-50">
-                      סגור תקופה
-                    </button>
-                    <button onClick={() => switchToMode("delete")} className="block w-full px-4 py-2 text-right text-xs text-red-700 hover:bg-red-50">
-                      מחק שורה
-                    </button>
-                  </div>
-                )}
-              </div>
+              <SplitActionButton
+                primaryLabel={saving ? "שומר..." : "שמור"}
+                onPrimaryClick={() => runAction("update")}
+                primaryDisabled={saving || loading}
+                menuOpen={dropdownOpen}
+                onMenuToggle={() => setDropdownOpen((current) => !current)}
+                minMenuWidthClassName="min-w-[150px]"
+                buttonClassName="bg-brand-600 hover:bg-brand-700 text-white"
+                actions={[
+                  {
+                    label: "רשומה חדשה",
+                    onClick: () => switchToMode("add"),
+                  },
+                  {
+                    label: "קבע תקופה",
+                    onClick: () => switchToMode("set"),
+                    tone: "warning",
+                  },
+                  {
+                    label: "סגור תקופה",
+                    onClick: () => switchToMode("close"),
+                    tone: "warning",
+                  },
+                  {
+                    label: "מחק שורה",
+                    onClick: () => switchToMode("delete"),
+                    tone: "danger",
+                  },
+                ]}
+              />
             </>
           )}
         </div>
@@ -2225,7 +2709,11 @@ function SyncTemplateModal({
             </div>
           </div>
         </div>
-        {error && <div className="px-5 pb-2 text-xs text-red-600">{error}</div>}
+        {error ? (
+          <div className="px-5 pb-3">
+            <AdminModalMessage tone="danger">{error}</AdminModalMessage>
+          </div>
+        ) : null}
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
           <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
           <button onClick={handleApply} disabled={!preview || applying} className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
@@ -2271,8 +2759,8 @@ function InvoiceViewModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-lg shrink-0">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-slate-800">{initial.invoice_number}</span>
             <BillingStatusBadge cfg={st} />
@@ -2390,6 +2878,144 @@ function InvoiceViewModal({
   );
 }
 
+function PaymentTrackingModal({
+  tenantId,
+  item: initial,
+  onClose,
+  onUpdated,
+}: {
+  tenantId: string;
+  item: TenantPaymentTrackingItem;
+  onClose: () => void;
+  onUpdated: () => void;
+}) {
+  const [status, setStatus] = useState<TenantPaymentTrackingItem["status"]>(initial.status);
+  const [paidAt, setPaidAt] = useState(initial.paid_at ?? "");
+  const [amount, setAmount] = useState(initial.amount_ils ?? "");
+  const [externalRef, setExternalRef] = useState(initial.external_ref ?? "");
+  const [notes, setNotes] = useState(initial.notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.put(`/api/admin/tenants/${tenantId}/payment-tracking/${initial.billing_period}`, {
+        status,
+        paid_at: paidAt || null,
+        amount_ils: amount.trim() ? amount.trim() : null,
+        external_ref: externalRef.trim() || null,
+        notes: notes.trim() || null,
+      });
+      onUpdated();
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, "שגיאה בשמירת מעקב התשלום"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-5 py-4 rounded-t-2xl">
+          <div>
+            <h3 className="text-sm font-bold text-[#1a3a6e]">תיעוד תשלום חיצוני</h3>
+            <p className="mt-1 text-xs text-slate-500">הגבייה עצמה נעשית במערכת נפרדת. כאן מתעדים מה קרה בפועל עבור {initial.billing_period}.</p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-white/70"><X size={16} /></button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-slate-400">חודש חיוב</div>
+              <div className="mt-1 font-semibold text-slate-700">{initial.billing_period}</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-slate-400">תאריך חיוב מחושב</div>
+              <div className="mt-1 font-semibold text-slate-700">{fmtDate(initial.scheduled_charge_date)}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">סטטוס</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as TenantPaymentTrackingItem["status"])}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+              >
+                {Object.entries(PAYMENT_TRACKING_STATUS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">תאריך תשלום</label>
+              <HebrewDatePicker
+                value={paidAt}
+                onChange={setPaidAt}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">סכום שתועד</label>
+              <input
+                type="text"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-700">אסמכתא חיצונית</label>
+              <input
+                type="text"
+                value={externalRef}
+                onChange={(e) => setExternalRef(e.target.value)}
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-700">הערות</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+              placeholder="לדוגמה: שולם בהעברה, ממתינים לאישור, שולם חלקית..."
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <AlertCircle size={13} /> {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 rounded-b-xl border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <button onClick={onClose} className="rounded border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+            ביטול
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded bg-[#0d6efd] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#0b5ed7] disabled:opacity-50"
+          >
+            {saving ? "שומר..." : "שמור"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Helpers to extract raw data for pre-filling the edit form ────────────────
 
 function getRawFields(section: SectionKey, item: TenantIdentityOut | TenantContactOut | TenantAddressOut | TenantSubscriptionOut | TenantStatusOut): Record<string, string> {
@@ -2409,6 +3035,7 @@ export default function TenantDetailPage() {
   const [tenant,      setTenant]      = useState<TenantOut | null>(null);
   const [history,     setHistory]     = useState<TenantHistory | null>(null);
   const [billing,     setBilling]     = useState<TenantBillingSummary | null>(null);
+  const [paymentTracking, setPaymentTracking] = useState<TenantPaymentTrackingSummary | null>(null);
   const [billingSettings, setBillingSettings] = useState<BillingSettingsOut | null>(null);
   const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2416,9 +3043,11 @@ export default function TenantDetailPage() {
     invoice: TenantInvoiceItem;
     showPaid?: boolean;
   } | null>(null);
+  const [selectedPaymentTracking, setSelectedPaymentTracking] = useState<TenantPaymentTrackingItem | null>(null);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
   const [showSyncTemplate, setShowSyncTemplate] = useState(false);
   const [showDeleteTenant, setShowDeleteTenant] = useState(false);
+  const [showOrgStructureOverrideModal, setShowOrgStructureOverrideModal] = useState(false);
   const [moduleModalState, setModuleModalState] = useState<{ initial?: TenantSubscriptionModuleOut | null } | null>(null);
   const [editState, setEditState] = useState<{
     section: SectionKey;
@@ -2435,6 +3064,7 @@ export default function TenantDetailPage() {
       api.get<TenantOut>(`/api/admin/tenants/${id}`),
       api.get<TenantHistory>(`/api/admin/tenants/${id}/history`),
       api.get<TemplateOption[]>("/api/admin/templates").catch(() => []),
+      api.get<TenantPaymentTrackingSummary>(`/api/admin/tenants/${id}/payment-tracking`).catch(() => null),
       (BILLING_ENABLED
         ? api.get<TenantBillingSummary>(`/api/admin/tenants/${id}/billing`).catch(() => null)
         : Promise.resolve(null)),
@@ -2442,7 +3072,14 @@ export default function TenantDetailPage() {
         ? api.get<BillingSettingsOut>("/api/admin/billing/settings").catch(() => null)
         : Promise.resolve(null)),
     ])
-      .then(([t, h, templates, b, settings]) => { setTenant(t); setHistory(h); setTemplateOptions(templates); setBilling(b); setBillingSettings(settings); })
+      .then(([t, h, templates, tracking, b, settings]) => {
+        setTenant(t);
+        setHistory(h);
+        setTemplateOptions(templates);
+        setPaymentTracking(tracking);
+        setBilling(b);
+        setBillingSettings(settings);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id]);
@@ -2506,9 +3143,19 @@ export default function TenantDetailPage() {
     const items = history
       ? (history[section] as Array<{ valid_from: string; valid_to?: string; contact_type?: string }>)
       : [];
+    const baseDefaults = Object.fromEntries(fields.map((f) => [f.key, ""]));
+    const defaults = section === "subscription"
+      ? {
+          ...baseDefaults,
+          billing_cycle: "monthly",
+          currency: "ILS",
+          billing_anchor_day: String(tenant?.subscription?.billing_anchor_day ?? 1),
+          is_price_locked: "false",
+        }
+      : baseDefaults;
     setEditState({
       section,
-      data: Object.fromEntries(fields.map((f) => [f.key, ""])),
+      data: defaults,
       initialValidFrom: "",
       initialValidTo: "",
       allRows: items.map((r) => ({
@@ -2524,6 +3171,7 @@ export default function TenantDetailPage() {
   const statusRows = history?.status ?? [];
   const templateNameMap = Object.fromEntries(templateOptions.map((item) => [item.id, item.name]));
   const canHardDeleteTenant = getStoredUser()?.role === "super_admin";
+  const canForceOrgStructureOverride = getStoredUser()?.role === "super_admin" && !!tenant?.org_structure?.is_locked;
 
   // ── Billing child tabs ────────────────────────────────────────────────────
   const billingChargesTab: ChildTab = {
@@ -2636,6 +3284,14 @@ export default function TenantDetailPage() {
     emptyMessage: "אין חשבוניות — ניתן ליצור מדף ניהול חיובים",
   };
 
+  const paymentTrackingTab = buildPaymentTrackingTab(
+    paymentTracking?.items ?? [],
+    (i) => {
+      const item = paymentTracking?.items[i];
+      if (item) setSelectedPaymentTracking(item);
+    },
+  );
+
   const childTabs: ChildTab[] = history ? [
     { ...buildIdentityTab(history.identity,         (i) => openEdit("identity",     i)), onAddClick: () => openAddNew("identity") },
     { ...buildContactTab(history.contact,           (i) => openEdit("contact",      i)), onAddClick: () => openAddNew("contact") },
@@ -2653,6 +3309,20 @@ export default function TenantDetailPage() {
         toolbarNote: "כאן מנהלים אילו מודולים באמת פעילים ללקוח, כולל מושבים, override והיסטוריית תוקף.",
       },
     ) : billingChargesTab,
+    {
+      ...paymentTrackingTab,
+      toolbarNote: "כאן מתעדים ידנית אם כל חודש שולם, לא שולם או שולם חלקית במערכת החיצונית.",
+    },
+    {
+      ...buildOrgStructureTab(
+        history.org_structure ?? [],
+        () => setShowOrgStructureOverrideModal(true),
+      ),
+      onAddClick: canForceOrgStructureOverride ? () => setShowOrgStructureOverrideModal(true) : undefined,
+      toolbarNote: tenant?.org_structure?.is_locked
+        ? "מבנה ארגוני מוגדר פעם אחת ונעול לשינוי. סופר אדמין יכול לפתוח מכאן שינוי חריג עם תצוגה מקדימה ואישור מפורש."
+        : "מבנה ארגוני טרם ננעל.",
+    },
     { ...buildStatusTab(history.status,             (i) => openEdit("status",       i)), onAddClick: () => openAddNew("status") },
     ...(BILLING_ENABLED ? [billingChargesTab, billingInvoicesTab] : []),
   ] : [];
@@ -2681,6 +3351,11 @@ export default function TenantDetailPage() {
               onClick: () => setShowSyncTemplate(true),
               icon: <Send size={12} />,
             },
+            ...(canForceOrgStructureOverride ? [{
+              label: "שינוי חריג למבנה",
+              onClick: () => setShowOrgStructureOverrideModal(true),
+              icon: <AlertCircle size={12} />,
+            }] : []),
             ...(canHardDeleteTenant ? [{
               label: "מחק ארגון",
               onClick: () => setShowDeleteTenant(true),
@@ -2688,10 +3363,12 @@ export default function TenantDetailPage() {
             }] : []),
           ]}
           parentContent={tenant ? (
-            <ParentForm
-              tenant={tenant}
-              onLogoUploaded={handleParentLogoChange}
-            />
+            <>
+              <ParentForm
+                tenant={tenant}
+                onLogoUploaded={handleParentLogoChange}
+              />
+            </>
           ) : undefined}
           formTabs={[]}
           childTabs={childTabs}
@@ -2723,6 +3400,27 @@ export default function TenantDetailPage() {
           onUpdated={() => { setSelectedBillingInvoice(null); loadData(); }}
         />
       )}
+
+      {selectedPaymentTracking && tenant && (
+        <PaymentTrackingModal
+          tenantId={tenant.tenant_id}
+          item={selectedPaymentTracking}
+          onClose={() => setSelectedPaymentTracking(null)}
+          onUpdated={() => {
+            setSelectedPaymentTracking(null);
+            loadData();
+          }}
+        />
+      )}
+
+      {showOrgStructureOverrideModal && tenant?.org_structure ? (
+        <OrgStructureOverrideModal
+          tenantId={tenant.tenant_id}
+          initialRow={tenant.org_structure}
+          onClose={() => setShowOrgStructureOverrideModal(false)}
+          onApplied={loadData}
+        />
+      ) : null}
 
       {showApplyTemplate && tenant && (
         <ApplyTemplateModal

@@ -1,8 +1,10 @@
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
 from app.services.subscription_modules import (
+    calculate_next_subscription_renewal,
     calculate_module_totals,
     calculate_subscription_pricing,
     derive_subscription_snapshot,
@@ -146,3 +148,27 @@ def test_derive_subscription_snapshot_uses_active_rows_only():
 
     assert seat_count == 12
     assert module_slugs == ["core", "docs"]
+
+
+def test_calculate_next_subscription_renewal_uses_anchor_day_after_today():
+    subscription = SimpleNamespace(
+        valid_from=date(2026, 4, 1),
+        billing_cycle="monthly",
+        billing_anchor_day=1,
+    )
+
+    renewal = calculate_next_subscription_renewal(subscription, as_of=date(2026, 5, 2))
+
+    assert renewal == date(2026, 6, 1)
+
+
+def test_calculate_next_subscription_renewal_before_subscription_start_keeps_first_due_date():
+    subscription = SimpleNamespace(
+        valid_from=date(2026, 5, 1),
+        billing_cycle="monthly",
+        billing_anchor_day=1,
+    )
+
+    renewal = calculate_next_subscription_renewal(subscription, as_of=date(2026, 4, 20))
+
+    assert renewal == date(2026, 5, 1)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date
 from decimal import Decimal
-from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Integer, func, Text, CheckConstraint
+from sqlalchemy import String, Date, DateTime, ForeignKey, Numeric, Integer, func, Text, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
@@ -160,6 +160,33 @@ class BillingSettings(Base):
     footer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     invoice_primary_color: Mapped[str] = mapped_column(String(16), nullable=False, default="#1e3a8a")
     invoice_layout: Mapped[str] = mapped_column(String(32), nullable=False, default="modern")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TenantPaymentRecord(Base):
+    """Documentation-only payment tracking for tenants billed in an external system."""
+
+    __tablename__ = "tenant_payment_records"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('unreported','paid','unpaid','partial','waived')",
+            name="ck_tenant_payment_record_status",
+        ),
+        UniqueConstraint("tenant_id", "billing_period", name="uq_tenant_payment_record_period"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    billing_period: Mapped[str] = mapped_column(String(7), nullable=False)
+    scheduled_charge_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="unreported")
+    amount_ils: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    paid_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    external_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)

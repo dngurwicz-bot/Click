@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.module import Module, ModulePrice, OrgTemplateModule
 from app.models.billing_engine import BillingContract, BillingContractItem
 from app.models.tenant import TenantSubscription, TenantSubscriptionModule
+from app.services.billing_engine import add_months, clamp_anchor_day
 from app.services.billing_engine import effective_contract_items
 
 TWO_PLACES = Decimal("0.01")
@@ -400,6 +401,39 @@ def _contract_cycle(subscription_cycle: str) -> str:
     return "yearly" if subscription_cycle == "yearly" else "monthly"
 
 
+def _subscription_cycle_step_months(subscription_cycle: str) -> int:
+    if subscription_cycle == "yearly":
+        return 12
+    if subscription_cycle == "quarterly":
+        return 3
+    return 1
+
+
+def calculate_next_subscription_renewal(
+    subscription: TenantSubscription,
+    *,
+    as_of: date | None = None,
+) -> date:
+    """Return the next scheduled renewal date strictly after the reference point."""
+    reference = as_of or date.today()
+    if reference < subscription.valid_from:
+        reference = subscription.valid_from - date.resolution
+
+    anchor_day = max(1, min(int(subscription.billing_anchor_day or 1), 31))
+    step_months = _subscription_cycle_step_months(subscription.billing_cycle)
+    candidate = clamp_anchor_day(subscription.valid_from.year, subscription.valid_from.month, anchor_day)
+
+    while candidate < subscription.valid_from:
+        next_month = add_months(date(candidate.year, candidate.month, 1), step_months)
+        candidate = clamp_anchor_day(next_month.year, next_month.month, anchor_day)
+
+    while candidate <= reference:
+        next_month = add_months(date(candidate.year, candidate.month, 1), step_months)
+        candidate = clamp_anchor_day(next_month.year, next_month.month, anchor_day)
+
+    return candidate
+
+
 def _contract_item_values(
     row: TenantSubscriptionModule,
     catalog_price: ModulePrice | None,
@@ -470,9 +504,10 @@ async def sync_billing_contract_from_subscription(
             tenant_id=subscription.tenant_id,
             status="active",
             billing_cycle=_contract_cycle(subscription.billing_cycle),
+            anchor_day=subscription.billing_anchor_day,
             currency=subscription.currency,
             start_date=subscription.valid_from,
-            next_renewal_at=subscription.next_renewal_at or subscription.valid_from,
+            next_renewal_at=calculate_next_subscription_renewal(subscription, as_of=effective_on),
             created_by=actor_id,
             updated_by=actor_id,
             updated_at=_now_utc(),
@@ -481,14 +516,14 @@ async def sync_billing_contract_from_subscription(
         await db.flush()
     else:
         contract.billing_cycle = _contract_cycle(subscription.billing_cycle)
+        contract.anchor_day = subscription.billing_anchor_day
         contract.currency = subscription.currency
-        if subscription.next_renewal_at is not None:
-            contract.next_renewal_at = subscription.next_renewal_at
+        contract.next_renewal_at = calculate_next_subscription_renewal(subscription, as_of=effective_on)
         contract.updated_by = actor_id
         contract.updated_at = _now_utc()
 
     if contract.next_renewal_at is None:
-        contract.next_renewal_at = subscription.next_renewal_at or subscription.valid_from
+        contract.next_renewal_at = calculate_next_subscription_renewal(subscription, as_of=effective_on)
     subscription.next_renewal_at = contract.next_renewal_at
     subscription.updated_by = actor_id
     subscription.updated_at = _now_utc()

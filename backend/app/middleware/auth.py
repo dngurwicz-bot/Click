@@ -45,6 +45,11 @@ class CurrentUser:
             return True
         return self.permissions.get(resource, {}).get("can_edit", False)
 
+    def can_manage_sensitive(self, resource: str) -> bool:
+        if self.is_super_admin():
+            return True
+        return self.permissions.get(resource, {}).get("can_manage_sensitive", False)
+
 
 async def get_current_user(
     request: Request,
@@ -89,7 +94,11 @@ async def get_current_user(
             select(AdminUserPermission).where(AdminUserPermission.user_id == user.id)
         )
         for p in perm_result.scalars().all():
-            perms[p.resource] = {"can_view": p.can_view, "can_edit": p.can_edit}
+            perms[p.resource] = {
+                "can_view": p.can_view,
+                "can_edit": p.can_edit,
+                "can_manage_sensitive": getattr(p, "can_manage_sensitive", False),
+            }
 
     current_user = CurrentUser(id=user.id, email=user.email, role=user.role, permissions=perms)
     request.state.user_id = user.id
@@ -113,7 +122,7 @@ def require_roles(*roles: str):
 def require_permission(resource: str, action: str = "view"):
     """
     Dependency factory: raises 403 if the user cannot perform action on resource.
-    action: "view" | "edit"
+    action: "view" | "edit" | "manage_sensitive"
     super_admin always passes.
     """
     async def _check(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
@@ -128,6 +137,11 @@ def require_permission(resource: str, action: str = "view"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"error": f"No edit access to {resource}", "code": "FORBIDDEN"},
+            )
+        if action == "manage_sensitive" and not current_user.can_manage_sensitive(resource):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": f"No sensitive access to {resource}", "code": "FORBIDDEN"},
             )
         return current_user
     return _check

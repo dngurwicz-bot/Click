@@ -4,8 +4,17 @@ import { useCallback, useEffect, useState, ReactNode } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { isLoggedIn, api } from "@/lib/api";
 import { CardPage } from "@/components/layout/CardPage";
+import {
+  AdminModal,
+  AdminModalBody,
+  AdminModalFooter,
+  AdminModalHeader,
+  AdminModalMessage,
+  AdminModalPanel,
+  ADMIN_MODAL_ACTION_PRIMARY,
+  ADMIN_MODAL_ACTION_SECONDARY,
+} from "@/components/ui/AdminModal";
 import { FormField } from "@/components/ui/FormField";
-import { X } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,22 +87,12 @@ function ItemModal({ listKey, item, onClose, onSaved }: ItemModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-400 transition-colors">
-            <X size={14} />
-          </button>
-          <span className="text-sm font-semibold text-slate-700">
-            {isNew ? "פריט חדש" : "עריכת פריט"}
-          </span>
-        </div>
-
-        {/* Body */}
-        <div className="px-4 py-4 space-y-3">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-sm overflow-hidden">
+        <AdminModalHeader title={isNew ? "פריט חדש" : "עריכת פריט"} onClose={onClose} />
+        <AdminModalBody className="space-y-3">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded px-3 py-2">{error}</div>
+            <AdminModalMessage tone="danger">{error}</AdminModalMessage>
           )}
 
           {isNew ? (
@@ -122,26 +121,25 @@ function ItemModal({ listKey, item, onClose, onSaved }: ItemModalProps) {
               />
             </div>
           )}
-        </div>
+        </AdminModalBody>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-slate-100 flex justify-start gap-2">
+        <AdminModalFooter className="justify-start">
           <button
             onClick={handleSave}
             disabled={saving || !form.label_he || (isNew && !form.item_key)}
-            className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold px-4 py-1.5 rounded-md transition-colors"
+            className={ADMIN_MODAL_ACTION_PRIMARY}
           >
             {saving ? "שומר..." : "שמור"}
           </button>
           <button
             onClick={onClose}
-            className="border border-slate-300 bg-white text-slate-600 text-xs px-4 py-1.5 rounded-md hover:bg-slate-50 transition-colors"
+            className={ADMIN_MODAL_ACTION_SECONDARY}
           >
             ביטול
           </button>
-        </div>
-      </div>
-    </div>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 

@@ -10,6 +10,7 @@ from app.routers import tenants as tenants_router
 from app.schemas.tenant import (
     TenantApplyTemplateRequest,
     TenantStatusUpdate,
+    TenantSubscriptionUpdate,
     TenantSubscriptionModuleCreate,
     TenantUpdateRequest,
 )
@@ -167,3 +168,105 @@ async def test_apply_template_checks_effective_date(monkeypatch):
 
     assert result.tenant_id == tenant_id
     assert guard_calls == [(date(2026, 3, 27), None)]
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_rejects_inverted_subscription_date_range():
+    tenant_id = uuid4()
+    db = _FakeSession([SimpleNamespace(tenant_id=tenant_id, created_at=datetime.now(UTC))])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await tenants_router.update_tenant(
+            tenant_id,
+            TenantUpdateRequest(
+                action="update",
+                valid_from=date(2026, 5, 1),
+                valid_to=date(2026, 4, 30),
+                subscription=TenantSubscriptionUpdate(
+                    billing_cycle="monthly",
+                    currency="ILS",
+                ),
+            ),
+            db=db,
+            current_user=_current_user(),
+        )
+
+    assert exc_info.value.detail["code"] == "INVALID_DATE"
+
+
+@pytest.mark.asyncio
+async def test_apply_template_same_day_updates_subscription_in_place(monkeypatch):
+    tenant_id = uuid4()
+    template_id = uuid4()
+    tenant = SimpleNamespace(tenant_id=tenant_id, created_at=datetime.now(UTC))
+    template = SimpleNamespace(id=template_id, default_billing_cycle="monthly")
+    current_subscription = SimpleNamespace(
+        id=uuid4(),
+        valid_from=date(2026, 3, 27),
+        valid_to=None,
+        template_id=None,
+        billing_cycle="monthly",
+        currency="ILS",
+        discount_pct=0,
+        is_price_locked=False,
+        selected_module_slugs=[],
+        seat_count=0,
+    )
+    db = _FakeSession([tenant, template])
+    close_calls: list[date] = []
+    update_calls: list[date] = []
+
+    async def fake_guard(*_args, **_kwargs):
+        return None
+
+    async def fake_load_template_defaults(_db, _template_id):
+        return {}
+
+    async def fake_load_template_modules(_db, _template_id):
+        return []
+
+    async def fake_load_subscription_modules(_db, _subscription_id):
+        return []
+
+    async def fake_materialize(*_args, **_kwargs):
+        return []
+
+    async def fake_sync(*_args, **_kwargs):
+        return None
+
+    async def fake_build_tenant_out(tenant_obj, _db):
+        return tenant_obj
+
+    async def fake_get_active(_db, model, _tenant_id, extra_filters=None):
+        if model is tenants_router.TenantSubscription:
+            return current_subscription
+        return None
+
+    async def fake_update_in_place(_db, _model, _tenant_id, _new_data, _actor_id, _new_valid_from, **kwargs):
+        update_calls.append(kwargs["target_valid_from"])
+
+    async def fake_close_and_create(*_args, **kwargs):
+        close_calls.append(kwargs["new_valid_from"])
+        raise AssertionError("same-day template apply should not create a new subscription row")
+
+    monkeypatch.setattr(tenants_router, "_ensure_tenant_operation_window", fake_guard)
+    monkeypatch.setattr(tenants_router, "_load_template_defaults", fake_load_template_defaults)
+    monkeypatch.setattr(tenants_router, "_load_template_modules", fake_load_template_modules)
+    monkeypatch.setattr(tenants_router, "load_subscription_modules", fake_load_subscription_modules)
+    monkeypatch.setattr(tenants_router, "_materialize_subscription_modules", fake_materialize)
+    monkeypatch.setattr(tenants_router, "_sync_subscription_to_billing", fake_sync)
+    monkeypatch.setattr(tenants_router, "_build_tenant_out", fake_build_tenant_out)
+    monkeypatch.setattr(tenants_router, "get_active", fake_get_active)
+    monkeypatch.setattr(tenants_router, "update_in_place", fake_update_in_place)
+    monkeypatch.setattr(tenants_router, "close_and_create", fake_close_and_create)
+
+    result = await tenants_router.apply_template_to_tenant(
+        tenant_id,
+        TenantApplyTemplateRequest(template_id=template_id, valid_from=date(2026, 3, 27)),
+        db=db,
+        current_user=_current_user(),
+    )
+
+    assert result.tenant_id == tenant_id
+    assert update_calls == [date(2026, 3, 27)]
+    assert close_calls == []

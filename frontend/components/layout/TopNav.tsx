@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
+  Building2,
+  FolderTree,
   ChevronDown,
   ChevronRight,
   LogOut,
   Menu,
   Search,
   Settings,
+  ShieldCheck,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +33,7 @@ import {
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
 import { InsightsDropdownTab } from "./InsightsDropdownTab";
+import { CoreDropdownTab } from "./CoreDropdownTab";
 import {
   DashboardScreenContextMenu,
   ScreenExplanationModal,
@@ -173,6 +177,7 @@ export function TopNav() {
   const isAdmin = Boolean(user && ADMIN_ROLES.includes(user.role));
   const dashboardScreen = getStaticScreen("dashboard");
   const insightsScreen = visibleScreenMap.get("module:insights") ?? null;
+  const coreScreen = visibleScreenMap.get("module:core") ?? null;
 
   const adminItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
@@ -212,6 +217,7 @@ export function TopNav() {
   );
 
   const isPinned = screenMenu ? pinnedScreenIds.includes(screenMenu.screen.id) : false;
+  const showTenantSelector = Boolean(workspace?.tenantSelectorVisible);
 
   return (
     <header
@@ -252,6 +258,14 @@ export function TopNav() {
                 onScreenContextMenu={openScreenMenu}
                 insightsScreen={insightsScreen}
               />
+            ) : item.href === "/admin/core" ? (
+              <CoreDropdownTab
+                key={item.href}
+                active={item.active}
+                onNavigate={navigateTo}
+                onScreenContextMenu={openScreenMenu}
+                coreScreen={coreScreen}
+              />
             ) : (
               <PriorityTab
                 key={item.href}
@@ -265,6 +279,15 @@ export function TopNav() {
         </nav>
 
         <div className="flex h-full shrink-0 items-center gap-1 px-3">
+          {showTenantSelector && workspace ? (
+            <TenantWorkspaceSelector
+              tenantOptions={workspace.tenantOptions}
+              selectedTenantId={workspace.selectedTenantId}
+              loading={workspace.tenantOptionsLoading}
+              onChange={workspace.setSelectedTenantId}
+            />
+          ) : null}
+
           <button
             type="button"
             className="hidden h-8 items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 text-right text-xs text-slate-400 transition hover:border-slate-300 hover:bg-white md:flex"
@@ -387,6 +410,19 @@ export function TopNav() {
             </div>
 
             <div className="space-y-4 p-4">
+              {showTenantSelector && workspace ? (
+                <div>
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ארגון פעיל</div>
+                  <TenantWorkspaceSelector
+                    tenantOptions={workspace.tenantOptions}
+                    selectedTenantId={workspace.selectedTenantId}
+                    loading={workspace.tenantOptionsLoading}
+                    onChange={workspace.setSelectedTenantId}
+                    mobile
+                  />
+                </div>
+              ) : null}
+
               {dashboardScreen && (
                 <div>
                   <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ראשי</div>
@@ -398,7 +434,18 @@ export function TopNav() {
                 <div>
                   <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">מודולים</div>
                   <div className="space-y-0.5">
-                    {moduleItems.map((item) => <MobileLink key={item.id} item={item} onNavigate={navigateTo} />)}
+                    {moduleItems
+                      .filter((item) => item.href === "/admin/core")
+                      .map((item) => (
+                        <MobileCoreGroup
+                          key={item.id}
+                          item={item}
+                          onNavigate={navigateTo}
+                        />
+                      ))}
+                    {moduleItems
+                      .filter((item) => item.href !== "/admin/core")
+                      .map((item) => <MobileLink key={item.id} item={item} onNavigate={navigateTo} />)}
                   </div>
                 </div>
               )}
@@ -448,6 +495,44 @@ export function TopNav() {
 
       <ScreenExplanationModal screen={explanationScreen} onClose={() => setExplanationScreen(null)} />
     </header>
+  );
+}
+
+function TenantWorkspaceSelector({
+  tenantOptions,
+  selectedTenantId,
+  loading,
+  onChange,
+  mobile = false,
+}: {
+  tenantOptions: Array<{ tenant_id: string; name_he: string }>;
+  selectedTenantId: string;
+  loading: boolean;
+  onChange: (tenantId: string) => void;
+  mobile?: boolean;
+}) {
+  return (
+    <label
+      className={`flex items-center gap-2 rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-600 ${
+        mobile ? "h-10 w-full" : "hidden h-8 max-w-[220px] md:flex"
+      }`}
+    >
+      <Building2 size={13} className="shrink-0 text-slate-400" />
+      <select
+        className="min-w-0 flex-1 bg-transparent text-right text-xs text-slate-700 outline-none"
+        value={selectedTenantId}
+        disabled={loading || tenantOptions.length === 0}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label="בחירת ארגון פעיל"
+      >
+        {tenantOptions.length === 0 ? <option value="">אין ארגונים זמינים</option> : null}
+        {tenantOptions.map((tenant) => (
+          <option key={tenant.tenant_id} value={tenant.tenant_id}>
+            {tenant.name_he}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -527,6 +612,63 @@ function MobileLink({
       <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
       {item.label}
     </button>
+  );
+}
+
+function MobileCoreGroup({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate: (href: string) => void;
+}) {
+  const Icon = item.icon as LucideIcon;
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
+          item.active ? "bg-brand-50 font-medium text-brand-700" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">CLICK Core</span>
+        <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="mr-4 mt-0.5 space-y-0.5 border-r-2 border-brand-200">
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/core")}
+            className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+          >
+            <ShieldCheck size={13} className="shrink-0 text-slate-400" />
+            רשימת עובדים
+          </button>
+          {[
+            { href: "/admin/core/structure/division", label: "חטיבה" },
+            { href: "/admin/core/structure/department", label: "אגף" },
+            { href: "/admin/core/structure/section", label: "מחלקה" },
+            { href: "/admin/core/structure/team", label: "צוות" },
+            { href: "/admin/core/structure/position", label: "תפקיד" },
+          ].map((entry) => (
+            <button
+              key={entry.href}
+              type="button"
+              onClick={() => onNavigate(entry.href)}
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+            >
+              <FolderTree size={13} className="shrink-0 text-slate-400" />
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

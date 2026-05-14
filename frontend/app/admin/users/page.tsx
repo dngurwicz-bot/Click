@@ -6,6 +6,7 @@ import { isLoggedIn, getStoredUser, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
 import {
   createDefaultTemporalFilterState,
@@ -24,6 +25,7 @@ interface Permission {
   resource: string;
   can_view: boolean;
   can_edit: boolean;
+  can_manage_sensitive?: boolean;
 }
 
 interface AdminUser {
@@ -60,6 +62,7 @@ const RESOURCES: { key: string; label: string }[] = [
   { key: "lookups",   label: "רשימות ארגוניות" },
   { key: "modules",   label: "מודולים ומחירון" },
   { key: "reports",   label: "דוחות ו-Insights" },
+  { key: "core",      label: "CORE עובדים וארגון" },
   ...(BILLING_ENABLED ? [{ key: "billing", label: "חיובים וחשבוניות" }] : []),
   { key: "users",     label: "משתמשי מערכת" },
   { key: "templates", label: "תבניות הקמה" },
@@ -67,15 +70,16 @@ const RESOURCES: { key: string; label: string }[] = [
 ];
 
 function emptyPermissions(): Permission[] {
-  return RESOURCES.map((r) => ({ resource: r.key, can_view: false, can_edit: false }));
+  return RESOURCES.map((r) => ({ resource: r.key, can_view: false, can_edit: false, can_manage_sensitive: false }));
 }
 
-const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; can_edit: boolean }>> = {
+const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; can_edit: boolean; can_manage_sensitive?: boolean }>> = {
   admin: {
     tenants:   { can_view: true,  can_edit: true  },
     lookups:   { can_view: true,  can_edit: true  },
     modules:   { can_view: true,  can_edit: false },
     reports:   { can_view: true,  can_edit: true  },
+    core:      { can_view: true,  can_edit: true,  can_manage_sensitive: true },
     users:     { can_view: false, can_edit: false },
     templates: { can_view: true,  can_edit: true  },
     audit:     { can_view: true,  can_edit: false },
@@ -85,6 +89,7 @@ const DEFAULT_PERMS_BY_ROLE: Record<string, Record<string, { can_view: boolean; 
     lookups:   { can_view: true,  can_edit: false },
     modules:   { can_view: false, can_edit: false },
     reports:   { can_view: true,  can_edit: false },
+    core:      { can_view: true,  can_edit: false, can_manage_sensitive: false },
     users:     { can_view: false, can_edit: false },
     templates: { can_view: false, can_edit: false },
     audit:     { can_view: false, can_edit: false },
@@ -100,6 +105,7 @@ if (BILLING_ENABLED) {
     modules:   { can_view: true,  can_edit: false },
     reports:   { can_view: true,  can_edit: false },
     billing:   { can_view: true,  can_edit: true  },
+    core:      { can_view: false, can_edit: false, can_manage_sensitive: false },
     users:     { can_view: false, can_edit: false },
     templates: { can_view: false, can_edit: false },
     audit:     { can_view: false, can_edit: false },
@@ -113,6 +119,7 @@ function permissionsForRole(role: string): Permission[] {
     resource: r.key,
     can_view: defaults[r.key]?.can_view ?? false,
     can_edit: defaults[r.key]?.can_edit ?? false,
+    can_manage_sensitive: defaults[r.key]?.can_manage_sensitive ?? false,
   }));
 }
 
@@ -633,32 +640,41 @@ function UserModal({
                 className="px-3 py-1.5 text-xs border border-slate-300 rounded text-slate-600 hover:bg-slate-100">
                 ביטול
               </button>
-              <div className="relative flex">
-                <button onClick={(e) => { e.stopPropagation(); handleSaveUpdate(); }} disabled={saving}
-                  className="px-4 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-r transition-colors disabled:opacity-50 border-l border-blue-400">
-                  {saving ? "שומר..." : "שמור"}
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); setDropdownOpen((o) => !o); }} disabled={saving}
-                  className="px-2 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-l transition-colors disabled:opacity-50">
-                  ▾
-                </button>
-                {dropdownOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 bg-white border border-slate-200 rounded shadow-lg z-10 min-w-[160px] text-right">
-                    <button onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); handleSaveUpdate(); }}
-                      className="w-full px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 text-right block border-b border-slate-100">
-                      שמור
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setValidTo(""); setError(null); setUserMode("close"); }}
-                      className="w-full px-4 py-2 text-xs text-orange-700 hover:bg-orange-50 text-right block border-b border-slate-100 font-medium">
-                      סגור תקופה
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setError(null); setUserMode("delete"); }}
-                      className="w-full px-4 py-2 text-xs text-red-700 hover:bg-red-50 text-right block font-medium">
-                      מחק משתמש
-                    </button>
-                  </div>
-                )}
-              </div>
+              <SplitActionButton
+                primaryLabel={saving ? "שומר..." : "שמור"}
+                onPrimaryClick={() => handleSaveUpdate()}
+                primaryDisabled={saving}
+                menuOpen={dropdownOpen}
+                onMenuToggle={() => setDropdownOpen((o) => !o)}
+                actions={[
+                  {
+                    label: "שמור",
+                    onClick: () => {
+                      setDropdownOpen(false);
+                      handleSaveUpdate();
+                    },
+                  },
+                  {
+                    label: "סגור תקופה",
+                    onClick: () => {
+                      setDropdownOpen(false);
+                      setValidTo("");
+                      setError(null);
+                      setUserMode("close");
+                    },
+                    tone: "warning",
+                  },
+                  {
+                    label: "מחק משתמש",
+                    onClick: () => {
+                      setDropdownOpen(false);
+                      setError(null);
+                      setUserMode("delete");
+                    },
+                    tone: "danger",
+                  },
+                ]}
+              />
             </>
           )}
         </div>

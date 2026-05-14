@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 import { TopNav } from "./TopNav";
 import { AIAssistant } from "../ai/AIAssistant";
 
@@ -25,6 +26,11 @@ interface WorkspaceContextValue {
   recentScreens: ScreenDescriptor[];
   isRecentPanelOpen: boolean;
   isRecentDrawerOpen: boolean;
+  tenantOptions: WorkspaceTenantOption[];
+  selectedTenantId: string;
+  setSelectedTenantId: (tenantId: string) => void;
+  tenantSelectorVisible: boolean;
+  tenantOptionsLoading: boolean;
   navigateTo: (href: string) => void;
   closeScreen: (pathname: string) => void;
   registerScreen: (title: string, pathname?: string) => void;
@@ -34,6 +40,13 @@ interface WorkspaceContextValue {
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+const TENANT_STORAGE_KEY = "click_selected_tenant_id";
+
+export interface WorkspaceTenantOption {
+  tenant_id: string;
+  org_number: number;
+  name_he: string;
+}
 
 function normalizePath(pathname: string) {
   if (!pathname || pathname === "/") return "/";
@@ -63,10 +76,58 @@ function WorkspaceShellInner({
 }) {
   const router = useRouter();
   const [activePathname, setActivePathname] = useState(pathname);
+  const [tenantOptions, setTenantOptions] = useState<WorkspaceTenantOption[]>([]);
+  const [selectedTenantId, setSelectedTenantIdState] = useState("");
+  const [tenantOptionsLoading, setTenantOptionsLoading] = useState(true);
 
   useEffect(() => {
     setActivePathname(pathname);
   }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api
+      .get<WorkspaceTenantOption[]>("/api/admin/tenants")
+      .then((rows) => {
+        if (cancelled) return;
+        setTenantOptions(Array.isArray(rows) ? rows : []);
+        setSelectedTenantIdState((current) => {
+          const saved = typeof window === "undefined" ? "" : window.localStorage.getItem(TENANT_STORAGE_KEY) ?? "";
+          const preferred = current || saved;
+          if (preferred && rows.some((row) => row.tenant_id === preferred)) {
+            return preferred;
+          }
+          return rows[0]?.tenant_id ?? "";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTenantOptions([]);
+          setSelectedTenantIdState("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTenantOptionsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setSelectedTenantId = useCallback((tenantId: string) => {
+    setSelectedTenantIdState(tenantId);
+    if (typeof window !== "undefined") {
+      if (tenantId) {
+        window.localStorage.setItem(TENANT_STORAGE_KEY, tenantId);
+      } else {
+        window.localStorage.removeItem(TENANT_STORAGE_KEY);
+      }
+    }
+  }, []);
 
   const navigateTo = useCallback(
     (href: string) => {
@@ -84,6 +145,11 @@ function WorkspaceShellInner({
       recentScreens: [],
       isRecentPanelOpen: false,
       isRecentDrawerOpen: false,
+      tenantOptions,
+      selectedTenantId,
+      setSelectedTenantId,
+      tenantSelectorVisible: true,
+      tenantOptionsLoading,
       navigateTo,
       closeScreen: () => {},
       registerScreen: () => {},
@@ -91,7 +157,7 @@ function WorkspaceShellInner({
       openRecentDrawer: () => {},
       closeRecentDrawer: () => {},
     }),
-    [activePathname, navigateTo],
+    [activePathname, navigateTo, selectedTenantId, setSelectedTenantId, tenantOptions, tenantOptionsLoading],
   );
 
   return (

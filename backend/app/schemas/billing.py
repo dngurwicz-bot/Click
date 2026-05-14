@@ -27,6 +27,7 @@ class SeatChangeLogOut(BaseModel):
 ChargeType   = Literal["base_fee", "per_seat", "setup_fee", "addon", "credit", "manual"]
 ChargeStatus = Literal["pending", "invoiced", "cancelled"]
 InvoiceStatus = Literal["draft", "sent", "paid", "overdue", "cancelled"]
+PaymentTrackingStatus = Literal["unreported", "paid", "unpaid", "partial", "waived"]
 
 CHARGE_TYPE_LABELS: dict[str, str] = {
     "base_fee":  "דמי מנוי",
@@ -218,6 +219,34 @@ class TenantBillingSummary(BaseModel):
     pending_total_ils: Decimal
     invoiced_total_ils: Decimal
     paid_total_ils: Decimal
+
+
+class TenantPaymentRecordUpdate(BaseModel):
+    status: PaymentTrackingStatus = "unreported"
+    amount_ils: Optional[Decimal] = None
+    paid_at: Optional[date] = None
+    external_ref: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TenantPaymentTrackingItem(BaseModel):
+    billing_period: str
+    scheduled_charge_date: date
+    status: PaymentTrackingStatus
+    amount_ils: Optional[Decimal] = None
+    paid_at: Optional[date] = None
+    external_ref: Optional[str] = None
+    notes: Optional[str] = None
+    source: Literal["derived", "manual"] = "derived"
+    is_overdue: bool = False
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+
+
+class TenantPaymentTrackingSummary(BaseModel):
+    billing_anchor_day: Optional[int] = None
+    next_renewal_at: Optional[date] = None
+    items: list[TenantPaymentTrackingItem]
 
 
 class BillingSettingsBase(BaseModel):

@@ -182,6 +182,7 @@ export interface PermissionInfo {
   resource: string;
   can_view: boolean;
   can_edit: boolean;
+  can_manage_sensitive?: boolean;
 }
 
 export interface UserInfo {
@@ -214,6 +215,7 @@ export function logout() {
   localStorage.removeItem("click_recent_screens");
   localStorage.removeItem("click_active_screen");
   localStorage.removeItem("click_recent_panel_open");
+  localStorage.removeItem("click_selected_tenant_id");
 }
 
 export function getStoredUser(): UserInfo | null {
@@ -240,4 +242,11 @@ export function canEdit(resource: string): boolean {
   if (!user) return false;
   if (user.role === "super_admin") return true;
   return user.permissions?.some((p) => p.resource === resource && p.can_edit) ?? false;
+}
+
+export function canManageSensitive(resource: string): boolean {
+  const user = getStoredUser();
+  if (!user) return false;
+  if (user.role === "super_admin") return true;
+  return user.permissions?.some((p) => p.resource === resource && p.can_manage_sensitive) ?? false;
 }

@@ -164,6 +164,8 @@ async def update_module_price(
     current_user: CurrentUser = Depends(require_permission("modules", "edit")),
 ):
     """Temporal price management — 5 actions matching the Hilan/tenant pattern."""
+    valid_to_in_payload = "valid_to" in body.model_fields_set
+
     result = await db.execute(select(Module).where(Module.slug == slug))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail={"error": "Module not found", "code": "NOT_FOUND"})
@@ -261,20 +263,30 @@ async def update_module_price(
         if orig is None:
             raise HTTPException(status_code=404, detail={"error": "שורה לא נמצאה", "code": "NOT_FOUND"})
 
+        effective_valid_to = body.valid_to if valid_to_in_payload else orig.valid_to
+        if effective_valid_to and effective_valid_to < body.valid_from:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "תאריך גמר תוקף לא יכול להיות לפני תאריך תחילה", "code": "INVALID_DATE_RANGE"},
+            )
+
         date_changed = orig.valid_from != body.valid_from
 
         if not date_changed:
             # ── Simple in-place update ──────────────────────────────────────
+            update_values = {
+                "base_price_ils": body.base_price_ils,
+                "per_seat_ils": body.per_seat_ils,
+                "included_seats": body.included_seats,
+                "setup_fee_ils": body.setup_fee_ils,
+            }
+            if valid_to_in_payload:
+                update_values["valid_to"] = body.valid_to
+
             await db.execute(
                 update(ModulePrice)
                 .where(ModulePrice.id == body.price_id)
-                .values(
-                    base_price_ils=body.base_price_ils,
-                    per_seat_ils=body.per_seat_ils,
-                    included_seats=body.included_seats,
-                    setup_fee_ils=body.setup_fee_ils,
-                    valid_to=body.valid_to,
-                )
+                .values(**update_values)
                 .execution_options(synchronize_session=False)
             )
             await db.commit()
@@ -302,7 +314,7 @@ async def update_module_price(
                 included_seats=body.included_seats,
                 setup_fee_ils=body.setup_fee_ils,
                 valid_from=body.valid_from,
-                valid_to=body.valid_to,
+                valid_to=effective_valid_to,
                 created_by=current_user.id,
             )
             db.add(new_row)

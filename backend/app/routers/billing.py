@@ -49,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.middleware.auth import require_permission, CurrentUser
-from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine, Quote, QuoteLine
+from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine, Quote, QuoteLine, TenantPaymentRecord
 from app.models.billing_engine import BillingLedgerEntry, BillingDocument, BillingDocumentLine
 from app.models.module import Module, ModulePrice
 from app.models.seat_change_log import SeatChangeLog
@@ -60,11 +60,17 @@ from app.schemas.billing import (
     GenerateChargesRequest, GenerateChargesResult,
     InvoiceCreate, InvoiceListItem, InvoiceOut, InvoiceUpdate,
     MarkPaidRequest, SeatChangeLogOut, TenantBillingSummary,
+    TenantPaymentRecordUpdate, TenantPaymentTrackingItem, TenantPaymentTrackingSummary,
     QuoteCreate, QuoteUpdate, QuoteOut, QuoteListItem,
     QuoteLineCreate, QuoteLineUpdate, QuoteLineOut,
 )
 from app.services.invoice_pdf import TaxInvoiceValidationError, render_invoice_pdf, render_quote_pdf
-from app.services.subscription_modules import get_effective_module_prices, get_effective_subscription_module, load_subscription_modules
+from app.services.subscription_modules import (
+    calculate_next_subscription_renewal,
+    get_effective_module_prices,
+    get_effective_subscription_module,
+    load_subscription_modules,
+)
 from app.services.temporal import get_active
 
 router = APIRouter(tags=["billing"])
@@ -95,6 +101,29 @@ def _period_start(period: str) -> date:
     return date(int(year_str), int(month_str), 1)
 
 
+def _period_shift(period: str, months: int) -> str:
+    start = _period_start(period)
+    month = start.month - 1 + months
+    year = start.year + month // 12
+    month = month % 12 + 1
+    return f"{year}-{month:02d}"
+
+
+def _scheduled_charge_date(period: str, anchor_day: int) -> date:
+    period_date = _period_start(period)
+    last_day = calendar.monthrange(period_date.year, period_date.month)[1]
+    return date(period_date.year, period_date.month, min(max(anchor_day, 1), last_day))
+
+
+def _validate_billing_period(period: str) -> None:
+    if len(period) != 7 or period[4] != "-":
+        raise HTTPException(422, detail={"error": "billing_period must be in YYYY-MM format", "code": "INVALID_PERIOD"})
+    try:
+        _period_start(period)
+    except ValueError as exc:
+        raise HTTPException(422, detail={"error": "billing_period must be a valid calendar month", "code": "INVALID_PERIOD"}) from exc
+
+
 def _period_label(period: str) -> tuple[str, str]:
     year_str, month_str = period.split("-")
     month_name = [
@@ -102,6 +131,13 @@ def _period_label(period: str) -> tuple[str, str]:
         "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
     ][int(month_str)]
     return year_str, month_name
+
+
+def _is_missing_relation_error(exc: Exception, relation_names: set[str]) -> bool:
+    message = str(exc).lower()
+    if "undefinedtableerror" not in message and "relation" not in message:
+        return False
+    return any(relation.lower() in message for relation in relation_names)
 
 
 async def _tenant_name(db: AsyncSession, tenant_id: uuid.UUID) -> str:
@@ -114,6 +150,80 @@ async def _module_name(db: AsyncSession, slug: str | None) -> str | None:
         return None
     result = await db.execute(sa.select(Module.name).where(Module.slug == slug))
     return result.scalar_one_or_none()
+
+
+async def _active_subscription(db: AsyncSession, tenant_id: uuid.UUID) -> TenantSubscription | None:
+    return await get_active(db, TenantSubscription, tenant_id)
+
+
+async def _payment_tracking_summary(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    months_back: int = 6,
+    months_forward: int = 6,
+) -> TenantPaymentTrackingSummary:
+    subscription = await _active_subscription(db, tenant_id)
+    anchor_day = subscription.billing_anchor_day if subscription else None
+    next_renewal_at = (
+        calculate_next_subscription_renewal(subscription, as_of=date.today())
+        if subscription is not None
+        else None
+    )
+    if subscription is None or anchor_day is None:
+        return TenantPaymentTrackingSummary(
+            billing_anchor_day=None,
+            next_renewal_at=None,
+            items=[],
+        )
+
+    current_period = date.today().strftime("%Y-%m")
+    period_keys = [
+        _period_shift(current_period, offset)
+        for offset in range(-months_back, months_forward + 1)
+    ]
+
+    records_result = await db.execute(
+        sa.select(TenantPaymentRecord)
+        .where(TenantPaymentRecord.tenant_id == tenant_id)
+        .where(TenantPaymentRecord.billing_period.in_(period_keys))
+    )
+    records_by_period = {
+        row.billing_period: row
+        for row in records_result.scalars().all()
+    }
+
+    items: list[TenantPaymentTrackingItem] = []
+    today = date.today()
+    for period_key in period_keys:
+        scheduled_charge_date = _scheduled_charge_date(period_key, anchor_day)
+        record = records_by_period.get(period_key)
+        status = record.status if record else "unreported"
+        is_overdue = (
+            scheduled_charge_date < today
+            and status not in {"paid", "waived"}
+        )
+        items.append(
+            TenantPaymentTrackingItem(
+                billing_period=period_key,
+                scheduled_charge_date=record.scheduled_charge_date if record else scheduled_charge_date,
+                status=status,
+                amount_ils=record.amount_ils if record else None,
+                paid_at=record.paid_at if record else None,
+                external_ref=record.external_ref if record else None,
+                notes=record.notes if record else None,
+                source="manual" if record else "derived",
+                is_overdue=is_overdue,
+                updated_at=record.updated_at if record else None,
+                updated_by=str(record.updated_by) if record and record.updated_by else None,
+            )
+        )
+
+    return TenantPaymentTrackingSummary(
+        billing_anchor_day=anchor_day,
+        next_renewal_at=next_renewal_at,
+        items=items,
+    )
 
 
 async def _enrich_charge(db: AsyncSession, c: BillingCharge) -> BillingChargeOut:
@@ -1144,74 +1254,131 @@ async def get_tenant_billing(
     if not t_result.scalar_one_or_none():
         raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
 
-    entries_result = await db.execute(
-        sa.select(BillingLedgerEntry)
-        .where(BillingLedgerEntry.tenant_id == tenant_id)
-        .order_by(BillingLedgerEntry.created_at.desc())
-    )
-    entries = entries_result.scalars().all()
+    charges_out: list[BillingChargeOut] = []
+    invoices_out: list[InvoiceListItem] = []
+    pending_total = Decimal("0")
+    invoiced_total = Decimal("0")
+    paid_total = Decimal("0")
 
-    documents_result = await db.execute(
-        sa.select(BillingDocument)
-        .where(BillingDocument.tenant_id == tenant_id)
-        .order_by(BillingDocument.issue_date.desc().nulls_last())
-    )
-    documents = documents_result.scalars().all()
-
-    charges_out = []
-    status_map = {"open": "pending", "documented": "invoiced", "void": "cancelled"}
-    for entry in entries:
-        period_str = entry.service_period_start.strftime("%Y-%m") if entry.service_period_start else entry.created_at.strftime("%Y-%m")
-        charge_out = BillingChargeOut(
-            id=entry.id,
-            tenant_id=entry.tenant_id,
-            billing_period=period_str,
-            charge_type=entry.entry_type,
-            module_slug=entry.module_slug,
-            description=entry.description,
-            quantity=entry.quantity,
-            unit_price_ils=entry.unit_amount_ils,
-            amount_ils=entry.gross_amount_ils,
-            discount_pct=entry.discount_pct,
-            amount_after_discount_ils=entry.net_amount_ils,
-            status=status_map.get(entry.status, "pending"),
-            invoice_id=entry.document_id,
-            notes=None,
-            created_at=entry.created_at,
+    try:
+        entries_result = await db.execute(
+            sa.select(BillingLedgerEntry)
+            .where(BillingLedgerEntry.tenant_id == tenant_id)
+            .order_by(BillingLedgerEntry.created_at.desc())
         )
-        charge_out.tenant_name = await _tenant_name(db, entry.tenant_id)
-        charge_out.module_name = await _module_name(db, entry.module_slug)
-        charges_out.append(charge_out)
+        entries = entries_result.scalars().all()
 
-    invoices_out = []
-    for doc in documents:
-        period_str = doc.issue_date.strftime("%Y-%m") if doc.issue_date else doc.created_at.strftime("%Y-%m")
-        inv_item = InvoiceListItem(
-            id=doc.id,
-            invoice_number=doc.document_number or "טיוטה",
-            tenant_id=doc.tenant_id,
-            billing_period=period_str,
-            issue_date=doc.issue_date or doc.created_at.date(),
-            due_date=doc.due_date or doc.created_at.date(),
-            subtotal_ils=doc.subtotal_ils,
-            discount_ils=doc.discount_ils,
-            vat_ils=doc.vat_ils,
-            total_ils=doc.total_ils,
-            status=doc.status,
-            payment_date=doc.paid_at,
+        documents_result = await db.execute(
+            sa.select(BillingDocument)
+            .where(BillingDocument.tenant_id == tenant_id)
+            .order_by(BillingDocument.issue_date.desc().nulls_last())
         )
-        inv_item.tenant_name = await _tenant_name(db, doc.tenant_id)
-        invoices_out.append(inv_item)
+        documents = documents_result.scalars().all()
 
-    pending_total = _round2(_sum_decimal(
-        e.net_amount_ils for e in entries if e.status == "open"
-    ))
-    invoiced_total = _round2(_sum_decimal(
-        doc.total_ils for doc in documents if doc.status not in ("void", "draft_blocked")
-    ))
-    paid_total = _round2(_sum_decimal(
-        doc.total_ils for doc in documents if doc.status == "paid"
-    ))
+        status_map = {"open": "pending", "documented": "invoiced", "void": "cancelled"}
+        for entry in entries:
+            period_str = entry.service_period_start.strftime("%Y-%m") if entry.service_period_start else entry.created_at.strftime("%Y-%m")
+            charge_out = BillingChargeOut(
+                id=entry.id,
+                tenant_id=entry.tenant_id,
+                billing_period=period_str,
+                charge_type=entry.entry_type,
+                module_slug=entry.module_slug,
+                description=entry.description,
+                quantity=entry.quantity,
+                unit_price_ils=entry.unit_amount_ils,
+                amount_ils=entry.gross_amount_ils,
+                discount_pct=entry.discount_pct,
+                amount_after_discount_ils=entry.net_amount_ils,
+                status=status_map.get(entry.status, "pending"),
+                invoice_id=entry.document_id,
+                notes=None,
+                created_at=entry.created_at,
+            )
+            charge_out.tenant_name = await _tenant_name(db, entry.tenant_id)
+            charge_out.module_name = await _module_name(db, entry.module_slug)
+            charges_out.append(charge_out)
+
+        for doc in documents:
+            period_str = doc.issue_date.strftime("%Y-%m") if doc.issue_date else doc.created_at.strftime("%Y-%m")
+            inv_item = InvoiceListItem(
+                id=doc.id,
+                invoice_number=doc.document_number or "טיוטה",
+                tenant_id=doc.tenant_id,
+                billing_period=period_str,
+                issue_date=doc.issue_date or doc.created_at.date(),
+                due_date=doc.due_date or doc.created_at.date(),
+                subtotal_ils=doc.subtotal_ils,
+                discount_ils=doc.discount_ils,
+                vat_ils=doc.vat_ils,
+                total_ils=doc.total_ils,
+                status=doc.status,
+                payment_date=doc.paid_at,
+            )
+            inv_item.tenant_name = await _tenant_name(db, doc.tenant_id)
+            invoices_out.append(inv_item)
+
+        pending_total = _round2(_sum_decimal(
+            e.net_amount_ils for e in entries if e.status == "open"
+        ))
+        invoiced_total = _round2(_sum_decimal(
+            doc.total_ils for doc in documents if doc.status not in ("void", "draft_blocked")
+        ))
+        paid_total = _round2(_sum_decimal(
+            doc.total_ils for doc in documents if doc.status == "paid"
+        ))
+    except sa.exc.ProgrammingError as exc:
+        if not _is_missing_relation_error(exc, {"billing_ledger_entries", "billing_documents"}):
+            raise
+        await db.rollback()
+
+        legacy_charges_result = await db.execute(
+            sa.select(BillingCharge)
+            .where(BillingCharge.tenant_id == tenant_id)
+            .order_by(BillingCharge.created_at.desc())
+        )
+        legacy_charges = legacy_charges_result.scalars().all()
+
+        legacy_invoices_result = await db.execute(
+            sa.select(Invoice)
+            .where(Invoice.tenant_id == tenant_id)
+            .order_by(Invoice.issue_date.desc(), Invoice.created_at.desc())
+        )
+        legacy_invoices = legacy_invoices_result.scalars().all()
+
+        for charge in legacy_charges:
+            charge_out = BillingChargeOut.model_validate(charge)
+            charge_out.tenant_name = await _tenant_name(db, charge.tenant_id)
+            charge_out.module_name = await _module_name(db, charge.module_slug)
+            charges_out.append(charge_out)
+
+        for invoice in legacy_invoices:
+            inv_item = InvoiceListItem(
+                id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                tenant_id=invoice.tenant_id,
+                billing_period=invoice.billing_period,
+                issue_date=invoice.issue_date,
+                due_date=invoice.due_date,
+                subtotal_ils=invoice.subtotal_ils,
+                discount_ils=invoice.discount_ils,
+                vat_ils=invoice.vat_ils,
+                total_ils=invoice.total_ils,
+                status=invoice.status,
+                payment_date=invoice.payment_date,
+            )
+            inv_item.tenant_name = await _tenant_name(db, invoice.tenant_id)
+            invoices_out.append(inv_item)
+
+        pending_total = _round2(_sum_decimal(
+            charge.amount_after_discount_ils for charge in legacy_charges if charge.status == "pending"
+        ))
+        invoiced_total = _round2(_sum_decimal(
+            invoice.total_ils for invoice in legacy_invoices if invoice.status != "cancelled"
+        ))
+        paid_total = _round2(_sum_decimal(
+            invoice.total_ils for invoice in legacy_invoices if invoice.status == "paid"
+        ))
 
     return TenantBillingSummary(
         charges=charges_out,
@@ -1220,6 +1387,101 @@ async def get_tenant_billing(
         invoiced_total_ils=invoiced_total,
         paid_total_ils=paid_total,
     )
+
+
+@router.get(
+    "/api/admin/tenants/{tenant_id}/payment-tracking",
+    response_model=TenantPaymentTrackingSummary,
+)
+async def get_tenant_payment_tracking(
+    tenant_id: uuid.UUID,
+    months_back: int = Query(6, ge=0, le=24),
+    months_forward: int = Query(6, ge=0, le=24),
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_permission("tenants", "view")),
+):
+    t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
+    if not t_result.scalar_one_or_none():
+        raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+    return await _payment_tracking_summary(
+        db,
+        tenant_id,
+        months_back=months_back,
+        months_forward=months_forward,
+    )
+
+
+@router.put(
+    "/api/admin/tenants/{tenant_id}/payment-tracking/{billing_period}",
+    response_model=TenantPaymentTrackingSummary,
+)
+async def upsert_tenant_payment_tracking(
+    tenant_id: uuid.UUID,
+    billing_period: str,
+    body: TenantPaymentRecordUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
+):
+    _validate_billing_period(billing_period)
+
+    t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
+    if not t_result.scalar_one_or_none():
+        raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    subscription = await _active_subscription(db, tenant_id)
+    if subscription is None:
+        raise HTTPException(409, detail={"error": "Active subscription not found", "code": "NO_ACTIVE_SUBSCRIPTION"})
+
+    scheduled_charge_date = _scheduled_charge_date(billing_period, subscription.billing_anchor_day)
+    record_result = await db.execute(
+        sa.select(TenantPaymentRecord).where(
+            TenantPaymentRecord.tenant_id == tenant_id,
+            TenantPaymentRecord.billing_period == billing_period,
+        )
+    )
+    record = record_result.scalar_one_or_none()
+
+    normalized_paid_at = body.paid_at
+    if body.status == "paid" and normalized_paid_at is None:
+        normalized_paid_at = date.today()
+
+    clear_record = (
+        body.status == "unreported"
+        and body.amount_ils is None
+        and normalized_paid_at is None
+        and not (body.external_ref or "").strip()
+        and not (body.notes or "").strip()
+    )
+
+    if clear_record and record is not None:
+        await db.delete(record)
+    elif record is None:
+        record = TenantPaymentRecord(
+            tenant_id=tenant_id,
+            billing_period=billing_period,
+            scheduled_charge_date=scheduled_charge_date,
+            status=body.status,
+            amount_ils=body.amount_ils,
+            paid_at=normalized_paid_at,
+            external_ref=body.external_ref,
+            notes=body.notes,
+            created_by=current_user.id,
+            updated_by=current_user.id,
+            updated_at=datetime.now(UTC),
+        )
+        db.add(record)
+    else:
+        record.scheduled_charge_date = scheduled_charge_date
+        record.status = body.status
+        record.amount_ils = body.amount_ils
+        record.paid_at = normalized_paid_at
+        record.external_ref = body.external_ref
+        record.notes = body.notes
+        record.updated_by = current_user.id
+        record.updated_at = datetime.now(UTC)
+
+    await db.commit()
+    return await _payment_tracking_summary(db, tenant_id)
 
 
 # ─── Quote Helpers ─────────────────────────────────────────────────────────────

@@ -5,6 +5,64 @@ from decimal import Decimal
 from typing import Literal, Optional
 
 
+OrgStructureLevel = Literal["division", "department", "section", "team"]
+
+
+class TenantOrgStructureConfigBase(BaseModel):
+    levels: list[OrgStructureLevel] = Field(default_factory=lambda: ["division", "department", "section", "team"])
+    position_attachment_level: Optional[OrgStructureLevel] = None
+    is_hierarchical: bool = True
+
+
+class TenantOrgStructureConfigCreate(TenantOrgStructureConfigBase):
+    valid_from: Optional[date] = None
+
+
+class TenantOrgStructureConfigActionBody(TenantOrgStructureConfigBase):
+    action: Literal["update", "add", "set", "delete", "close"] = "update"
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+    force_override: bool = False
+
+
+class TenantOrgStructureOverridePreviewRequest(TenantOrgStructureConfigBase):
+    valid_from: date
+
+
+class TenantOrgStructureOverrideImpactOut(BaseModel):
+    converted_units_count: int = 0
+    reparented_units_count: int = 0
+    affected_positions_count: int = 0
+    affected_employments_count: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TenantOrgStructureOverridePreviewOut(BaseModel):
+    tenant_id: uuid.UUID
+    valid_from: date
+    current_levels: list[OrgStructureLevel]
+    proposed_levels: list[OrgStructureLevel]
+    current_position_attachment_level: Optional[OrgStructureLevel] = None
+    proposed_position_attachment_level: Optional[OrgStructureLevel] = None
+    impact: TenantOrgStructureOverrideImpactOut
+
+
+class TenantOrgStructureConfigOut(TenantOrgStructureConfigBase):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    position_attachment_level: Optional[OrgStructureLevel] = None
+    is_locked: bool = False
+    can_force_override: bool = False
+    valid_from: date
+    valid_to: Optional[date] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 # --- Identity ---
 class TenantIdentityBase(BaseModel):
     name_he: str
@@ -91,6 +149,7 @@ class TenantSubscriptionBase(BaseModel):
     selected_module_slugs: list[str] = Field(default_factory=list)
     discount_pct: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     is_price_locked: bool = False
+    billing_anchor_day: int = Field(default=1, ge=1, le=31)
     next_renewal_at: Optional[date] = None
 
 
@@ -201,6 +260,7 @@ class TenantCreateRequest(BaseModel):
     address: TenantAddressBase
     subscription: TenantSubscriptionBase
     status: TenantStatusBase = TenantStatusBase()
+    org_structure: TenantOrgStructureConfigCreate = TenantOrgStructureConfigCreate()
 
 
 # --- Update (partial) ---
@@ -254,6 +314,7 @@ class TenantOut(BaseModel):
     subscription: Optional[TenantSubscriptionOut] = None
     subscription_modules: list[TenantSubscriptionModuleOut] = []
     status: Optional[TenantStatusOut] = None
+    org_structure: Optional[TenantOrgStructureConfigOut] = None
 
     model_config = {"from_attributes": True}
 

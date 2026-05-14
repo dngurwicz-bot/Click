@@ -7,7 +7,7 @@ from app.config import get_settings
 
 settings = get_settings()
 
-RESOURCES = ["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+RESOURCES = ["tenants", "lookups", "modules", "reports", "core", "users", "templates", "audit"]
 if settings.BILLING_ENABLED:
     RESOURCES.insert(4, "billing")
 
@@ -27,3 +27,4 @@ class AdminUserPermission(Base):
     resource: Mapped[str] = mapped_column(String, nullable=False)
     can_view: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     can_edit: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    can_manage_sensitive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

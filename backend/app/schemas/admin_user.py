@@ -7,10 +7,10 @@ from app.config import get_settings
 settings = get_settings()
 
 if settings.BILLING_ENABLED:
-    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "users", "templates", "audit"]
+    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "core", "users", "templates", "audit"]
     ROLE_NAMES = Literal["super_admin", "admin", "support", "billing"]
 else:
-    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+    RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "core", "users", "templates", "audit"]
     ROLE_NAMES = Literal["super_admin", "admin", "support"]
 
 # Default permissions per role (applied when creating a user)
@@ -20,6 +20,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "lookups":   {"can_view": True,  "can_edit": True},
         "modules":   {"can_view": True,  "can_edit": False},
         "reports":   {"can_view": True,  "can_edit": True},
+        "core":      {"can_view": True,  "can_edit": True,  "can_manage_sensitive": True},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": True,  "can_edit": True},
         "audit":     {"can_view": True,  "can_edit": False},
@@ -29,6 +30,7 @@ DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
         "lookups":   {"can_view": True,  "can_edit": False},
         "modules":   {"can_view": False, "can_edit": False},
         "reports":   {"can_view": True,  "can_edit": False},
+        "core":      {"can_view": True,  "can_edit": False, "can_manage_sensitive": False},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
         "audit":     {"can_view": False, "can_edit": False},
@@ -44,12 +46,13 @@ if settings.BILLING_ENABLED:
         "modules":   {"can_view": True,  "can_edit": False},
         "reports":   {"can_view": True,  "can_edit": False},
         "billing":   {"can_view": True,  "can_edit": True},
+        "core":      {"can_view": False, "can_edit": False, "can_manage_sensitive": False},
         "users":     {"can_view": False, "can_edit": False},
         "templates": {"can_view": False, "can_edit": False},
         "audit":     {"can_view": False, "can_edit": False},
     }
 
-ALL_RESOURCES = ["tenants", "lookups", "modules", "reports", "users", "templates", "audit"]
+ALL_RESOURCES = ["tenants", "lookups", "modules", "reports", "core", "users", "templates", "audit"]
 if settings.BILLING_ENABLED:
     ALL_RESOURCES.insert(4, "billing")
 
@@ -58,12 +61,14 @@ class PermissionIn(BaseModel):
     resource: str
     can_view: bool = False
     can_edit: bool = False
+    can_manage_sensitive: bool = False
 
 
 class PermissionOut(BaseModel):
     resource: str
     can_view: bool
     can_edit: bool
+    can_manage_sensitive: bool
 
     model_config = {"from_attributes": True}
 

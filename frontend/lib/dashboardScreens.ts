@@ -10,6 +10,7 @@ import {
   Package,
   Quote,
   Receipt,
+  ShieldCheck,
   Users,
   Wallet,
   type LucideIcon,
@@ -196,6 +197,28 @@ export const DASHBOARD_SCREEN_DEFS: DashboardScreen[] = [
     navGroup: "module",
     hideFromNav: true,
   },
+  {
+    id: "core:employees",
+    href: "/admin/core",
+    label: "רשימת עובדים",
+    shortDescription: "רשימת העובדים המרכזית של CLICK Core.",
+    fullDescription:
+      "מסך רשימת העובדים מרכז את כלל העובדים, חיפוש, סינון וכניסה לכרטיסי עובד מלאים לצורך צפייה, ניהול ועדכון נתוני HR.",
+    icon: ShieldCheck,
+    navGroup: "module",
+    hideFromNav: true,
+  },
+  {
+    id: "core:structure",
+    href: "/admin/core/structure",
+    label: "מבנה ארגוני",
+    shortDescription: "ניהול שכבות המבנה הארגוני והשיוך ביניהן.",
+    fullDescription:
+      "מסך המבנה הארגוני מאפשר לנהל חטיבות, אגפים, מחלקות, צוותים ותפקידים, ולהגדיר את ההיררכיה הארגונית של הלקוח הפעיל.",
+    icon: ShieldCheck,
+    navGroup: "module",
+    hideFromNav: true,
+  },
 ];
 
 const STATIC_SCREEN_BY_ID = new Map(DASHBOARD_SCREEN_DEFS.map((screen) => [screen.id, screen]));
@@ -231,17 +254,22 @@ export function getStaticScreen(screenId: string) {
 
 export function buildModuleScreen(module: Pick<ModuleNavItem, "slug" | "name">): DashboardScreen {
   const isInsights = module.slug === "insights";
+  const isCore = module.slug === "core";
   return {
     id: `module:${module.slug}`,
-    href: `/modules/${module.slug}`,
+    href: isCore ? "/admin/core" : `/modules/${module.slug}`,
     label: module.name,
     shortDescription: isInsights
       ? "סביבת דוחות, ניתוח נתונים ותובנות עסקיות."
+      : isCore
+        ? "שכבת ה-HR המרכזית: עובדים, מבנה ארגוני, כרטיס עובד והיסטוריית שינויים."
       : `כניסה מהירה למודול ${module.name}.`,
     fullDescription: isInsights
       ? "מודול CLICK Insights פותח את סביבת הדוחות והאנליטיקה של המערכת, כולל תבניות, תצוגות שמורות וכלי ניתוח מתקדמים."
+      : isCore
+        ? "מודול CLICK CORE פותח את אזור ניהול משאבי האנוש המרכזי של המערכת, כולל רשימת עובדים, כרטיס עובד, מבנה ארגוני ויומן אירועים."
       : `זהו מסך העבודה של מודול ${module.name}. מתוך המודול אפשר לגשת לפונקציונליות הייעודית שלו ולבצע פעולות בהתאם למה שחובר והוגדר במערכת.`,
-    icon: isInsights ? BarChart3 : Package,
+    icon: isInsights ? BarChart3 : isCore ? ShieldCheck : Package,
     navGroup: "module",
   };
 }
@@ -256,6 +284,7 @@ export function getVisibleDashboardScreens({
   const staticScreens = DASHBOARD_SCREEN_DEFS.filter((screen) => {
     if (!BILLING_ENABLED && screen.resource === "billing") return false;
     if (screen.id.startsWith("insights:") && !modules.some(m => m.slug === "insights" && m.is_active)) return false;
+    if (screen.id.startsWith("core:") && !modules.some(m => m.slug === "core" && m.is_active)) return false;
     return hasScreenAccess(screen, user);
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { AdminActionBar, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
@@ -81,12 +81,30 @@ export function CardPage({
   const [activeFormTab,  setActiveFormTab]  = useState(formTabs[0]?.id ?? "");
   const [activeChildTab, setActiveChildTab] = useState(childTabs[0]?.id ?? "");
   const [pageTemporalFilter, setPageTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
+  const [activePane, setActivePane] = useState<"parent" | "child">(
+    parentContent && childTabs.length > 0 ? "child" : "parent",
+  );
+  const hadPaneFocusRef = useRef(false);
+  const canUsePaneFocus = Boolean(parentContent && childTabs.length > 0);
 
   useEffect(() => {
     if (childTabs.length > 0 && !childTabs.find((t) => t.id === activeChildTab)) {
       setActiveChildTab(childTabs[0].id);
     }
   }, [childTabs, activeChildTab]);
+
+  useEffect(() => {
+    if (!canUsePaneFocus) {
+      hadPaneFocusRef.current = false;
+      setActivePane("parent");
+      return;
+    }
+
+    if (!hadPaneFocusRef.current) {
+      hadPaneFocusRef.current = true;
+      setActivePane("child");
+    }
+  }, [canUsePaneFocus]);
 
   const statusCfg      = status ? STATUS_CONFIG[status.type] : null;
   const currentFormTab = formTabs.find((t) => t.id === activeFormTab);
@@ -121,6 +139,12 @@ export function CardPage({
     hiddenRowsCount > 0,
   );
   const hiddenRowsLabel = hiddenRowsCount === 1 ? "רשומה" : "רשומות";
+  const parentPaneHeight = useMemo(() => {
+    if (!canUsePaneFocus) return undefined;
+    return activePane === "child"
+      ? "clamp(150px, 28vh, 260px)"
+      : "clamp(280px, 56vh, 520px)";
+  }, [activePane, canUsePaneFocus]);
 
   function renderEmptyState() {
     if (!currentChildTab) return "אין רשומות";
@@ -216,7 +240,18 @@ export function CardPage({
 
       {/* ── Parent Content (static) ───────────────────────────────── */}
       {parentContent && (
-        <div className="bg-white border-b border-slate-200 shrink-0">
+        <div
+          className={`bg-white border-b border-slate-200 shrink-0 transition-[height] duration-200 ${
+            canUsePaneFocus ? "overflow-y-auto" : "overflow-visible"
+          }`}
+          style={parentPaneHeight ? { height: parentPaneHeight } : undefined}
+          onMouseDown={() => {
+            if (canUsePaneFocus) setActivePane("parent");
+          }}
+          onTouchStart={() => {
+            if (canUsePaneFocus) setActivePane("parent");
+          }}
+        >
           {parentContent}
         </div>
       )}
@@ -263,113 +298,127 @@ export function CardPage({
         />
       )}
 
-      {/* ── Child Tabs ────────────────────────────────────────────── */}
-      {childTabs.length > 0 && (
-        <div className="bg-slate-100 border-b border-slate-200 flex items-center px-3 shrink-0 mt-0.5 gap-0.5">
-          <div className="flex items-end flex-1 gap-0.5 self-stretch">
-            {childTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveChildTab(tab.id)}
-                className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap self-end
-                  ${activeChildTab === tab.id
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                  }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {/* Add button for current tab */}
-          {currentChildTab?.toolbarNote && (
-            <div className="shrink-0 text-[11px] text-slate-500">
-              {currentChildTab.toolbarNote}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* ── Child Tabs ────────────────────────────────────────────── */}
+        {childTabs.length > 0 && (
+          <div
+            className="bg-slate-100 border-b border-slate-200 flex items-center px-3 shrink-0 mt-0.5 gap-0.5 scroll-mt-2"
+          >
+            <div className="flex items-end flex-1 gap-0.5 self-stretch">
+              {childTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveChildTab(tab.id);
+                    if (canUsePaneFocus) setActivePane("child");
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap self-end
+                    ${activeChildTab === tab.id
+                      ? "border-brand-500 text-brand-600 bg-white"
+                      : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+                    }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-          )}
-          {currentChildTab?.onAddClick && (
-            <button
-              onClick={currentChildTab.onAddClick}
-              disabled={currentChildTab.addDisabled}
-              title={currentChildTab.addDisabledReason ?? "הוסף רשומה"}
-              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded
-                         bg-brand-600 hover:bg-brand-700 text-white transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus size={11} />
-              הוסף
-            </button>
+            {currentChildTab?.toolbarNote && (
+              <div className="shrink-0 text-[11px] text-slate-500">
+                {currentChildTab.toolbarNote}
+              </div>
+            )}
+            {currentChildTab?.onAddClick && (
+              <button
+                onClick={currentChildTab.onAddClick}
+                disabled={currentChildTab.addDisabled}
+                title={currentChildTab.addDisabledReason ?? "הוסף רשומה"}
+                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded
+                           bg-brand-600 hover:bg-brand-700 text-white transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus size={11} />
+                הוסף
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Child Grid ────────────────────────────────────────────── */}
+        <div
+          className="flex-1 overflow-auto bg-white min-h-0"
+          onMouseDown={() => {
+            if (canUsePaneFocus) setActivePane("child");
+          }}
+          onTouchStart={() => {
+            if (canUsePaneFocus) setActivePane("child");
+          }}
+        >
+          {currentChildTab && (
+            <>
+              <table className="admin-data-table w-full text-xs border-collapse min-w-max">
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    {currentChildTab.columns.map((col) => (
+                      <th
+                        key={col.key}
+                        className={`text-right px-3 py-2 font-semibold text-slate-600
+                                 bg-slate-100 border-b border-slate-200 border-l border-slate-200 whitespace-nowrap ${col.width ?? ""}`}
+                      >
+                        {col.required && <span className="text-red-400 ml-0.5">*</span>}
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.length === 0 ? (
+                    <tr
+                      onClick={
+                        currentChildTab.rows.length === 0 && !currentChildTab.addDisabled
+                          ? currentChildTab.onAddClick
+                          : undefined
+                      }
+                      className={
+                        currentChildTab.rows.length === 0 && currentChildTab.onAddClick && !currentChildTab.addDisabled
+                          ? "cursor-pointer hover:bg-blue-50 transition-colors"
+                          : ""
+                      }
+                    >
+                      <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
+                        {renderEmptyState()}
+                      </td>
+                    </tr>
+                  ) : (
+                    visibleRows.map((row, i) => {
+                      const isCurrent = row._current === true;
+                      const hasClick = !!currentChildTab.onRowDoubleClick;
+                      const originalIndex = currentChildTab.rows.indexOf(row);
+                      return (
+                        <tr
+                          key={originalIndex >= 0 ? originalIndex : i}
+                          onDoubleClick={() => currentChildTab.onRowDoubleClick?.(originalIndex >= 0 ? originalIndex : i)}
+                          title={hasClick ? "לחץ פעמיים לעריכה" : undefined}
+                          className={`transition-colors ${hasClick ? "cursor-pointer" : ""} ${
+                            isCurrent
+                              ? "bg-brand-50 font-medium hover:bg-brand-100"
+                              : i % 2 === 0
+                                ? "bg-white hover:bg-slate-50 text-slate-600"
+                                : "bg-slate-50/60 hover:bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {currentChildTab.columns.map((col) => (
+                            <td key={col.key} className="px-3 py-1.5 border-b border-slate-100 border-l border-slate-100">
+                              {row[col.key] ?? ""}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
-      )}
-
-      {/* ── Child Grid ────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto bg-white min-h-0">
-        {currentChildTab && (
-          <>
-            <table className="admin-data-table w-full text-xs border-collapse min-w-max">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  {currentChildTab.columns.map((col) => (
-                    <th
-                      key={col.key}
-                      className={`text-right px-3 py-2 font-semibold text-slate-600
-                               bg-slate-100 border-b border-slate-200 border-l border-slate-200 whitespace-nowrap ${col.width ?? ""}`}
-                    >
-                      {col.required && <span className="text-red-400 ml-0.5">*</span>}
-                      {col.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.length === 0 ? (
-                  <tr
-                    onClick={
-                      currentChildTab.rows.length === 0 && !currentChildTab.addDisabled
-                        ? currentChildTab.onAddClick
-                        : undefined
-                    }
-                    className={
-                      currentChildTab.rows.length === 0 && currentChildTab.onAddClick && !currentChildTab.addDisabled
-                        ? "cursor-pointer hover:bg-blue-50 transition-colors"
-                        : ""
-                    }
-                  >
-                    <td colSpan={currentChildTab.columns.length} className="text-center py-12 text-slate-400">
-                      {renderEmptyState()}
-                    </td>
-                  </tr>
-                ) : (
-                  visibleRows.map((row, i) => {
-                    const isCurrent = row._current === true;
-                    const hasClick = !!currentChildTab.onRowDoubleClick;
-                    const originalIndex = currentChildTab.rows.indexOf(row);
-                    return (
-                      <tr
-                        key={originalIndex >= 0 ? originalIndex : i}
-                        onDoubleClick={() => currentChildTab.onRowDoubleClick?.(originalIndex >= 0 ? originalIndex : i)}
-                        title={hasClick ? "לחץ פעמיים לעריכה" : undefined}
-                        className={`transition-colors ${hasClick ? "cursor-pointer" : ""} ${
-                          isCurrent
-                            ? "bg-brand-50 font-medium hover:bg-brand-100"
-                            : i % 2 === 0
-                              ? "bg-white hover:bg-slate-50 text-slate-600"
-                              : "bg-slate-50/60 hover:bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {currentChildTab.columns.map((col) => (
-                          <td key={col.key} className="px-3 py-1.5 border-b border-slate-100 border-l border-slate-100">
-                            {row[col.key] ?? ""}
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </>
-        )}
       </div>
 
       {/* Priority-style bottom status bar */}

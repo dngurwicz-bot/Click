@@ -655,13 +655,13 @@ export function InvoiceDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-lg shrink-0">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-800">{initial.invoice_number}</span>
+            <span className="text-sm font-bold text-[#1a3a6e]">{initial.invoice_number}</span>
             <StatusBadge cfg={statusCfg} />
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
+          <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-slate-500"><X size={16} /></button>
         </div>
         {loading ? (
           <div className="flex items-center justify-center h-48">
@@ -1185,13 +1185,13 @@ export function QuoteDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-lg shrink-0">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-800">{quote?.quote_number ?? "הצעת מחיר"}</span>
+            <span className="text-sm font-bold text-[#1a3a6e]">{quote?.quote_number ?? "הצעת מחיר"}</span>
             <StatusBadge cfg={statusCfg} />
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
+          <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-slate-500"><X size={16} /></button>
         </div>
         {loading ? (
           <div className="flex items-center justify-center h-48">

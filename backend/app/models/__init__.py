@@ -7,9 +7,20 @@ from app.models.tenant import (
     TenantSubscription,
     TenantSubscriptionModule,
     TenantStatus,
+    TenantOrgStructureConfig,
 )
 from app.models.module import Module, ModulePrice, OrgTemplate, OrgTemplateDefault, OrgTemplateModule
-from app.models.billing import Invoice, BillingCharge, InvoiceLine, BillingSettings, Quote, QuoteLine
+from app.models.core import (
+    Employee,
+    EmployeeIdentity,
+    EmployeeEmployment,
+    EmployeeCompensation,
+    EmployeeDocumentIndex,
+    EmploymentEvent,
+    OrgUnit,
+    Position,
+)
+from app.models.billing import Invoice, BillingCharge, InvoiceLine, BillingSettings, Quote, QuoteLine, TenantPaymentRecord
 from app.models.billing_engine import (
     BillingBillRun,
     BillingChangeEvent,
@@ -25,9 +36,10 @@ from app.models.saved_report_view import SavedReportView
 
 __all__ = [
     "AdminUser",
-    "Tenant", "TenantIdentity", "TenantContact", "TenantAddress", "TenantSubscription", "TenantSubscriptionModule", "TenantStatus",
+    "Tenant", "TenantIdentity", "TenantContact", "TenantAddress", "TenantSubscription", "TenantSubscriptionModule", "TenantStatus", "TenantOrgStructureConfig",
     "Module", "ModulePrice", "OrgTemplate", "OrgTemplateDefault", "OrgTemplateModule",
-    "Invoice", "BillingCharge", "InvoiceLine", "BillingSettings", "Quote", "QuoteLine",
+    "Employee", "EmployeeIdentity", "EmployeeEmployment", "EmployeeCompensation", "EmployeeDocumentIndex", "EmploymentEvent", "OrgUnit", "Position",
+    "Invoice", "BillingCharge", "InvoiceLine", "BillingSettings", "Quote", "QuoteLine", "TenantPaymentRecord",
     "BillingContract", "BillingContractItem", "BillingChangeEvent", "BillingBillRun",
     "BillingLedgerEntry", "BillingDocument", "BillingDocumentLine",
     "AuditLog",

@@ -5,7 +5,27 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { api, getStoredUser, isLoggedIn } from "@/lib/api";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
+import {
+  TenantOrgStructureModal,
+  formatOrgStructureSummary,
+  type TenantOrgStructureConfigValue,
+} from "@/components/tenants/TenantOrgStructureModal";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import {
+  AdminDateFields,
+  AdminField,
+  AdminModal,
+  AdminModalBody,
+  AdminModalFooter,
+  AdminModalHeader,
+  AdminModalMessage,
+  AdminModalPanel,
+  ADMIN_MODAL_ACTION_PRIMARY,
+  ADMIN_MODAL_ACTION_SECONDARY,
+  ADMIN_MODAL_GRID,
+  ADMIN_MODAL_INPUT,
+  ADMIN_MODAL_TEXTAREA,
+} from "@/components/ui/AdminModal";
 
 interface AuditFields {
   created_at?: string;
@@ -222,8 +242,8 @@ const STATUS_TYPE_MAP: Record<string, "active" | "trial" | "suspended" | "cancel
   cancelled: "cancelled",
 };
 
-const inputCls = "w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
-const areaCls = `${inputCls} min-h-24`;
+const inputCls = ADMIN_MODAL_INPUT;
+const areaCls = ADMIN_MODAL_TEXTAREA;
 
 function todayIsoDate() {
   const now = new Date();
@@ -690,18 +710,14 @@ function DraftSectionModal({
   }
 
   const title = initialRow ? "עדכון רשומה" : "רשומה חדשה";
+  const subtitle = `עריכת ${section === "identity" ? "פרטי זהות" : section === "contact" ? "פרטי קשר" : section === "address" ? "כתובת" : section === "subscription" ? "הגדרות מנוי" : "סטטוס"} בטיוטת הארגון.`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-            <p className="mt-1 text-[11px] text-slate-500">עריכת {section === "identity" ? "פרטי זהות" : section === "contact" ? "פרטי קשר" : section === "address" ? "כתובת" : section === "subscription" ? "הגדרות מנוי" : "סטטוס"} בטיוטת הארגון.</p>
-          </div>
-          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
-        </div>
-        <div className="grid gap-4 p-5 md:grid-cols-2">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-2xl">
+        <AdminModalHeader title={title} subtitle={subtitle} onClose={onClose} />
+        <AdminModalBody>
+        <div className={ADMIN_MODAL_GRID}>
           {section === "identity" && (
             <>
               <div>
@@ -863,22 +879,19 @@ function DraftSectionModal({
             </>
           )}
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">מתאריך</label>
-            <HebrewDatePicker value={form.valid_from} onChange={(value) => patch({ valid_from: value })} className={`${inputCls} bg-white`} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">עד תאריך</label>
-            <HebrewDatePicker value={form.valid_to} onChange={(value) => patch({ valid_to: value })} className={`${inputCls} bg-white`} />
-          </div>
         </div>
-        {error ? <div className="px-5 pb-2 text-xs text-red-600">{error}</div> : null}
-        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
-          <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
-          <button onClick={handleSave} className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">שמור</button>
-        </div>
-      </div>
-    </div>
+        <AdminDateFields
+          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => patch({ valid_from: value })} className={inputCls} />}
+          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => patch({ valid_to: value })} className={inputCls} />}
+        />
+        {error ? <div className="mt-4"><AdminModalMessage tone="danger">{error}</AdminModalMessage></div> : null}
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
+          <button onClick={handleSave} className={ADMIN_MODAL_ACTION_PRIMARY}>שמור</button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -951,16 +964,15 @@ function DraftModuleModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">{initialRow ? "עדכון מודול מנוי" : "רשומת מודול חדשה"}</h3>
-            <p className="mt-1 text-[11px] text-slate-500">ניהול מודולים בפועל בטיוטת הארגון.</p>
-          </div>
-          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
-        </div>
-        <div className="grid gap-4 p-5 md:grid-cols-2">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-2xl">
+        <AdminModalHeader
+          title={initialRow ? "עדכון מודול מנוי" : "רשומת מודול חדשה"}
+          subtitle="ניהול מודולים בפועל בטיוטת הארגון."
+          onClose={onClose}
+        />
+        <AdminModalBody>
+        <div className={ADMIN_MODAL_GRID}>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">מודול</label>
             <select className={inputCls} value={form.module_slug} onChange={(e) => setField("module_slug", e.target.value)} disabled={Boolean(initialRow)}>
@@ -1017,26 +1029,23 @@ function DraftModuleModal({
               </div>
             </>
           ) : null}
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">מתאריך</label>
-            <HebrewDatePicker value={form.valid_from} onChange={(value) => setField("valid_from", value)} className={`${inputCls} bg-white`} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">עד תאריך</label>
-            <HebrewDatePicker value={form.valid_to} onChange={(value) => setField("valid_to", value)} className={`${inputCls} bg-white`} />
-          </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs font-semibold text-slate-600">הערות</label>
             <textarea className={areaCls} value={form.notes} onChange={(e) => setField("notes", e.target.value)} />
           </div>
         </div>
-        {error ? <div className="px-5 pb-2 text-xs text-red-600">{error}</div> : null}
-        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 rounded-b-xl">
-          <button onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">ביטול</button>
-          <button onClick={handleSave} className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-700">שמור</button>
-        </div>
-      </div>
-    </div>
+        <AdminDateFields
+          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => setField("valid_from", value)} className={inputCls} />}
+          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => setField("valid_to", value)} className={inputCls} />}
+        />
+        {error ? <div className="mt-4"><AdminModalMessage tone="danger">{error}</AdminModalMessage></div> : null}
+        </AdminModalBody>
+        <AdminModalFooter>
+          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>ביטול</button>
+          <button onClick={handleSave} className={ADMIN_MODAL_ACTION_PRIMARY}>שמור</button>
+        </AdminModalFooter>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -1054,6 +1063,13 @@ export default function NewTenantPage() {
     status: [],
     subscription_modules: [],
   });
+  const [orgStructure, setOrgStructure] = useState<TenantOrgStructureConfigValue>({
+    levels: ["division", "department", "section", "team"],
+    position_attachment_level: "team",
+    is_hierarchical: true,
+  });
+  const [orgStructureConfigured, setOrgStructureConfigured] = useState(false);
+  const [orgStructureOpen, setOrgStructureOpen] = useState(false);
   const [editingSection, setEditingSection] = useState<{ section: SectionKey; rowId?: string } | null>(null);
   const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
 
@@ -1117,6 +1133,10 @@ export default function NewTenantPage() {
     if (!address) return setError("יש להוסיף רשומה בלשונית כתובת");
     if (!subscription) return setError("יש להוסיף רשומה בלשונית הגדרות מנוי");
     if (!status) return setError("יש להוסיף רשומה בלשונית סטטוס");
+    if (!orgStructureConfigured) {
+      setOrgStructureOpen(true);
+      return setError("יש לבחור ולהגדיר מבנה ארגוני, שיוך תפקיד והאם המבנה היררכי לפני שמירת ארגון חדש");
+    }
 
     setSaving(true);
     try {
@@ -1164,6 +1184,11 @@ export default function NewTenantPage() {
           reason: status.reason || null,
           notes: status.notes || null,
         },
+        org_structure: {
+          levels: orgStructure.levels,
+          position_attachment_level: orgStructure.position_attachment_level,
+          is_hierarchical: orgStructure.is_hierarchical,
+        },
       });
       router.push("/admin/tenants");
     } catch (err: unknown) {
@@ -1193,6 +1218,12 @@ export default function NewTenantPage() {
   const editingModuleRow = editingModuleId && editingModuleId !== "new"
     ? draft.subscription_modules.find((row) => row.id === editingModuleId) ?? null
     : null;
+  const orgStructureSummary = formatOrgStructureSummary(orgStructure);
+  const orgStructureDisplay = orgStructureConfigured ? orgStructureSummary : {
+    levelsText: "טרם נבחר",
+    attachmentText: "טרם נבחר",
+    hierarchyText: "טרם נבחר",
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-gray-100">
@@ -1208,6 +1239,40 @@ export default function NewTenantPage() {
                 {error}
               </div>
             ) : null}
+            <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-800">מבנה ארגוני</div>
+                  <div className="mt-1 text-xs text-slate-500">כאן מגדירים אילו רמות יופיעו ללקוח ב־CLICK Core, האם המבנה היררכי ואיך תפקידים משויכים.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOrgStructureOpen(true)}
+                  className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                >
+                  {orgStructureConfigured ? "ערוך רמות, תפקיד והיררכיה" : "בחר רמות, תפקיד והיררכיה"}
+                </button>
+              </div>
+              {!orgStructureConfigured ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                  צריך לבחור כאן את המבנה הארגוני בזמן הקמת ארגון חדש, כולל שיוך תפקיד והאם המבנה היררכי.
+                </div>
+              ) : null}
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                  <div className="text-slate-400">רמות פעילות</div>
+                  <div className="mt-1 font-semibold text-slate-800">{orgStructureDisplay.levelsText}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                  <div className="text-slate-400">שיוך תפקיד</div>
+                  <div className="mt-1 font-semibold text-slate-800">{orgStructureDisplay.attachmentText}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs">
+                  <div className="text-slate-400">מבנה היררכי</div>
+                  <div className="mt-1 font-semibold text-slate-800">{orgStructureDisplay.hierarchyText}</div>
+                </div>
+              </div>
+            </div>
           </>
         }
         primaryActions={[
@@ -1239,6 +1304,20 @@ export default function NewTenantPage() {
           initialRow={editingModuleRow}
           onClose={() => setEditingModuleId(null)}
           onSave={upsertModuleRow}
+        />
+      ) : null}
+
+      {orgStructureOpen ? (
+        <TenantOrgStructureModal
+          title="הגדרת מבנה ארגוני ללקוח"
+          initialValue={orgStructure}
+          onClose={() => setOrgStructureOpen(false)}
+          onSave={(value) => {
+            setOrgStructure(value);
+            setOrgStructureConfigured(true);
+            setError((current) => current?.includes("מבנה ארגוני") ? null : current);
+            setOrgStructureOpen(false);
+          }}
         />
       ) : null}
     </div>

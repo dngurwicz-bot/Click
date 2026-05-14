@@ -33,6 +33,7 @@ async def _load_permissions(db: AsyncSession, user_id: uuid.UUID) -> list[Permis
             resource=res,
             can_view=perm_map[res].can_view if res in perm_map else False,
             can_edit=perm_map[res].can_edit if res in perm_map else False,
+            can_manage_sensitive=perm_map[res].can_manage_sensitive if res in perm_map else False,
         )
         for res in ALL_RESOURCES
     ]
@@ -56,6 +57,7 @@ async def _upsert_permissions(
             resource=p.resource,
             can_view=can_view,
             can_edit=p.can_edit,
+            can_manage_sensitive=(p.can_manage_sensitive if p.resource == "core" else False),
         ))
 
 
@@ -68,6 +70,7 @@ def _default_permissions_for_role(role: str) -> list:
             resource=res,
             can_view=defaults.get(res, {}).get("can_view", False),
             can_edit=defaults.get(res, {}).get("can_edit", False),
+            can_manage_sensitive=defaults.get(res, {}).get("can_manage_sensitive", False),
         )
         for res in ALL_RESOURCES
     ]
@@ -145,6 +148,7 @@ async def list_users(
                 resource=res,
                 can_view=user_perms[res].can_view if res in user_perms else False,
                 can_edit=user_perms[res].can_edit if res in user_perms else False,
+                can_manage_sensitive=user_perms[res].can_manage_sensitive if res in user_perms else False,
             )
             for res in ALL_RESOURCES
         ]

@@ -6,6 +6,7 @@ import { isLoggedIn, api } from "@/lib/api";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import {
   createDefaultTemporalFilterState,
   getTemporalFilterError,
@@ -856,46 +857,45 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                 className="px-3 py-1.5 text-xs border border-slate-300 rounded text-slate-600 hover:bg-slate-100">
                 ביטול
               </button>
-              <div className="relative flex">
-                <button onClick={(e) => { e.stopPropagation(); handleSave("update"); }} disabled={saving}
-                  className="px-4 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-r transition-colors disabled:opacity-50 border-l border-blue-400">
-                  {saving ? "שומר..." : "שמור"}
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); setDropdownOpen((o) => !o); }} disabled={saving}
-                  className="px-2 py-1.5 text-xs bg-[#0d6efd] hover:bg-[#0b5ed7] text-white rounded-l transition-colors disabled:opacity-50">
-                  ▾
-                </button>
-                {dropdownOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 bg-white border border-slate-200 rounded shadow-lg z-10 min-w-[160px] text-right">
-                    <button onClick={(e) => { e.stopPropagation(); switchToAddMode(); }}
-                      disabled={hasActiveRow}
-                      className={`w-full px-4 py-2 text-xs text-right block border-b border-slate-100
-                        ${hasActiveRow ? "text-slate-400 cursor-not-allowed bg-slate-50" : "text-slate-700 hover:bg-blue-50"}`}>
-                      רשומה חדשה
-                      {hasActiveRow && <span className="block text-[10px] text-slate-400 leading-tight">קיימת רשומה פעילה</span>}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); handleSave("update"); }}
-                      className="w-full px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 text-right block border-b border-slate-100">
-                      שמור
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); switchToSetMode(); }}
-                      className="w-full px-4 py-2 text-xs text-amber-700 hover:bg-amber-50 text-right block font-medium border-b border-slate-100">
-                      קבע תקופה
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); switchToCloseMode(); }}
-                      disabled={!hasActiveRow}
-                      className={`w-full px-4 py-2 text-xs text-right block border-b border-slate-100
-                        ${!hasActiveRow ? "text-slate-400 cursor-not-allowed" : "text-orange-700 hover:bg-orange-50"}`}>
-                      סגור תקופה
-                      {!hasActiveRow && <span className="block text-[10px] text-slate-400 leading-tight">אין שורה פעילה</span>}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); switchToDeleteMode(); }}
-                      className="w-full px-4 py-2 text-xs text-red-700 hover:bg-red-50 text-right block font-medium">
-                      מחק שורה זו
-                    </button>
-                  </div>
-                )}
-              </div>
+              <SplitActionButton
+                primaryLabel={saving ? "שומר..." : "שמור"}
+                onPrimaryClick={() => handleSave("update")}
+                primaryDisabled={saving}
+                menuOpen={dropdownOpen}
+                onMenuToggle={() => setDropdownOpen((o) => !o)}
+                actions={[
+                  {
+                    label: "רשומה חדשה",
+                    onClick: () => switchToAddMode(),
+                    disabled: hasActiveRow,
+                    helperText: hasActiveRow ? "קיימת רשומה פעילה" : undefined,
+                  },
+                  {
+                    label: "שמור",
+                    onClick: () => {
+                      setDropdownOpen(false);
+                      handleSave("update");
+                    },
+                  },
+                  {
+                    label: "קבע תקופה",
+                    onClick: () => switchToSetMode(),
+                    tone: "warning",
+                  },
+                  {
+                    label: "סגור תקופה",
+                    onClick: () => switchToCloseMode(),
+                    disabled: !hasActiveRow,
+                    helperText: !hasActiveRow ? "אין שורה פעילה" : undefined,
+                    tone: "warning",
+                  },
+                  {
+                    label: "מחק שורה זו",
+                    onClick: () => switchToDeleteMode(),
+                    tone: "danger",
+                  },
+                ]}
+              />
             </>
           )}
         </div>

@@ -15,8 +15,9 @@ from app.middleware.auth import require_permission, require_super_admin, Current
 from app.models.admin_user import AdminUser
 from app.models.tenant import (
     Tenant, TenantIdentity, TenantContact, TenantAddress,
-    TenantSubscription, TenantSubscriptionModule, TenantStatus,
+    TenantSubscription, TenantSubscriptionModule, TenantStatus, TenantOrgStructureConfig,
 )
+from app.models.core import OrgUnit, Position, EmployeeEmployment
 from app.models.module import OrgTemplate, OrgTemplateDefault, OrgTemplateModule
 from app.models.audit_log import AuditLog
 from app.models.billing import BillingCharge, Invoice, InvoiceLine, Quote, QuoteLine
@@ -36,6 +37,8 @@ from app.schemas.tenant import (
     TenantAddressOut, TenantSubscriptionModuleActionBody, TenantSubscriptionModuleCreate, TenantSubscriptionModuleOut, TenantSubscriptionModuleUpdate,
     TenantSubscriptionOut, TenantStatusOut, TenantApplySyncRequest, TenantApplyTemplateRequest, TenantDeleteImpactOut,
     TenantDeleteRequest, TenantSyncPreviewModuleDiff, TenantSyncPreviewOut,
+    TenantOrgStructureConfigActionBody, TenantOrgStructureConfigOut,
+    TenantOrgStructureOverrideImpactOut, TenantOrgStructureOverridePreviewOut, TenantOrgStructureOverridePreviewRequest,
 )
 from app.services.temporal import (
     close_and_create, get_active, get_history, update_in_place,
@@ -60,6 +63,19 @@ from app.services.subscription_modules import (
     sync_subscription_header,
 )
 from app.services.tenant_status_windows import ensure_tenant_status_allows_range
+from app.services.tenant_org_structure import (
+    DEFAULT_ORG_STRUCTURE_LEVELS,
+    build_override_type_map,
+    get_expected_parent_level,
+    is_org_structure_locked,
+    resolve_optional_position_attachment_level,
+    resolve_position_attachment_level,
+    sanitize_org_structure_levels,
+    validate_org_structure_override,
+    validate_org_structure_write_once,
+    validate_override_effective_date,
+)
+from app.services.core import next_three_digit_code
 from app.models.seat_change_log import SeatChangeLog
 
 router = APIRouter(prefix="/api/admin/tenants", tags=["tenants"])
@@ -362,6 +378,375 @@ def _serialize_temporal_row(row: object | None, schema_cls, user_lookup: dict[uu
     return schema_cls(**payload)
 
 
+def _org_structure_payload_from_row(
+    row: TenantOrgStructureConfig | None,
+    user_lookup: dict[uuid.UUID, str],
+    *,
+    is_locked: bool = False,
+    can_force_override: bool = False,
+) -> TenantOrgStructureConfigOut | None:
+    if row is None:
+        return None
+    levels = sanitize_org_structure_levels(list(getattr(row, "levels", []) or DEFAULT_ORG_STRUCTURE_LEVELS))
+    payload = {
+        "id": row.id,
+        "tenant_id": row.tenant_id,
+        "levels": levels,
+        "position_attachment_level": resolve_optional_position_attachment_level(
+            levels,
+            getattr(row, "position_attachment_level", None),
+        ),
+        "is_hierarchical": bool(getattr(row, "is_hierarchical", True)),
+        "is_locked": is_locked,
+        "can_force_override": can_force_override,
+        "valid_from": row.valid_from,
+        "valid_to": row.valid_to,
+        "created_at": row.created_at,
+        "created_by": _resolve_user_label(user_lookup, getattr(row, "created_by", None)),
+        "updated_at": row.updated_at,
+        "updated_by": _resolve_user_label(user_lookup, getattr(row, "updated_by", None)),
+    }
+    return TenantOrgStructureConfigOut(**payload)
+
+
+def _normalize_org_structure_input(body) -> dict:
+    try:
+        levels = sanitize_org_structure_levels(list(body.levels or DEFAULT_ORG_STRUCTURE_LEVELS))
+        return {
+            "levels": levels,
+            "position_attachment_level": resolve_optional_position_attachment_level(levels, body.position_attachment_level),
+            "is_hierarchical": body.is_hierarchical,
+        }
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": str(exc), "code": "INVALID_ORG_STRUCTURE_CONFIG"},
+        ) from exc
+
+
+def _org_structure_as_of_stmt(model, tenant_id: uuid.UUID, as_of: date):
+    return (
+        select(model)
+        .where(model.tenant_id == tenant_id)
+        .where(model.valid_from <= as_of)
+        .where((model.valid_to.is_(None)) | (model.valid_to >= as_of))
+    )
+
+
+async def _load_org_units_as_of(db: AsyncSession, tenant_id: uuid.UUID, as_of: date) -> list[OrgUnit]:
+    result = await db.execute(
+        _org_structure_as_of_stmt(OrgUnit, tenant_id, as_of).order_by(OrgUnit.valid_from.asc(), OrgUnit.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def _load_positions_as_of(db: AsyncSession, tenant_id: uuid.UUID, as_of: date) -> list[Position]:
+    result = await db.execute(
+        _org_structure_as_of_stmt(Position, tenant_id, as_of).order_by(Position.valid_from.asc(), Position.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def _load_employments_as_of(db: AsyncSession, tenant_id: uuid.UUID, as_of: date) -> list[EmployeeEmployment]:
+    result = await db.execute(
+        _org_structure_as_of_stmt(EmployeeEmployment, tenant_id, as_of).order_by(
+            EmployeeEmployment.valid_from.asc(),
+            EmployeeEmployment.created_at.asc(),
+        )
+    )
+    return list(result.scalars().all())
+
+
+def _resolve_reparent_target(
+    unit: OrgUnit,
+    *,
+    active_units: dict[uuid.UUID, OrgUnit],
+    type_map: dict[str, str],
+    proposed_levels: list[str],
+    is_hierarchical: bool,
+) -> uuid.UUID | None:
+    if unit.parent_unit_id is None:
+        return None
+    if not is_hierarchical:
+        return unit.parent_unit_id
+    expected_parent_type = get_expected_parent_level(proposed_levels, type_map[unit.unit_type], is_hierarchical=True)
+    if expected_parent_type is None:
+        return None
+
+    cursor = unit.parent_unit_id
+    while cursor is not None:
+        parent = active_units.get(cursor)
+        if parent is None:
+            return None
+        if type_map[parent.unit_type] == expected_parent_type:
+            return parent.id
+        cursor = parent.parent_unit_id
+    return None
+
+
+def _compute_org_structure_override_preview(
+    *,
+    active_units: list[OrgUnit],
+    active_positions: list[Position],
+    active_employments: list[EmployeeEmployment],
+    current_levels: list[str],
+    proposed_levels: list[str],
+    is_hierarchical: bool,
+) -> TenantOrgStructureOverrideImpactOut:
+    active_units_by_id = {row.id: row for row in active_units}
+    type_map = build_override_type_map(current_levels, proposed_levels)
+    converted_unit_ids = {
+        row.id for row in active_units if type_map[row.unit_type] != row.unit_type
+    }
+    reparented_unit_ids = {
+        row.id
+        for row in active_units
+        if _resolve_reparent_target(
+            row,
+            active_units=active_units_by_id,
+            type_map=type_map,
+            proposed_levels=proposed_levels,
+            is_hierarchical=is_hierarchical,
+        ) != row.parent_unit_id
+    }
+    affected_unit_ids = set(converted_unit_ids | reparented_unit_ids)
+    pending = True
+    while pending:
+        pending = False
+        for row in active_units:
+            if row.id in affected_unit_ids:
+                continue
+            if row.parent_unit_id in affected_unit_ids:
+                affected_unit_ids.add(row.id)
+                pending = True
+    warnings: list[str] = []
+    if converted_unit_ids:
+        warnings.append("חלק מהיחידות יומרו לרמה פעילה אחרת כדי לשמר נתונים וקשרים.")
+    if reparented_unit_ids:
+        warnings.append("חלק מהיחידות יחוברו מחדש להורה אחר כדי לשמור על היררכיה חוקית.")
+
+    return TenantOrgStructureOverrideImpactOut(
+        converted_units_count=len(converted_unit_ids),
+        reparented_units_count=len(reparented_unit_ids),
+        affected_positions_count=sum(1 for row in active_positions if row.org_unit_id in affected_unit_ids),
+        affected_employments_count=sum(1 for row in active_employments if row.org_unit_id in affected_unit_ids),
+        warnings=warnings,
+    )
+
+
+async def _next_org_unit_code_for_type(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    unit_type: str,
+) -> str:
+    result = await db.execute(
+        select(OrgUnit.code)
+        .where(OrgUnit.tenant_id == tenant_id)
+        .where(OrgUnit.unit_type == unit_type)
+    )
+    return next_three_digit_code(list(result.scalars().all()))
+
+
+async def _next_position_code(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+) -> str:
+    result = await db.execute(select(Position.code).where(Position.tenant_id == tenant_id))
+    return next_three_digit_code(list(result.scalars().all()))
+
+
+async def _apply_org_structure_override(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    anchor: TenantOrgStructureConfig,
+    proposed_levels: list[str],
+    proposed_position_attachment_level: str | None,
+    effective_from: date,
+    actor_id: uuid.UUID,
+) -> tuple[TenantOrgStructureConfig, TenantOrgStructureOverrideImpactOut]:
+    type_map = build_override_type_map(list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS), proposed_levels)
+    active_units = await _load_org_units_as_of(db, tenant_id, effective_from)
+    active_positions = await _load_positions_as_of(db, tenant_id, effective_from)
+    active_employments = await _load_employments_as_of(db, tenant_id, effective_from)
+    impact = _compute_org_structure_override_preview(
+        active_units=active_units,
+        active_positions=active_positions,
+        active_employments=active_employments,
+        current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
+        proposed_levels=proposed_levels,
+        is_hierarchical=anchor.is_hierarchical,
+    )
+
+    active_units_by_id = {row.id: row for row in active_units}
+    recreated_by_old_id: dict[uuid.UUID, OrgUnit] = {}
+
+    units_to_recreate = {
+        row.id: row for row in active_units
+        if (
+            type_map[row.unit_type] != row.unit_type
+            or _resolve_reparent_target(
+                row,
+                active_units=active_units_by_id,
+                type_map=type_map,
+                proposed_levels=proposed_levels,
+                is_hierarchical=anchor.is_hierarchical,
+            ) != row.parent_unit_id
+        )
+    }
+    pending = True
+    while pending:
+        pending = False
+        for row in active_units:
+            if row.id in units_to_recreate:
+                continue
+            if row.parent_unit_id in units_to_recreate:
+                units_to_recreate[row.id] = row
+                pending = True
+
+    ordered_units_to_recreate = [
+        row for row in active_units
+        if row.id in units_to_recreate
+    ]
+    unit_ids_to_recreate = set(units_to_recreate)
+
+    for row in ordered_units_to_recreate:
+        await update_in_place(
+            db,
+            OrgUnit,
+            tenant_id,
+            {},
+            actor_id,
+            target_valid_from=row.valid_from,
+            new_valid_to=effective_from - timedelta(days=1),
+            extra_filters={"id": row.id},
+        )
+
+    for row in sorted(
+        ordered_units_to_recreate,
+        key=lambda item: (
+            list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS).index(item.unit_type),
+            item.valid_from,
+            item.code,
+        ),
+    ):
+        target_type = type_map[row.unit_type]
+        target_parent_old_id = _resolve_reparent_target(
+            row,
+            active_units=active_units_by_id,
+            type_map=type_map,
+            proposed_levels=proposed_levels,
+            is_hierarchical=anchor.is_hierarchical,
+        )
+        target_parent_new_id = (
+            recreated_by_old_id[target_parent_old_id].id
+            if target_parent_old_id is not None and target_parent_old_id in recreated_by_old_id
+            else target_parent_old_id
+        )
+        # Org unit codes are unique across the tenant/type history, so any recreated
+        # row must receive a fresh code even if its logical type did not change.
+        target_code = await _next_org_unit_code_for_type(db, tenant_id, target_type)
+        new_row = OrgUnit(
+            tenant_id=tenant_id,
+            parent_unit_id=target_parent_new_id,
+            manager_employee_id=row.manager_employee_id,
+            unit_type=target_type,
+            code=target_code,
+            name=row.name,
+            description=row.description,
+            is_active=row.is_active,
+            valid_from=effective_from,
+            valid_to=None,
+            created_by=actor_id,
+        )
+        db.add(new_row)
+        await db.flush()
+        recreated_by_old_id[row.id] = new_row
+
+    unit_id_map = {old_id: recreated.id for old_id, recreated in recreated_by_old_id.items()}
+
+    position_id_map: dict[uuid.UUID, uuid.UUID] = {}
+    positions_to_recreate = [row for row in active_positions if row.org_unit_id in unit_ids_to_recreate]
+    for row in positions_to_recreate:
+        await update_in_place(
+            db,
+            Position,
+            tenant_id,
+            {},
+            actor_id,
+            target_valid_from=row.valid_from,
+            new_valid_to=effective_from - timedelta(days=1),
+            extra_filters={"id": row.id},
+        )
+        new_position = Position(
+            tenant_id=tenant_id,
+            org_unit_id=unit_id_map.get(row.org_unit_id),
+            code=await _next_position_code(db, tenant_id),
+            title=row.title,
+            description=row.description,
+            employment_type_default=row.employment_type_default,
+            is_managerial=row.is_managerial,
+            is_active=row.is_active,
+            valid_from=effective_from,
+            valid_to=None,
+            created_by=actor_id,
+        )
+        db.add(new_position)
+        await db.flush()
+        position_id_map[row.id] = new_position.id
+
+    employments_to_recreate = [row for row in active_employments if row.org_unit_id in unit_ids_to_recreate]
+    for row in employments_to_recreate:
+        await update_in_place(
+            db,
+            EmployeeEmployment,
+            tenant_id,
+            {},
+            actor_id,
+            target_valid_from=row.valid_from,
+            new_valid_to=effective_from - timedelta(days=1),
+            extra_filters={"id": row.id},
+        )
+        db.add(EmployeeEmployment(
+            tenant_id=tenant_id,
+            employee_id=row.employee_id,
+            org_unit_id=unit_id_map.get(row.org_unit_id),
+            manager_employee_id=row.manager_employee_id,
+            position_id=position_id_map.get(row.position_id, row.position_id) if row.position_id else None,
+            employment_status=row.employment_status,
+            employment_type=row.employment_type,
+            salary_type=row.salary_type,
+            start_date=row.start_date,
+            end_date=row.end_date,
+            employment_scope_pct=row.employment_scope_pct,
+            branch_name=row.branch_name,
+            work_site=row.work_site,
+            time_clock_id=row.time_clock_id,
+            notes=row.notes,
+            valid_from=effective_from,
+            valid_to=None,
+            created_by=actor_id,
+        ))
+
+    new_row = await close_and_create(
+        db,
+        TenantOrgStructureConfig,
+        tenant_id,
+        {
+            "levels": proposed_levels,
+            "position_attachment_level": resolve_optional_position_attachment_level(
+                sanitize_org_structure_levels(proposed_levels),
+                proposed_position_attachment_level,
+            ),
+            "is_hierarchical": anchor.is_hierarchical,
+        },
+        actor_id,
+        new_valid_from=effective_from,
+        extra_filters={"id": anchor.id},
+    )
+    return new_row, impact
+
+
 def _latest_row_change(rows: list[object | None]) -> tuple[datetime | None, uuid.UUID | None]:
     latest_at: datetime | None = None
     latest_by: uuid.UUID | None = None
@@ -524,9 +909,10 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
     current_subscription_rows = await load_subscription_modules(db, subscription.id) if subscription else []
     subscription_modules = await _serialize_subscription_modules(db, subscription.id if subscription else None)
     status_row = await get_active(db, TenantStatus, tenant.tenant_id)
+    org_structure = await get_active(db, TenantOrgStructureConfig, tenant.tenant_id)
     user_lookup = await _load_user_lookup(
         db,
-        _collect_row_user_ids(identity, contact, address, subscription, status_row, *current_subscription_rows),
+        _collect_row_user_ids(identity, contact, address, subscription, status_row, org_structure, *current_subscription_rows),
     )
     latest_at, latest_actor_id = _latest_row_change([identity, contact, address, subscription, status_row, *current_subscription_rows])
     pricing_summary = (
@@ -557,6 +943,12 @@ async def _build_tenant_out(tenant: Tenant, db: AsyncSession) -> TenantOut:
         subscription=TenantSubscriptionOut(**subscription_payload) if subscription_payload else None,
         subscription_modules=subscription_modules,
         status=_serialize_temporal_row(status_row, TenantStatusOut, user_lookup),
+        org_structure=_org_structure_payload_from_row(
+            org_structure,
+            user_lookup,
+            is_locked=org_structure is not None,
+            can_force_override=False,
+        ),
     )
 
 
@@ -946,6 +1338,12 @@ async def create_tenant(
         valid_from=today,
         created_by=actor,
     ))
+    db.add(TenantOrgStructureConfig(
+        **_normalize_org_structure_input(body.org_structure),
+        tenant_id=tenant.tenant_id,
+        valid_from=body.org_structure.valid_from or today,
+        created_by=actor,
+    ))
 
     await db.flush()
     await _materialize_subscription_modules(
@@ -1007,6 +1405,180 @@ async def get_tenant(
     if not tenant:
         raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
     return await _build_tenant_out(tenant, db)
+
+
+@router.get("/{tenant_id}/org-structure", response_model=TenantOrgStructureConfigOut)
+async def get_tenant_org_structure(
+    tenant_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("tenants", "view")),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    row = await get_active(db, TenantOrgStructureConfig, tenant_id)
+    if row is None:
+        row = TenantOrgStructureConfig(
+            tenant_id=tenant_id,
+            levels=DEFAULT_ORG_STRUCTURE_LEVELS.copy(),
+            position_attachment_level=DEFAULT_ORG_STRUCTURE_LEVELS[-1],
+            is_hierarchical=True,
+            valid_from=date.today(),
+        )
+    user_lookup = await _load_user_lookup(db, _collect_row_user_ids(row))
+    payload = _org_structure_payload_from_row(
+        row,
+        user_lookup,
+        is_locked=is_org_structure_locked(has_active_config=getattr(row, "id", None) is not None),
+        can_force_override=current_user.is_super_admin() and getattr(row, "id", None) is not None,
+    )
+    if payload is None:
+        raise HTTPException(status_code=500, detail={"error": "Org structure payload error", "code": "ORG_STRUCTURE_ERROR"})
+    return payload
+
+
+@router.post("/{tenant_id}/org-structure/preview-override", response_model=TenantOrgStructureOverridePreviewOut)
+async def preview_tenant_org_structure_override(
+    tenant_id: uuid.UUID,
+    body: TenantOrgStructureOverridePreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    anchor = await get_active(db, TenantOrgStructureConfig, tenant_id)
+    if anchor is None:
+        raise HTTPException(status_code=409, detail={"error": "Org structure must exist before previewing override", "code": "ORG_STRUCTURE_NOT_INITIALIZED"})
+
+    validate_override_effective_date(body.valid_from, anchor.valid_from)
+    proposed_levels = validate_org_structure_override(
+        current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
+        proposed_levels=list(body.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
+        current_is_hierarchical=anchor.is_hierarchical,
+        proposed_is_hierarchical=body.is_hierarchical,
+    )
+    active_units = await _load_org_units_as_of(db, tenant_id, body.valid_from)
+    active_positions = await _load_positions_as_of(db, tenant_id, body.valid_from)
+    active_employments = await _load_employments_as_of(db, tenant_id, body.valid_from)
+    impact = _compute_org_structure_override_preview(
+        active_units=active_units,
+        active_positions=active_positions,
+        active_employments=active_employments,
+        current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
+        proposed_levels=proposed_levels,
+        is_hierarchical=anchor.is_hierarchical,
+    )
+    current_levels = sanitize_org_structure_levels(list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS))
+    try:
+        if body.position_attachment_level is None and getattr(anchor, "position_attachment_level", None) is not None:
+            proposed_position_attachment_level = resolve_position_attachment_level(proposed_levels, None)
+        else:
+            proposed_position_attachment_level = resolve_optional_position_attachment_level(
+                proposed_levels,
+                body.position_attachment_level,
+            )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": str(exc), "code": "INVALID_ORG_STRUCTURE_CONFIG"},
+        ) from exc
+    return TenantOrgStructureOverridePreviewOut(
+        tenant_id=tenant_id,
+        valid_from=body.valid_from,
+        current_levels=current_levels,
+        proposed_levels=proposed_levels,
+        current_position_attachment_level=resolve_optional_position_attachment_level(
+            current_levels,
+            getattr(anchor, "position_attachment_level", None),
+        ),
+        proposed_position_attachment_level=proposed_position_attachment_level,
+        impact=impact,
+    )
+
+
+@router.put("/{tenant_id}/org-structure", response_model=TenantOrgStructureConfigOut | dict)
+async def update_tenant_org_structure(
+    tenant_id: uuid.UUID,
+    body: TenantOrgStructureConfigActionBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(require_super_admin),
+):
+    result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
+
+    anchor = await get_active(db, TenantOrgStructureConfig, tenant_id)
+    action = body.action or "update"
+    validate_org_structure_write_once(
+        has_active_config=anchor is not None,
+        force_override=body.force_override,
+    )
+
+    if not body.valid_from:
+        raise HTTPException(status_code=422, detail={"error": "valid_from is required", "code": "MISSING_DATE"})
+
+    values = _normalize_org_structure_input(body)
+    if anchor is None:
+        row = TenantOrgStructureConfig(
+            tenant_id=tenant_id,
+            **values,
+            valid_from=body.valid_from,
+            valid_to=body.valid_to,
+            created_by=current_user.id,
+        )
+        db.add(row)
+        await db.flush()
+        await db.refresh(row)
+        await db.commit()
+        user_lookup = await _load_user_lookup(db, _collect_row_user_ids(row))
+        payload = _org_structure_payload_from_row(
+            row,
+            user_lookup,
+            is_locked=True,
+            can_force_override=current_user.is_super_admin(),
+        )
+        if payload is None:
+            raise HTTPException(status_code=500, detail={"error": "Org structure payload error", "code": "ORG_STRUCTURE_ERROR"})
+        return payload
+
+    if not body.force_override:
+        raise HTTPException(status_code=409, detail={"error": "Org structure is locked after initial setup", "code": "ORG_STRUCTURE_LOCKED"})
+
+    validate_override_effective_date(body.valid_from, anchor.valid_from)
+    proposed_levels = validate_org_structure_override(
+        current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
+        proposed_levels=values["levels"],
+        current_is_hierarchical=anchor.is_hierarchical,
+        proposed_is_hierarchical=values["is_hierarchical"],
+    )
+    if body.position_attachment_level is None and getattr(anchor, "position_attachment_level", None) is not None:
+        values["position_attachment_level"] = resolve_position_attachment_level(proposed_levels, None)
+    new_row, _impact = await _apply_org_structure_override(
+        db,
+        tenant_id=tenant_id,
+        anchor=anchor,
+        proposed_levels=proposed_levels,
+        proposed_position_attachment_level=values["position_attachment_level"],
+        effective_from=body.valid_from,
+        actor_id=current_user.id,
+    )
+    await db.commit()
+    user_lookup = await _load_user_lookup(db, _collect_row_user_ids(new_row))
+    payload = _org_structure_payload_from_row(
+        new_row,
+        user_lookup,
+        is_locked=True,
+        can_force_override=True,
+    )
+    if payload is None:
+        raise HTTPException(status_code=500, detail={"error": "Org structure payload error", "code": "ORG_STRUCTURE_ERROR"})
+    return payload
 
 
 @router.get("/{tenant_id}/delete-impact", response_model=TenantDeleteImpactOut)
@@ -1386,17 +1958,18 @@ async def apply_template_to_tenant(
     await _ensure_tenant_operation_window(db, tenant_id, effective_from)
     template_defaults = await _load_template_defaults(db, template.id)
     module_slugs = await _load_template_modules(db, template.id)
+    current_subscription = await get_active(db, TenantSubscription, tenant_id)
 
     subscription_payload = {
         "template_id": template.id,
         "billing_cycle": template.default_billing_cycle,
-        "currency": "ILS",
+        "currency": current_subscription.currency if current_subscription else "ILS",
         "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
         "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
+        "billing_anchor_day": getattr(current_subscription, "billing_anchor_day", effective_from.day),
     }
 
     # Build existing seat map so apply-template uses Option-C (take max)
-    current_subscription = await get_active(db, TenantSubscription, tenant_id)
     new_subscription, existing_seats = await _upsert_subscription_for_effective_date(
         db,
         tenant_id=tenant_id,
@@ -1929,6 +2502,7 @@ async def apply_tenant_sync(
             "currency": current_subscription.currency,
             "discount_pct": Decimal(template_defaults.get("discount_pct", "0")),
             "is_price_locked": template_defaults.get("is_price_locked", "false").lower() in {"1", "true", "yes"},
+            "billing_anchor_day": getattr(current_subscription, "billing_anchor_day", effective_from.day),
         },
         actor_id=current_user.id,
         effective_from=effective_from,
@@ -1963,6 +2537,7 @@ async def get_tenant_history(
     subscription_rows = await get_history(db, TenantSubscription, tenant_id)
     subscription_module_rows = await load_tenant_subscription_module_history(db, tenant_id)
     status_rows = await get_history(db, TenantStatus, tenant_id)
+    org_structure_rows = await get_history(db, TenantOrgStructureConfig, tenant_id)
 
     user_lookup = await _load_user_lookup(
         db,
@@ -1973,6 +2548,7 @@ async def get_tenant_history(
             *subscription_rows,
             *subscription_module_rows,
             *status_rows,
+            *org_structure_rows,
         ),
     )
 
@@ -2000,4 +2576,5 @@ async def get_tenant_history(
         ],
         "subscription_modules": [_serialize_temporal_row(r, TenantSubscriptionModuleOut, user_lookup) for r in subscription_module_rows],
         "status": [_serialize_temporal_row(r, TenantStatusOut, user_lookup) for r in status_rows],
+        "org_structure": [_org_structure_payload_from_row(r, user_lookup) for r in org_structure_rows],
     }
