@@ -23,10 +23,12 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import select
+from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text, select
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.models  # noqa: F401
+from app.database import Base
 from app.middleware.auth import CurrentUser
 from app.models.admin_user import AdminUser
 from app.models.admin_user_permission import AdminUserPermission
@@ -98,6 +100,7 @@ LEGACY_DATASET_ALIASES = {
     "tenant_snapshot": "tenant_snapshot_full",
     "tenant_module_snapshot": "tenant_module_snapshot_full",
 }
+AUTO_DATASET_PREFIX = "table__"
 
 
 def _register_font() -> None:
@@ -614,7 +617,7 @@ PERIOD_FIELDS = [
 ]
 PERIOD_FIELD_IDS = {f.id for f in PERIOD_FIELDS}
 
-MASTER_FIELDS = _merge_fields(
+STATIC_MASTER_FIELDS = _merge_fields(
     PERIOD_FIELDS,
     [
         _field("record_type", "סוג רשומה", "string", category="כללי", groupable=True, description="מאיזה מקור נתונים הגיעה הרשומה"),
@@ -660,24 +663,169 @@ def _dataset(
     )
 
 
+def _humanize_identifier(value: str) -> str:
+    return value.replace("_", " ").strip().title()
+
+
+def _column_type_to_report_type(column_type: Any) -> str:
+    if isinstance(column_type, Boolean):
+        return "boolean"
+    if isinstance(column_type, (Integer, Numeric)):
+        return "number"
+    if isinstance(column_type, DateTime):
+        return "datetime"
+    if isinstance(column_type, Date):
+        return "date"
+    if isinstance(column_type, (String, Text)):
+        return "string"
+    try:
+        python_type = column_type.python_type
+    except Exception:
+        return "string"
+    if python_type is bool:
+        return "boolean"
+    if python_type in (int, float, Decimal):
+        return "number"
+    if python_type is datetime:
+        return "datetime"
+    if python_type is date:
+        return "date"
+    if python_type is uuid.UUID:
+        return "uuid"
+    return "string"
+
+
+def _pick_default_model_columns(column_names: list[str]) -> list[str]:
+    preferred = [
+        "id",
+        "tenant_id",
+        "employee_id",
+        "name",
+        "full_name",
+        "title",
+        "code",
+        "slug",
+        "status",
+        "is_active",
+        "valid_from",
+        "valid_to",
+        "created_at",
+        "updated_at",
+    ]
+    selected: list[str] = []
+    for name in preferred:
+        if name in column_names and name not in selected:
+            selected.append(name)
+    for name in column_names:
+        if len(selected) >= 6:
+            break
+        if name not in selected:
+            selected.append(name)
+    return selected or column_names[:6]
+
+
+def _master_auto_field_id(table_name: str, column_name: str) -> str:
+    return f"{AUTO_DATASET_PREFIX}{table_name}__{column_name}"
+
+
+def _master_auto_default_columns(datasets: list[ReportDatasetDefinition]) -> list[str]:
+    preferred_columns = {"id", "tenant_id", "employee_id", "name", "full_name", "title", "code", "slug", "status", "created_at", "updated_at"}
+    selected: list[str] = []
+    for dataset in datasets:
+        if len(selected) >= 6:
+            break
+        table_name = dataset.id.removeprefix(AUTO_DATASET_PREFIX)
+        for field in dataset.fields:
+            if field.id not in preferred_columns:
+                continue
+            selected.append(_master_auto_field_id(table_name, field.id))
+            if len(selected) >= 6:
+                break
+    return selected
+
+
+def _build_auto_master_fields(datasets: list[ReportDatasetDefinition]) -> list[ReportFieldDefinition]:
+    fields: list[ReportFieldDefinition] = []
+    for dataset in datasets:
+        table_name = dataset.id.removeprefix(AUTO_DATASET_PREFIX)
+        category = dataset.label
+        for field in dataset.fields:
+            fields.append(
+                _field(
+                    _master_auto_field_id(table_name, field.id),
+                    field.label,
+                    field.type,
+                    category=category,
+                    description=f"שדה אוטומטי מהטבלה {table_name} בתוך מרכז הנתונים המאוחד.",
+                    operators=field.operators,
+                    groupable=field.groupable,
+                )
+            )
+    return fields
+
+
+def _build_auto_model_datasets() -> tuple[list[ReportDatasetDefinition], dict[str, Any], dict[str, list[str]]]:
+    datasets: list[ReportDatasetDefinition] = []
+    dataset_models: dict[str, Any] = {}
+    dataset_columns: dict[str, list[str]] = {}
+
+    for mapper in sorted(Base.registry.mappers, key=lambda item: item.class_.__tablename__):
+        model = mapper.class_
+        table_name = model.__tablename__
+        dataset_id = f"{AUTO_DATASET_PREFIX}{table_name}"
+        category = f"טבלה: {table_name}"
+        column_names = [column.key for column in mapper.columns]
+        fields = [
+            _field(
+                column.key,
+                _humanize_identifier(column.key),
+                _column_type_to_report_type(column.type),
+                category=category,
+                description=f"שדה אוטומטי מהטבלה {table_name}.",
+            )
+            for column in mapper.columns
+        ]
+        datasets.append(
+            _dataset(
+                dataset_id,
+                f"טבלה: {table_name}",
+                f"דאטה סט אוטומטי שמסתנכרן ישירות ממודל {table_name}. כל עמודה חדשה בטבלה תופיע כאן אוטומטית.",
+                fields,
+                _pick_default_model_columns(column_names),
+                [ReportMetricDefinition(operation="count", label="כמות רשומות")],
+            )
+        )
+        dataset_models[dataset_id] = model
+        dataset_columns[dataset_id] = column_names
+
+    return datasets, dataset_models, dataset_columns
+
+
+AUTO_MODEL_DATASETS, AUTO_MODEL_DATASET_MAP, AUTO_MODEL_DATASET_COLUMNS = _build_auto_model_datasets()
+AUTO_MASTER_FIELDS = _build_auto_master_fields(AUTO_MODEL_DATASETS)
+MASTER_FIELDS = _merge_fields(STATIC_MASTER_FIELDS, AUTO_MASTER_FIELDS)
+MASTER_DEFAULT_COLUMNS = [
+    "record_type",
+    "org_number",
+    "identity_name_he",
+    "contact_main_name",
+    "contact_main_phone",
+    "contact_main_email",
+    "address_main_city",
+    "address_main_street",
+    "module_name",
+    "template_name",
+    *_master_auto_default_columns(AUTO_MODEL_DATASETS),
+]
+
+
 DATASETS = [
     _dataset(
         "master_dataset",
         "מרכז נתונים מאוחד",
-        "מאגר־על שמרכז את כל שדות הליבה במערכת, כולל כתובות, טלפונים, אנשי קשר, מנויים, מודולים, תבניות, אדמינים ו-Audit.",
+        "מאגר־על שמרכז את כל שדות הליבה במערכת וגם מסנכרן אוטומטית כל טבלה ושדה חדשים ממודלי המערכת.",
         MASTER_FIELDS,
-        [
-            "record_type",
-            "org_number",
-            "identity_name_he",
-            "contact_main_name",
-            "contact_main_phone",
-            "contact_main_email",
-            "address_main_city",
-            "address_main_street",
-            "module_name",
-            "template_name",
-        ],
+        MASTER_DEFAULT_COLUMNS,
         [ReportMetricDefinition(operation="count", label="כמות רשומות")],
     ),
     _dataset(
@@ -806,7 +954,8 @@ DATASETS = [
     ),
 ]
 
-DATASET_MAP = {dataset.id: dataset for dataset in DATASETS}
+ALL_DATASETS = DATASETS + AUTO_MODEL_DATASETS
+DATASET_MAP = {dataset.id: dataset for dataset in ALL_DATASETS}
 CATALOG = [
     ReportCatalogItem(
         id="tenant_portfolio",
@@ -938,7 +1087,7 @@ async def get_catalog(db: AsyncSession) -> ReportCatalogResponse:
 
 
 async def get_datasets(db: AsyncSession) -> ReportDatasetsResponse:
-    return ReportDatasetsResponse(datasets=DATASETS, filter_options=await _load_filter_options(db))
+    return ReportDatasetsResponse(datasets=ALL_DATASETS, filter_options=await _load_filter_options(db))
 
 
 async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[dict[str, Any]]]:
@@ -1444,6 +1593,14 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
             }
         )
 
+    for dataset in AUTO_MODEL_DATASETS:
+        auto_rows = await _load_auto_dataset_rows(
+            db,
+            dataset.id,
+            as_of=as_of,
+        )
+        master_rows.extend(_build_auto_master_rows(dataset.id, auto_rows))
+
     return {
         "master_dataset": master_rows,
         "tenant_snapshot_full": tenant_snapshot_rows,
@@ -1462,6 +1619,74 @@ async def _load_snapshot_rows(db: AsyncSession, as_of: date) -> dict[str, list[d
         "tenant_snapshot": tenant_snapshot_rows,
         "tenant_module_snapshot": tenant_module_rows,
     }
+
+
+async def _load_auto_dataset_rows(
+    db: AsyncSession,
+    dataset_id: str,
+    *,
+    as_of: date | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[dict[str, Any]]:
+    model = AUTO_MODEL_DATASET_MAP[dataset_id]
+    query = select(model)
+
+    if hasattr(model, "valid_from"):
+        if date_from and date_to:
+            query = query.where(getattr(model, "valid_from") <= date_to)
+            if hasattr(model, "valid_to"):
+                query = query.where(
+                    (getattr(model, "valid_to").is_(None)) | (getattr(model, "valid_to") >= date_from)
+                )
+        elif as_of:
+            query = query.where(getattr(model, "valid_from") <= as_of)
+            if hasattr(model, "valid_to"):
+                query = query.where(
+                    (getattr(model, "valid_to").is_(None)) | (getattr(model, "valid_to") > as_of)
+                )
+    elif hasattr(model, "created_at") and date_from and date_to:
+        query = query.where(getattr(model, "created_at") >= datetime.combine(date_from, datetime.min.time(), tzinfo=UTC))
+        query = query.where(getattr(model, "created_at") <= datetime.combine(date_to, datetime.max.time(), tzinfo=UTC))
+
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    column_names = AUTO_MODEL_DATASET_COLUMNS[dataset_id]
+    return [
+        {column_name: _serialize_value(getattr(row, column_name, None)) for column_name in column_names}
+        for row in rows
+    ]
+
+
+def _guess_master_record_key(row: dict[str, Any], table_name: str, index: int) -> str:
+    for candidate in ("id", "uuid", "code", "slug", "name", "title"):
+        value = row.get(candidate)
+        if value not in (None, ""):
+            return str(value)
+    return f"{table_name}:{index}"
+
+
+def _guess_master_created_at(row: dict[str, Any]) -> Any:
+    for candidate in ("created_at", "updated_at", "valid_from", "date", "event_date"):
+        value = row.get(candidate)
+        if value is not None:
+            return value
+    return None
+
+
+def _build_auto_master_rows(dataset_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    table_name = dataset_id.removeprefix(AUTO_DATASET_PREFIX)
+    master_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        master_row = {
+            "record_type": dataset_id,
+            "record_key": _guess_master_record_key(row, table_name, index),
+            "master_created_at": _guess_master_created_at(row),
+        }
+        for column_name, value in row.items():
+            master_row[_master_auto_field_id(table_name, column_name)] = value
+        master_rows.append(master_row)
+    return master_rows
 
 
 def _normalize_compare_value(value: Any) -> Any:
@@ -1851,6 +2076,20 @@ async def _load_range_rows(db: AsyncSession, date_from: date, date_to: date, dat
             }
             result_rows.append(row)
 
+    if dataset_id == "master_dataset":
+        for dataset in AUTO_MODEL_DATASETS:
+            auto_rows = await _load_auto_dataset_rows(
+                db,
+                dataset.id,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            for row in _build_auto_master_rows(dataset.id, auto_rows):
+                row["period_valid_from"] = date_from
+                row["period_valid_to"] = date_to
+                row["period_duration_days"] = (date_to - date_from).days
+                result_rows.append(row)
+
     # Sort by period_valid_from desc so newest first
     result_rows.sort(key=lambda r: (r.get("period_valid_from") or date.min), reverse=True)
     return result_rows
@@ -1865,7 +2104,15 @@ async def execute_report_query(db: AsyncSession, request: ReportQueryRequest) ->
         raise ValueError("Limit must be positive")
 
     # ── Range mode: date_from + date_to both set ──────────────────────────────
-    if definition.date_from and definition.date_to:
+    if definition.dataset in AUTO_MODEL_DATASET_MAP:
+        source_rows = await _load_auto_dataset_rows(
+            db,
+            definition.dataset,
+            as_of=definition.as_of_date or date.today(),
+            date_from=definition.date_from,
+            date_to=definition.date_to,
+        )
+    elif definition.date_from and definition.date_to:
         source_rows = await _load_range_rows(db, definition.date_from, definition.date_to, definition.dataset)
     else:
         as_of = definition.as_of_date or date.today()

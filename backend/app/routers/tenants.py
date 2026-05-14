@@ -1,4 +1,5 @@
 import uuid
+import logging
 import sqlalchemy as sa
 import httpx
 import re
@@ -43,6 +44,7 @@ from app.schemas.tenant import (
 from app.services.temporal import (
     close_and_create, get_active, get_history, update_in_place,
     check_date_overlap, kabiya, delete_specific_row, close_active_row,
+    _apply_extra_filters,
 )
 from app.services.subscription_modules import (
     BlueprintModule,
@@ -79,6 +81,25 @@ from app.services.core import next_three_digit_code
 from app.models.seat_change_log import SeatChangeLog
 
 router = APIRouter(prefix="/api/admin/tenants", tags=["tenants"])
+logger = logging.getLogger(__name__)
+
+
+def _is_missing_billing_relation_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "undefinedtableerror" not in message and "relation" not in message:
+        return False
+    return any(
+        relation in message
+        for relation in {
+            "billing_contracts",
+            "billing_contract_items",
+            "billing_change_events",
+            "billing_bill_runs",
+            "billing_documents",
+            "billing_document_lines",
+            "billing_ledger_entries",
+        }
+    )
 settings = get_settings()
 
 _LOGO_BUCKET = "logos"
@@ -562,6 +583,7 @@ async def _apply_org_structure_override(
     anchor: TenantOrgStructureConfig,
     proposed_levels: list[str],
     proposed_position_attachment_level: str | None,
+    proposed_is_hierarchical: bool,
     effective_from: date,
     actor_id: uuid.UUID,
 ) -> tuple[TenantOrgStructureConfig, TenantOrgStructureOverrideImpactOut]:
@@ -575,7 +597,7 @@ async def _apply_org_structure_override(
         active_employments=active_employments,
         current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
         proposed_levels=proposed_levels,
-        is_hierarchical=anchor.is_hierarchical,
+        is_hierarchical=proposed_is_hierarchical,
     )
 
     active_units_by_id = {row.id: row for row in active_units}
@@ -590,7 +612,7 @@ async def _apply_org_structure_override(
                 active_units=active_units_by_id,
                 type_map=type_map,
                 proposed_levels=proposed_levels,
-                is_hierarchical=anchor.is_hierarchical,
+                is_hierarchical=proposed_is_hierarchical,
             ) != row.parent_unit_id
         )
     }
@@ -636,7 +658,7 @@ async def _apply_org_structure_override(
             active_units=active_units_by_id,
             type_map=type_map,
             proposed_levels=proposed_levels,
-            is_hierarchical=anchor.is_hierarchical,
+            is_hierarchical=proposed_is_hierarchical,
         )
         target_parent_new_id = (
             recreated_by_old_id[target_parent_old_id].id
@@ -738,7 +760,7 @@ async def _apply_org_structure_override(
                 sanitize_org_structure_levels(proposed_levels),
                 proposed_position_attachment_level,
             ),
-            "is_hierarchical": anchor.is_hierarchical,
+            "is_hierarchical": proposed_is_hierarchical,
         },
         actor_id,
         new_valid_from=effective_from,
@@ -1018,12 +1040,20 @@ async def _sync_subscription_to_billing(
 ) -> None:
     if getattr(subscription, "id", None) is None:
         return
-    await sync_billing_contract_from_subscription(
-        db,
-        subscription=subscription,
-        actor_id=actor_id,
-        as_of=as_of or date.today(),
-    )
+    try:
+        await sync_billing_contract_from_subscription(
+            db,
+            subscription=subscription,
+            actor_id=actor_id,
+            as_of=as_of or date.today(),
+        )
+    except sa.exc.ProgrammingError as exc:
+        if not _is_missing_billing_relation_error(exc):
+            raise
+        logger.warning(
+            "Skipping subscription billing sync because billing tables are missing for tenant %s",
+            subscription.tenant_id,
+        )
 
 
 async def _materialize_subscription_modules(
@@ -1461,6 +1491,7 @@ async def preview_tenant_org_structure_override(
         proposed_levels=list(body.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
         current_is_hierarchical=anchor.is_hierarchical,
         proposed_is_hierarchical=body.is_hierarchical,
+        allow_hierarchy_change=True,
     )
     active_units = await _load_org_units_as_of(db, tenant_id, body.valid_from)
     active_positions = await _load_positions_as_of(db, tenant_id, body.valid_from)
@@ -1471,17 +1502,14 @@ async def preview_tenant_org_structure_override(
         active_employments=active_employments,
         current_levels=list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS),
         proposed_levels=proposed_levels,
-        is_hierarchical=anchor.is_hierarchical,
+        is_hierarchical=body.is_hierarchical,
     )
     current_levels = sanitize_org_structure_levels(list(anchor.levels or DEFAULT_ORG_STRUCTURE_LEVELS))
     try:
-        if body.position_attachment_level is None and getattr(anchor, "position_attachment_level", None) is not None:
-            proposed_position_attachment_level = resolve_position_attachment_level(proposed_levels, None)
-        else:
-            proposed_position_attachment_level = resolve_optional_position_attachment_level(
-                proposed_levels,
-                body.position_attachment_level,
-            )
+        proposed_position_attachment_level = resolve_optional_position_attachment_level(
+            proposed_levels,
+            body.position_attachment_level,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1556,15 +1584,15 @@ async def update_tenant_org_structure(
         proposed_levels=values["levels"],
         current_is_hierarchical=anchor.is_hierarchical,
         proposed_is_hierarchical=values["is_hierarchical"],
+        allow_hierarchy_change=body.force_override,
     )
-    if body.position_attachment_level is None and getattr(anchor, "position_attachment_level", None) is not None:
-        values["position_attachment_level"] = resolve_position_attachment_level(proposed_levels, None)
     new_row, _impact = await _apply_org_structure_override(
         db,
         tenant_id=tenant_id,
         anchor=anchor,
         proposed_levels=proposed_levels,
         proposed_position_attachment_level=values["position_attachment_level"],
+        proposed_is_hierarchical=values["is_hierarchical"],
         effective_from=body.valid_from,
         actor_id=current_user.id,
     )

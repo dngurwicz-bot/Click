@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -15,15 +15,15 @@ import {
   type ScreenMenuState,
 } from "@/components/layout/DashboardScreenContextMenu";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
-import { api, getStoredUser, isLoggedIn, type UserInfo } from "@/lib/api";
+import { getStoredUser, isLoggedIn, type UserInfo } from "@/lib/api";
 import {
   getVisibleDashboardScreens,
   readPinnedDashboardScreenIds,
   subscribeToPinnedDashboardScreens,
   togglePinnedDashboardScreen,
   type DashboardScreen,
-  type ModuleNavItem,
 } from "@/lib/dashboardScreens";
+import { useTenantModuleNav } from "@/lib/tenantModuleNav";
 
 const roleLabel: Record<string, string> = {
   super_admin: "Super Admin",
@@ -71,12 +71,12 @@ function DashboardScreenCard({
 
 export default function DashboardPage() {
   const router = useRouter();
+  const workspace = useWorkspace();
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [modules, setModules] = useState<ModuleNavItem[]>([]);
   const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
   const [screenMenu, setScreenMenu] = useState<ScreenMenuState | null>(null);
   const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { modules, loading, reload } = useTenantModuleNav(workspace?.selectedTenantId ?? "");
 
   const today = new Date().toLocaleDateString("he-IL", {
     weekday: "long",
@@ -108,25 +108,11 @@ export default function DashboardPage() {
     });
   }
 
-  function loadDashboard() {
+  const loadDashboard = useCallback(() => {
     const nextUser = getStoredUser();
     if (nextUser) setUser(nextUser);
-
-    const requests: Promise<unknown>[] = [
-      api.get<ModuleNavItem[]>("/api/admin/modules").catch(() => [] as ModuleNavItem[]),
-    ];
-
-    setLoading(true);
-    Promise.all(requests)
-      .then(([modulesData]) => {
-        const nextModules = Array.isArray(modulesData) ? modulesData : [];
-        setModules(nextModules);
-      })
-      .catch(() => {
-        setModules([]);
-      })
-      .finally(() => setLoading(false));
-  }
+    reload();
+  }, [reload]);
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -136,7 +122,7 @@ export default function DashboardPage() {
 
     setUser(getStoredUser());
     loadDashboard();
-  }, [router]);
+  }, [router, loadDashboard]);
 
   useEffect(() => {
     setPinnedScreenIds(readPinnedDashboardScreenIds(visibleScreens));
@@ -205,7 +191,7 @@ export default function DashboardPage() {
                 <div className="text-lg font-semibold text-slate-800">הדשבורד שלך מוכן להתאמה אישית</div>
                 <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-500">
                   כרגע אין מסכים שמוגדרים לכניסה מהירה. עבור עם העכבר על סרגל הניווט, לחץ קליק ימני על שם המסך הרצוי ובחר
-                  &nbsp;"הוסף לדשבורד".
+                  &nbsp;&quot;הוסף לדשבורד&quot;.
                 </p>
               </div>
             ) : (

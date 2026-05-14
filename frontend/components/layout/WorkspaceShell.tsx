@@ -11,6 +11,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { TENANT_OPTIONS_UPDATED_EVENT } from "@/lib/workspaceTenants";
 import { TopNav } from "./TopNav";
 import { AIAssistant } from "../ai/AIAssistant";
 
@@ -87,34 +88,43 @@ function WorkspaceShellInner({
   useEffect(() => {
     let cancelled = false;
 
-    api
-      .get<WorkspaceTenantOption[]>("/api/admin/tenants")
-      .then((rows) => {
+    async function loadTenantOptions() {
+      setTenantOptionsLoading(true);
+      try {
+        const rows = await api.get<WorkspaceTenantOption[]>("/api/admin/tenants");
         if (cancelled) return;
-        setTenantOptions(Array.isArray(rows) ? rows : []);
+        const safeRows = Array.isArray(rows) ? rows : [];
+        setTenantOptions(safeRows);
         setSelectedTenantIdState((current) => {
           const saved = typeof window === "undefined" ? "" : window.localStorage.getItem(TENANT_STORAGE_KEY) ?? "";
           const preferred = current || saved;
-          if (preferred && rows.some((row) => row.tenant_id === preferred)) {
+          if (preferred && safeRows.some((row) => row.tenant_id === preferred)) {
             return preferred;
           }
-          return rows[0]?.tenant_id ?? "";
+          return safeRows[0]?.tenant_id ?? "";
         });
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setTenantOptions([]);
           setSelectedTenantIdState("");
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setTenantOptionsLoading(false);
         }
-      });
+      }
+    }
+
+    function handleTenantOptionsUpdated() {
+      void loadTenantOptions();
+    }
+
+    void loadTenantOptions();
+    window.addEventListener(TENANT_OPTIONS_UPDATED_EVENT, handleTenantOptionsUpdated);
 
     return () => {
       cancelled = true;
+      window.removeEventListener(TENANT_OPTIONS_UPDATED_EVENT, handleTenantOptionsUpdated);
     };
   }, []);
 

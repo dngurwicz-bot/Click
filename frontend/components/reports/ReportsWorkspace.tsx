@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiRequestError, api } from "@/lib/api";
 import { ReportDesigner } from "./ReportDesigner";
@@ -58,6 +58,11 @@ function triggerDownload(payload: { file_name: string; mime_type: string; conten
 
 export function ReportsWorkspace() {
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams?.toString() ?? "";
+  const templateId = searchParams?.get("template") ?? null;
+  const savedTemplateId = searchParams?.get("saved_template") ?? null;
+  const savedId = searchParams?.get("saved") ?? null;
+  const isNew = searchParams?.get("new") === "true";
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [datasets, setDatasets] = useState<ReportDatasetDefinition[]>([]);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
@@ -76,24 +81,29 @@ export function ReportsWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [preferredColumnsVersion, setPreferredColumnsVersion] = useState(0);
 
-  function getPreferredColumns(dataset: ReportDatasetDefinition) {
+  const getPreferredColumns = useCallback((dataset: ReportDatasetDefinition) => {
     void preferredColumnsVersion;
     return readPreferredColumnsMap()[dataset.id]?.filter((columnId) => dataset.fields.some((field) => field.id === columnId)) ?? [];
-  }
+  }, [preferredColumnsVersion]);
 
-  function buildDefinitionFromDataset(dataset: ReportDatasetDefinition, base: ReportDefinition = emptyDefinition): ReportDefinition {
+  const resolveDatasetColumns = useCallback((dataset: ReportDatasetDefinition, requestedColumns: string[]) => {
+    if (requestedColumns.length > 0) {
+      return requestedColumns.filter((columnId) => dataset.fields.some((field) => field.id === columnId));
+    }
+
     const preferredColumns = getPreferredColumns(dataset);
-    const resolvedColumns =
-      base.columns.length > 0
-        ? base.columns
-        : preferredColumns.length > 0
-        ? preferredColumns
-        : [];
+    if (preferredColumns.length > 0) {
+      return preferredColumns;
+    }
 
+    return dataset.default_columns.filter((columnId) => dataset.fields.some((field) => field.id === columnId));
+  }, [getPreferredColumns]);
+
+  const buildDefinitionFromDataset = useCallback((dataset: ReportDatasetDefinition, base: ReportDefinition = emptyDefinition): ReportDefinition => {
     return {
       ...base,
       dataset: dataset.id,
-      columns: resolvedColumns,
+      columns: resolveDatasetColumns(dataset, base.columns),
       metrics: base.metrics.length > 0 ? base.metrics : dataset.metrics.map((metric) => ({
         operation: metric.operation,
         field: metric.field ?? null,
@@ -102,7 +112,23 @@ export function ReportsWorkspace() {
       limit: base.limit || 50,
       offset: 0,
     };
-  }
+  }, [resolveDatasetColumns]);
+
+  const applyDefinition = useCallback((
+    nextDefinition: ReportDefinition,
+    nextTitle = "",
+    availableDatasets: ReportDatasetDefinition[],
+  ) => {
+    const dataset = availableDatasets.find((item) => item.id === nextDefinition.dataset);
+    setDefinition({
+      ...(dataset ? buildDefinitionFromDataset(dataset, nextDefinition) : nextDefinition),
+      offset: 0,
+      limit: nextDefinition.limit || 50,
+    });
+    setTitle(nextTitle);
+    setResult(null);
+    setError(null);
+  }, [buildDefinitionFromDataset]);
 
   useEffect(() => {
     setLoading(true);
@@ -113,10 +139,10 @@ export function ReportsWorkspace() {
       api.get<SavedReportView[]>("/api/insights/reports/saved?kind=template"),
     ])
       .then(([catalogResult, datasetsResult, savedResult, templateResult]) => {
-        let loadedCatalog = catalog;
-        let loadedSaved = savedReports;
-        let loadedTemplates = savedTemplates;
-        let loadedDatasets = datasets;
+        let loadedCatalog: ReportCatalogItem[] = [];
+        let loadedSaved: SavedReportView[] = [];
+        let loadedTemplates: SavedReportView[] = [];
+        let loadedDatasets: ReportDatasetDefinition[] = [];
 
         if (catalogResult.status === "fulfilled") {
           loadedCatalog = catalogResult.value.reports;
@@ -137,30 +163,25 @@ export function ReportsWorkspace() {
         }
 
         // Apply URL params if present
-        const templateId = searchParams?.get('template');
-        const savedTemplateId = searchParams?.get('saved_template');
-        const savedId = searchParams?.get('saved');
-        const isNew = searchParams?.get('new') === 'true';
-
         if (templateId) {
-          const item = loadedCatalog.find(r => r.id === templateId);
-          if (item) applyDefinition(item.definition, item.title);
+          const item = loadedCatalog.find((r) => r.id === templateId);
+          if (item) applyDefinition(item.definition, item.title, loadedDatasets);
         } else if (savedTemplateId) {
-          const item = loadedTemplates.find(r => r.id === savedTemplateId);
-          if (item) applyDefinition(item.definition, item.name);
+          const item = loadedTemplates.find((r) => r.id === savedTemplateId);
+          if (item) applyDefinition(item.definition, item.name, loadedDatasets);
         } else if (savedId) {
-          const item = loadedSaved.find(r => r.id === savedId);
-          if (item) applyDefinition(item.definition, item.name);
+          const item = loadedSaved.find((r) => r.id === savedId);
+          if (item) applyDefinition(item.definition, item.name, loadedDatasets);
         } else if (isNew) {
           const defaultDataset = loadedDatasets.find((item) => item.id === emptyDefinition.dataset) ?? loadedDatasets[0];
           if (defaultDataset) {
-            applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
+            applyDefinition(buildDefinitionFromDataset(defaultDataset), "", loadedDatasets);
           } else {
-            applyDefinition(emptyDefinition, "");
+            applyDefinition(emptyDefinition, "", loadedDatasets);
           }
         } else if (loadedDatasets.length > 0) {
           const defaultDataset = loadedDatasets.find((item) => item.id === emptyDefinition.dataset) ?? loadedDatasets[0];
-          applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
+          applyDefinition(buildDefinitionFromDataset(defaultDataset), "", loadedDatasets);
         }
 
         if (catalogResult.status === "rejected" || datasetsResult.status === "rejected") {
@@ -174,7 +195,7 @@ export function ReportsWorkspace() {
         setError(message);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [applyDefinition, buildDefinitionFromDataset, isNew, savedId, savedTemplateId, searchParamsKey, templateId]);
 
   useEffect(() => {
     function handleLoadReport(event: Event) {
@@ -182,27 +203,27 @@ export function ReportsWorkspace() {
       const { type, id } = customEvent.detail;
       
       if (type === 'template') {
-        const item = catalog.find(r => r.id === id);
-        if (item) applyDefinition(item.definition, item.title);
+        const item = catalog.find((r) => r.id === id);
+        if (item) applyDefinition(item.definition, item.title, datasets);
       } else if (type === 'saved-template') {
-        const item = savedTemplates.find(r => r.id === id);
-        if (item) applyDefinition(item.definition, item.name);
+        const item = savedTemplates.find((r) => r.id === id);
+        if (item) applyDefinition(item.definition, item.name, datasets);
       } else if (type === 'saved') {
-        const item = savedReports.find(r => r.id === id);
-        if (item) applyDefinition(item.definition, item.name);
+        const item = savedReports.find((r) => r.id === id);
+        if (item) applyDefinition(item.definition, item.name, datasets);
       } else if (type === 'new') {
         const defaultDataset = datasets.find((item) => item.id === emptyDefinition.dataset) ?? datasets[0];
         if (defaultDataset) {
-          applyDefinition(buildDefinitionFromDataset(defaultDataset), "");
+          applyDefinition(buildDefinitionFromDataset(defaultDataset), "", datasets);
         } else {
-          applyDefinition(emptyDefinition, "");
+          applyDefinition(emptyDefinition, "", datasets);
         }
       }
     }
 
     window.addEventListener('load-report', handleLoadReport);
     return () => window.removeEventListener('load-report', handleLoadReport);
-  }, [catalog, savedReports, savedTemplates, datasets]);
+  }, [applyDefinition, buildDefinitionFromDataset, catalog, datasets, savedReports, savedTemplates]);
 
   async function runQuery() {
     if (!definition.dataset) return;
@@ -297,13 +318,13 @@ export function ReportsWorkspace() {
   function applySavedTemplate(templateId: string) {
     const template = savedTemplates.find((item) => item.id === templateId);
     if (!template) return;
-    applyDefinition(template.definition, template.name);
+    applyDefinition(template.definition, template.name, datasets);
   }
 
   function applySavedReport(reportId: string) {
     const report = savedReports.find((item) => item.id === reportId);
     if (!report) return;
-    applyDefinition(report.definition, report.name);
+    applyDefinition(report.definition, report.name, datasets);
   }
 
   async function deleteSavedItem(itemId: string, kind: "report" | "template") {
@@ -319,18 +340,6 @@ export function ReportsWorkspace() {
       setError(message);
       throw new Error(message);
     }
-  }
-
-  function applyDefinition(nextDefinition: ReportDefinition, nextTitle = "") {
-    const dataset = datasets.find((item) => item.id === nextDefinition.dataset);
-    setDefinition({
-      ...(dataset ? buildDefinitionFromDataset(dataset, nextDefinition) : nextDefinition),
-      offset: 0,
-      limit: nextDefinition.limit || 50,
-    });
-    setTitle(nextTitle);
-    setResult(null);
-    setError(null);
   }
 
   if (loading) {

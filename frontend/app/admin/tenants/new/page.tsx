@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { api, getStoredUser, isLoggedIn } from "@/lib/api";
+import { dispatchTenantOptionsUpdated } from "@/lib/workspaceTenants";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import {
   TenantOrgStructureModal,
@@ -1190,6 +1191,7 @@ export default function NewTenantPage() {
           is_hierarchical: orgStructure.is_hierarchical,
         },
       });
+      dispatchTenantOptionsUpdated();
       router.push("/admin/tenants");
     } catch (err: unknown) {
       const apiErr = err as { error?: string };

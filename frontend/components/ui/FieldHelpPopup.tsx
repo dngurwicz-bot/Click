@@ -179,7 +179,7 @@ export function FieldHelpPopup() {
             </>
           ) : (
             <p className="text-slate-400 italic">
-              אין עדיין עזרה מפורטת עבור השדה "{normalizedLabel}".
+              אין עדיין עזרה מפורטת עבור השדה &quot;{normalizedLabel}&quot;.
             </p>
           )}
         </div>

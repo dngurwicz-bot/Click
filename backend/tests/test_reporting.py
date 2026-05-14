@@ -73,7 +73,7 @@ def _base_loader_results():
     template_id = uuid4()
     admin_id = uuid4()
     saved_report_id = uuid4()
-    return [
+    results = [
         _ScalarResult([SimpleNamespace(tenant_id=tenant_id, org_number=101, created_at=datetime(2026, 1, 2, tzinfo=UTC))]),
         _ScalarResult([
             SimpleNamespace(
@@ -257,6 +257,8 @@ def _base_loader_results():
             )
         ]),
     ]
+    results.extend(_ScalarResult([]) for _ in reporting.AUTO_MODEL_DATASETS)
+    return results
 
 
 @pytest.mark.asyncio
@@ -313,6 +315,18 @@ def test_dataset_metadata_exposes_new_system_fields_and_summary_datasets():
     assert "seat_distribution" in reporting.DATASET_MAP
 
 
+def test_auto_model_datasets_include_core_tables_and_fields():
+    employee_dataset = reporting.DATASET_MAP["table__employees"]
+    employee_field_ids = {field.id for field in employee_dataset.fields}
+    org_unit_dataset = reporting.DATASET_MAP["table__org_units"]
+    org_unit_field_ids = {field.id for field in org_unit_dataset.fields}
+
+    assert "employee_number" in employee_field_ids
+    assert "external_ref" in employee_field_ids
+    assert "unit_type" in org_unit_field_ids
+    assert "manager_employee_id" in org_unit_field_ids
+
+
 def test_all_report_fields_include_detailed_help_and_valid_relations():
     for dataset in reporting.DATASETS:
         field_ids = {field.id for field in dataset.fields}
@@ -354,6 +368,33 @@ async def test_execute_report_query_filters_new_dataset(monkeypatch):
 
     assert result.total == 1
     assert result.rows[0]["tenant_name"] == "Acme"
+
+
+@pytest.mark.asyncio
+async def test_execute_report_query_supports_auto_model_dataset(monkeypatch):
+    async def fake_auto_loader(_db, dataset_id, **_kwargs):
+        assert dataset_id == "table__employees"
+        return [
+            {"id": "1", "employee_number": "E-100", "is_active": True},
+            {"id": "2", "employee_number": "E-200", "is_active": False},
+        ]
+
+    monkeypatch.setattr(reporting, "_load_auto_dataset_rows", fake_auto_loader)
+
+    result = await reporting.execute_report_query(
+        None,
+        ReportQueryRequest(
+            definition=ReportDefinition(
+                dataset="table__employees",
+                columns=["employee_number", "is_active"],
+                filters=[{"field": "is_active", "operator": "equals", "value": True}],
+                limit=25,
+            )
+        ),
+    )
+
+    assert result.total == 1
+    assert result.rows[0]["employee_number"] == "E-100"
 
 
 @pytest.mark.asyncio

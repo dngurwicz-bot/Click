@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
+/* eslint-disable @next/next/no-img-element */
 
 interface InvoiceLine {
   id: string;
@@ -116,7 +117,7 @@ export default function DocumentPrintPage() {
             <thead>
               <tr className="border-b-2 border-slate-800">
                 <th className="py-3 px-2 text-right font-bold text-slate-800">תיאור שירות / פריט</th>
-                <th className="py-3 px-2 text-right font-bold text-slate-800 w-32">סכום ש"ח</th>
+                <th className="py-3 px-2 text-right font-bold text-slate-800 w-32">סכום ש&quot;ח</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -138,15 +139,15 @@ export default function DocumentPrintPage() {
           </div>
           <div className="w-64 space-y-3">
              <div className="flex justify-between text-slate-600">
-               <span>סה"כ ביניים:</span>
+               <span>סה&quot;כ ביניים:</span>
                <span className="font-bold">₪ {parseFloat(inv.subtotal_ils).toLocaleString()}</span>
              </div>
              <div className="flex justify-between text-slate-600">
-               <span>מע"מ ({inv.vat_pct}%):</span>
+               <span>מע&quot;מ ({inv.vat_pct}%):</span>
                <span className="font-bold">₪ {parseFloat(inv.vat_ils).toLocaleString()}</span>
              </div>
              <div className="flex justify-between border-t border-slate-200 pt-3">
-               <span className="text-xl font-black text-slate-800">לתשלום סה"כ:</span>
+               <span className="text-xl font-black text-slate-800">לתשלום סה&quot;כ:</span>
                <span className="text-xl font-black" style={primaryText}>₪ {parseFloat(inv.total_ils).toLocaleString()}</span>
              </div>
           </div>

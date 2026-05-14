@@ -158,10 +158,11 @@ export function ReportDesigner({
   const handleDatasetChange = (datasetId: string) => {
     const dataset = datasets.find((d) => d.id === datasetId);
     if (!dataset) return;
+    const preferredColumns = getPreferredColumnsForDataset(dataset);
     setDefinition({
       ...emptyDefinition,
       dataset: dataset.id,
-      columns: getPreferredColumnsForDataset(dataset),
+      columns: preferredColumns.length > 0 ? preferredColumns : dataset.default_columns,
       metrics: dataset.metrics.map((m) => ({ operation: m.operation, field: m.field ?? null, label: m.label })),
       limit: 50,
     });

@@ -78,6 +78,18 @@ def test_cycle_bounds_monthly_with_anchor_before_day():
     assert end == date(2026, 4, 14)
 
 
+def test_cycle_bounds_quarterly_keeps_contract_anchor_month():
+    contract = _contract(
+        billing_cycle="quarterly",
+        anchor_day=1,
+        start_date=date(2026, 4, 1),
+        next_renewal_at=date(2026, 7, 1),
+    )
+    start, end = billing_engine.cycle_bounds(contract, date(2026, 5, 9))
+    assert start == date(2026, 4, 1)
+    assert end == date(2026, 6, 30)
+
+
 def test_renewal_preview_creates_full_cycle_lines():
     contract = _contract(next_renewal_at=date(2026, 5, 1))
     item = _item(module_slug="core", base_amount_ils=Decimal("250.00"))
@@ -90,6 +102,21 @@ def test_renewal_preview_creates_full_cycle_lines():
     assert len(preview.lines) == 1
     assert preview.lines[0].service_period_start == date(2026, 5, 1)
     assert preview.lines[0].service_period_end == date(2026, 5, 31)
+
+
+def test_renewal_preview_quarterly_uses_full_quarter_service_window():
+    contract = _contract(
+        billing_cycle="quarterly",
+        start_date=date(2026, 4, 1),
+        next_renewal_at=date(2026, 7, 1),
+    )
+    item = _item(module_slug="core", base_amount_ils=Decimal("750.00"))
+
+    preview = billing_engine.renewal_preview(contract, date(2026, 7, 1), [item])
+
+    assert preview.bill_now_ils == Decimal("750.00")
+    assert preview.lines[0].service_period_start == date(2026, 7, 1)
+    assert preview.lines[0].service_period_end == date(2026, 9, 30)
 
 
 @pytest.mark.asyncio
