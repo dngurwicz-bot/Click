@@ -62,8 +62,10 @@ export interface CardPageProps {
   primaryActions?: CardPageAction[];
   /** Static parent content (no tabs) — shown instead of formTabs when provided */
   parentContent?: React.ReactNode;
+  parentContentMode?: "resizable" | "compact";
   formTabs: FormTab[];
   childTabs: ChildTab[];
+  childTabsStorageKey?: string;
   loading?: boolean;
 }
 
@@ -76,22 +78,59 @@ const STATUS_CONFIG = {
 
 export function CardPage({
   title, backHref, backLabel, status, onNew,
-  primaryActions = [], parentContent, formTabs, childTabs, loading,
+  primaryActions = [], parentContent, parentContentMode = "resizable", formTabs, childTabs, childTabsStorageKey, loading,
 }: CardPageProps) {
   const [activeFormTab,  setActiveFormTab]  = useState(formTabs[0]?.id ?? "");
   const [activeChildTab, setActiveChildTab] = useState(childTabs[0]?.id ?? "");
+  const [draggedChildTabId, setDraggedChildTabId] = useState<string | null>(null);
+  const [orderedChildTabIds, setOrderedChildTabIds] = useState<string[]>(() => {
+    if (typeof window === "undefined" || !childTabsStorageKey) return [];
+    try {
+      const raw = window.localStorage.getItem(childTabsStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [pageTemporalFilter, setPageTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
   const [activePane, setActivePane] = useState<"parent" | "child">(
     parentContent && childTabs.length > 0 ? "child" : "parent",
   );
   const hadPaneFocusRef = useRef(false);
-  const canUsePaneFocus = Boolean(parentContent && childTabs.length > 0);
+  const canUsePaneFocus = Boolean(parentContentMode === "resizable" && parentContent && childTabs.length > 0);
+  const orderedChildTabs = useMemo(() => {
+    if (orderedChildTabIds.length === 0) return childTabs;
+
+    const tabsById = new Map(childTabs.map((tab) => [tab.id, tab]));
+    const ordered = orderedChildTabIds
+      .map((id) => tabsById.get(id))
+      .filter((tab): tab is ChildTab => Boolean(tab));
+    const missing = childTabs.filter((tab) => !orderedChildTabIds.includes(tab.id));
+    return [...ordered, ...missing];
+  }, [childTabs, orderedChildTabIds]);
 
   useEffect(() => {
-    if (childTabs.length > 0 && !childTabs.find((t) => t.id === activeChildTab)) {
-      setActiveChildTab(childTabs[0].id);
+    const nextIds = childTabs.map((tab) => tab.id);
+    setOrderedChildTabIds((current) => {
+      const kept = current.filter((id) => nextIds.includes(id));
+      const missing = nextIds.filter((id) => !kept.includes(id));
+      const merged = [...kept, ...missing];
+      const unchanged = current.length === merged.length && current.every((id, index) => id === merged[index]);
+      return unchanged ? current : merged;
+    });
+  }, [childTabs]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !childTabsStorageKey || orderedChildTabIds.length === 0) return;
+    window.localStorage.setItem(childTabsStorageKey, JSON.stringify(orderedChildTabIds));
+  }, [childTabsStorageKey, orderedChildTabIds]);
+
+  useEffect(() => {
+    if (orderedChildTabs.length > 0 && !orderedChildTabs.find((t) => t.id === activeChildTab)) {
+      setActiveChildTab(orderedChildTabs[0].id);
     }
-  }, [childTabs, activeChildTab]);
+  }, [orderedChildTabs, activeChildTab]);
 
   useEffect(() => {
     if (!canUsePaneFocus) {
@@ -108,8 +147,8 @@ export function CardPage({
 
   const statusCfg      = status ? STATUS_CONFIG[status.type] : null;
   const currentFormTab = formTabs.find((t) => t.id === activeFormTab);
-  const currentChildTab = childTabs.find((t) => t.id === activeChildTab);
-  const pageTemporalFilterEnabled = childTabs.some(
+  const currentChildTab = orderedChildTabs.find((t) => t.id === activeChildTab);
+  const pageTemporalFilterEnabled = orderedChildTabs.some(
     (tab) => tab.temporalFilter && tab.rows.some((row) => row._valid_from_raw),
   );
   const temporalFilterError = pageTemporalFilterEnabled
@@ -145,6 +184,20 @@ export function CardPage({
       ? "clamp(150px, 28vh, 260px)"
       : "clamp(280px, 56vh, 520px)";
   }, [activePane, canUsePaneFocus]);
+
+  function moveChildTab(draggedId: string, targetId: string) {
+    if (draggedId === targetId) return;
+    setOrderedChildTabIds((current) => {
+      const source = current.length > 0 ? current : childTabs.map((tab) => tab.id);
+      const next = [...source];
+      const fromIndex = next.indexOf(draggedId);
+      const toIndex = next.indexOf(targetId);
+      if (fromIndex === -1 || toIndex === -1) return source;
+      next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, draggedId);
+      return next;
+    });
+  }
 
   function renderEmptyState() {
     if (!currentChildTab) return "אין רשומות";
@@ -286,7 +339,7 @@ export function CardPage({
         <TemporalFilterBar
           filter={pageTemporalFilter}
           onChange={setPageTemporalFilter}
-          rowRanges={childTabs.flatMap((tab) => (
+          rowRanges={orderedChildTabs.flatMap((tab) => (
             tab.temporalFilter
               ? tab.rows.map((row) => ({
                   valid_from: row._valid_from_raw,
@@ -300,14 +353,27 @@ export function CardPage({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* ── Child Tabs ────────────────────────────────────────────── */}
-        {childTabs.length > 0 && (
+        {orderedChildTabs.length > 0 && (
           <div
             className="bg-slate-100 border-b border-slate-200 flex items-center px-3 shrink-0 mt-0.5 gap-0.5 scroll-mt-2"
           >
             <div className="flex items-end flex-1 gap-0.5 self-stretch">
-              {childTabs.map((tab) => (
+              {orderedChildTabs.map((tab) => (
                 <button
                   key={tab.id}
+                  draggable={Boolean(childTabsStorageKey)}
+                  onDragStart={() => setDraggedChildTabId(tab.id)}
+                  onDragEnd={() => setDraggedChildTabId(null)}
+                  onDragOver={(event) => {
+                    if (!childTabsStorageKey || !draggedChildTabId || draggedChildTabId === tab.id) return;
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    if (!childTabsStorageKey || !draggedChildTabId) return;
+                    event.preventDefault();
+                    moveChildTab(draggedChildTabId, tab.id);
+                    setDraggedChildTabId(null);
+                  }}
                   onClick={() => {
                     setActiveChildTab(tab.id);
                     if (canUsePaneFocus) setActivePane("child");
@@ -316,7 +382,10 @@ export function CardPage({
                     ${activeChildTab === tab.id
                       ? "border-brand-500 text-brand-600 bg-white"
                       : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+                    } ${childTabsStorageKey ? "cursor-grab active:cursor-grabbing" : ""} ${
+                      draggedChildTabId === tab.id ? "opacity-60" : ""
                     }`}
+                  title={childTabsStorageKey ? "אפשר לגרור כדי לשנות את סדר הלשוניות" : undefined}
                 >
                   {tab.label}
                 </button>

@@ -88,6 +88,17 @@ export const DASHBOARD_SCREEN_DEFS: DashboardScreen[] = [
     navGroup: "admin",
   },
   {
+    id: "admin:reports",
+    href: "/admin/reports",
+    label: "דוחות ו-Insights",
+    shortDescription: "סביבת דוחות גלובלית להפקה, ייצוא ושמירת תצוגות.",
+    fullDescription:
+      "מסך הדוחות פותח את סביבת CLICK Insights ברמת המערכת, כולל דוחות מובנים, תבניות, דוחות שמורים וכלי ייצוא וניתוח, ללא תלות בארגון פעיל.",
+    icon: BarChart3,
+    resource: "reports",
+    navGroup: "admin",
+  },
+  {
     id: "admin:billing",
     href: "/admin/billing/overview",
     label: "חיובים",
@@ -227,6 +238,7 @@ export const ADMIN_SCREEN_IDS = [
   "admin:tenants",
   "admin:lookups",
   "admin:modules",
+  "admin:reports",
   "admin:billing",
   "admin:users",
   "admin:templates",

@@ -115,6 +115,14 @@ def _scheduled_charge_date(period: str, anchor_day: int) -> date:
     return date(period_date.year, period_date.month, min(max(anchor_day, 1), last_day))
 
 
+def _subscription_cycle_step_months(billing_cycle: str | None) -> int:
+    if billing_cycle == "yearly":
+        return 12
+    if billing_cycle == "quarterly":
+        return 3
+    return 1
+
+
 def _validate_billing_period(period: str) -> None:
     if len(period) != 7 or period[4] != "-":
         raise HTTPException(422, detail={"error": "billing_period must be in YYYY-MM format", "code": "INVALID_PERIOD"})
@@ -177,9 +185,10 @@ async def _payment_tracking_summary(
             items=[],
         )
 
-    current_period = date.today().strftime("%Y-%m")
+    step_months = _subscription_cycle_step_months(subscription.billing_cycle)
+    current_period = _period_shift(next_renewal_at.strftime("%Y-%m"), -step_months)
     period_keys = [
-        _period_shift(current_period, offset)
+        _period_shift(current_period, offset * step_months)
         for offset in range(-months_back, months_forward + 1)
     ]
 

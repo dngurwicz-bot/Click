@@ -31,3 +31,4 @@ tmp_alembic_core.sql
 .claude/settings.local.json
 backend/click.db
 api_temp.json
+frontend/tsconfig.tsbuildinfo

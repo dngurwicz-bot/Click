@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/insights/builder", tags=["insights", "dynamic_re
 
 @router.get("/schema", response_model=DynamicReportSchemaResponse)
 async def get_schema(
-    current_user: CurrentUser = Depends(require_permission("modules", "view")),
+    current_user: CurrentUser = Depends(require_permission("reports", "view")),
 ):
     return get_builder_schema()
 
@@ -27,7 +27,7 @@ async def get_schema(
 async def execute_query(
     body: DynamicReportQuery,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("modules", "view")),
+    current_user: CurrentUser = Depends(require_permission("reports", "view")),
 ):
     try:
         return await execute_dynamic_query(db, body)
@@ -41,7 +41,7 @@ async def execute_query(
 async def export_query(
     body: DynamicReportQuery,
     db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("modules", "view")),
+    current_user: CurrentUser = Depends(require_permission("reports", "view")),
 ):
     try:
         # Increase limit for export

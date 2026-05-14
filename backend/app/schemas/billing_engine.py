@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 RatingModel = Literal["flat", "per_seat", "tiered"]
 ContractStatus = Literal["draft", "active", "paused", "cancelled"]
+BillingCycle = Literal["monthly", "quarterly", "yearly"]
 ChangeEventType = Literal[
     "start_contract",
     "add_module",
@@ -80,7 +81,7 @@ class BillingContractItemOut(BillingContractItemBase):
 class BillingContractCreate(BaseModel):
     tenant_id: uuid.UUID
     status: ContractStatus = "active"
-    billing_cycle: Literal["monthly", "yearly"] = "monthly"
+    billing_cycle: BillingCycle = "monthly"
     anchor_day: int = 1
     timezone: str = "Asia/Jerusalem"
     payment_terms_days: int = 30
@@ -99,7 +100,7 @@ class BillingContractCreate(BaseModel):
 
 class BillingContractUpdate(BaseModel):
     status: Optional[ContractStatus] = None
-    billing_cycle: Optional[Literal["monthly", "yearly"]] = None
+    billing_cycle: Optional[BillingCycle] = None
     anchor_day: Optional[int] = None
     timezone: Optional[str] = None
     payment_terms_days: Optional[int] = None
@@ -112,7 +113,7 @@ class BillingContractOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     status: ContractStatus
-    billing_cycle: Literal["monthly", "yearly"]
+    billing_cycle: BillingCycle
     anchor_day: int
     timezone: str
     payment_terms_days: int
@@ -133,7 +134,7 @@ class BillingContractListItem(BaseModel):
     tenant_id: uuid.UUID
     tenant_name: Optional[str] = None
     status: ContractStatus
-    billing_cycle: Literal["monthly", "yearly"]
+    billing_cycle: BillingCycle
     next_renewal_at: Optional[date] = None
     credit_balance_ils: Decimal
     currency: str

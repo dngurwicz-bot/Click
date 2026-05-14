@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+import sqlalchemy as sa
 from fastapi import HTTPException
 
 from app.middleware.auth import CurrentUser
@@ -192,6 +193,32 @@ async def test_update_tenant_rejects_inverted_subscription_date_range():
         )
 
     assert exc_info.value.detail["code"] == "INVALID_DATE"
+
+
+@pytest.mark.asyncio
+async def test_sync_subscription_to_billing_ignores_missing_billing_tables(monkeypatch):
+    db = _FakeSession()
+    subscription = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        valid_from=date(2026, 5, 1),
+    )
+
+    async def fake_sync_billing(*_args, **_kwargs):
+        raise sa.exc.ProgrammingError(
+            "SELECT * FROM billing_ledger_entries",
+            {},
+            Exception('relation "billing_ledger_entries" does not exist'),
+        )
+
+    monkeypatch.setattr(tenants_router, "sync_billing_contract_from_subscription", fake_sync_billing)
+
+    await tenants_router._sync_subscription_to_billing(
+        db,
+        subscription,
+        actor_id=uuid4(),
+        as_of=date(2026, 5, 9),
+    )
 
 
 @pytest.mark.asyncio

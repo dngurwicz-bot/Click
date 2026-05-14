@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { ReportDatasetDefinition, ReportResult } from "./types";
 
@@ -43,6 +43,12 @@ export function ReportDataGrid({ result, activeDataset, loading }: ReportDataGri
     }
     setPage(1);
   };
+
+  useEffect(() => {
+    setPage(1);
+    setSortCol(null);
+    setSortDir("asc");
+  }, [result, activeDataset?.id]);
 
   if (loading) {
     return (

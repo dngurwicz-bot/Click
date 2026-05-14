@@ -1,5 +1,7 @@
 // Use empty base so requests go through Next.js rewrites proxy -> backend
 const API_BASE = "";
+const SESSION_COOKIE_NAME = "click_token";
+const SESSION_HINT_COOKIE_NAME = "click_session_present";
 
 function getCookie(name: string): string | undefined {
   if (typeof document === "undefined") return undefined;
@@ -18,11 +20,41 @@ function removeCookie(name: string) {
 }
 
 function getAuthHeaders(options?: RequestInit): HeadersInit {
-  const token = getCookie("click_token");
+  const token = getCookie(SESSION_COOKIE_NAME);
   return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options?.headers ?? {}),
   };
+}
+
+function hasSessionCookie(): boolean {
+  return Boolean(getCookie(SESSION_COOKIE_NAME) || getCookie(SESSION_HINT_COOKIE_NAME));
+}
+
+function persistStoredUser(user: UserInfo) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("click_user", JSON.stringify(user));
+}
+
+function clearStoredSession() {
+  removeCookie(SESSION_COOKIE_NAME);
+  removeCookie(SESSION_HINT_COOKIE_NAME);
+  localStorage.removeItem("click_user");
+  localStorage.removeItem("click_open_screens");
+  localStorage.removeItem("click_recent_screens");
+  localStorage.removeItem("click_active_screen");
+  localStorage.removeItem("click_recent_panel_open");
+  localStorage.removeItem("click_recent_drawer_open");
+  localStorage.removeItem("click_selected_tenant_id");
+}
+
+function handleUnauthorizedRedirect() {
+  clearStoredSession();
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const loginUrl = `/login?reason=session_expired&next=${encodeURIComponent(next)}`;
+    window.location.replace(loginUrl);
+  }
 }
 
 export interface ApiError {
@@ -60,6 +92,16 @@ export class ApiRequestError extends Error {
 
 function getErrorMessage(detail: unknown, fallback: string): string {
   if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const candidate = item as { msg?: unknown };
+        return typeof candidate.msg === "string" && candidate.msg.trim() ? candidate.msg : null;
+      })
+      .filter((value): value is string => Boolean(value));
+    if (messages.length > 0) return messages.join(". ");
+  }
   if (detail && typeof detail === "object") {
     const candidate = detail as { message?: unknown; error?: unknown; detail?: unknown };
     if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
@@ -80,7 +122,7 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getCookie("click_token");
+  const token = getCookie(SESSION_COOKIE_NAME);
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -108,13 +150,8 @@ async function request<T>(
     const detail = body.detail ?? body;
     const fallbackMessage = `Request failed with status ${res.status}`;
 
-    if (res.status === 401 && token && path !== "/api/auth/login") {
-      logout();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        const loginUrl = `/login?reason=session_expired&next=${encodeURIComponent(next)}`;
-        window.location.replace(loginUrl);
-      }
+    if (res.status === 401 && hasSessionCookie() && path !== "/api/auth/login") {
+      handleUnauthorizedRedirect();
     }
 
     throw new ApiRequestError({
@@ -139,6 +176,8 @@ export const api = {
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  patch: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   postForm: async <T>(path: string, body: FormData): Promise<T> => {
     let res: Response;
@@ -176,6 +215,19 @@ export const api = {
   },
 };
 
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: getAuthHeaders(options),
+  });
+
+  if (response.status === 401 && path !== "/api/auth/login" && hasSessionCookie()) {
+    handleUnauthorizedRedirect();
+  }
+
+  return response;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface PermissionInfo {
@@ -203,19 +255,36 @@ export interface LoginResponse {
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const data = await api.post<LoginResponse>("/api/auth/login", { email, password });
-  setCookie("click_token", data.access_token, 60 * 60 * 24);
-  localStorage.setItem("click_user", JSON.stringify(data.user));
+  setCookie(SESSION_COOKIE_NAME, data.access_token, 60 * 60 * 24);
+  setCookie(SESSION_HINT_COOKIE_NAME, "1", 60 * 60 * 24);
+  persistStoredUser(data.user);
   return data;
 }
 
-export function logout() {
-  removeCookie("click_token");
-  localStorage.removeItem("click_user");
-  localStorage.removeItem("click_open_screens");
-  localStorage.removeItem("click_recent_screens");
-  localStorage.removeItem("click_active_screen");
-  localStorage.removeItem("click_recent_panel_open");
-  localStorage.removeItem("click_selected_tenant_id");
+export async function restoreSession(): Promise<UserInfo | null> {
+  if (typeof window === "undefined" || !hasSessionCookie()) return null;
+
+  try {
+    const user = await api.get<UserInfo>("/api/auth/me");
+    persistStoredUser(user);
+    setCookie(SESSION_HINT_COOKIE_NAME, "1", 60 * 60 * 24);
+    return user;
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      clearStoredSession();
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function logout(): Promise<void> {
+  clearStoredSession();
+  try {
+    await api.post("/api/auth/logout", {});
+  } catch {
+    // Local session state is already cleared; ignore backend logout failures.
+  }
 }
 
 export function getStoredUser(): UserInfo | null {
@@ -225,7 +294,7 @@ export function getStoredUser(): UserInfo | null {
 }
 
 export function isLoggedIn(): boolean {
-  return !!getCookie("click_token");
+  return hasSessionCookie();
 }
 
 // ── Permission helpers ─────────────────────────────────────────────────────

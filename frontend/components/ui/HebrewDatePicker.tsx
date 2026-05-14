@@ -136,6 +136,12 @@ export function HebrewDatePicker({
   }
 
   function handleInputBlur() {
+    if (!inputText.trim()) {
+      onChange("");
+      setInputText("");
+      return;
+    }
+
     const iso = parseDisplayInput(inputText);
     if (iso) {
       onChange(iso);

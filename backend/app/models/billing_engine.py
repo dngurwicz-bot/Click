@@ -17,7 +17,7 @@ class BillingContract(Base):
             name="ck_billing_contract_status",
         ),
         CheckConstraint(
-            "billing_cycle IN ('monthly','yearly')",
+            "billing_cycle IN ('monthly','quarterly','yearly')",
             name="ck_billing_contract_cycle",
         ),
     )

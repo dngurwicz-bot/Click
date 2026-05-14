@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ApiRequestError, getStoredUser, isLoggedIn, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
+import { dispatchOrgStructureUpdated } from "@/lib/orgStructureConfig";
+import { dispatchTenantOptionsUpdated } from "@/lib/workspaceTenants";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import {
   formatOrgStructureSummary,
@@ -265,6 +267,12 @@ const BILLING_CYCLE_LABELS: Record<string, string> = {
   monthly: "חודשי",
   quarterly: "רבעוני",
   yearly: "שנתי",
+};
+
+const BILLING_CYCLE_CHARGE_LABELS: Record<string, string> = {
+  monthly: "חיוב למחזור חודשי",
+  quarterly: "חיוב למחזור רבעוני",
+  yearly: "חיוב למחזור שנתי",
 };
 const PAYMENT_TRACKING_STATUS_LABELS: Record<TenantPaymentTrackingItem["status"], string> = {
   unreported: "לא סומן",
@@ -595,6 +603,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         action: "delete",
         [section]: buildSectionPayload(),
       });
+      dispatchTenantOptionsUpdated();
       onSaved(); onClose();
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, "שגיאה במחיקה"));
@@ -610,6 +619,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         action: "close",
         [section]: buildSectionPayload(),
       });
+      dispatchTenantOptionsUpdated();
       onSaved(); onClose();
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, "שגיאה בסגירת תקופה"));
@@ -657,6 +667,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         action,
         [section]: buildSectionPayload(),
       });
+      dispatchTenantOptionsUpdated();
       onSaved(); onClose();
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, "שגיאה בשמירה"));
@@ -1115,6 +1126,7 @@ function OrgStructureOverrideModal({
         position_attachment_level: nextAttachmentLevel,
         is_hierarchical: isHierarchical,
       });
+      dispatchOrgStructureUpdated(tenantId);
       onApplied();
       onClose();
     } catch (err) {
@@ -1334,7 +1346,7 @@ function ParentForm({ tenant, onLogoUploaded }: { tenant: TenantOut; onLogoUploa
   const billingCycleDisplay = BILLING_CYCLE_LABELS[billingCycleLabel] ?? billingCycleLabel;
   const subscriptionCurrency = subscription?.currency ?? "ILS";
   const billingAnchorDisplay = subscription?.billing_anchor_day ? `בכל ${subscription.billing_anchor_day} לחודש` : "—";
-  const cycleChargeLabel = billingCycleLabel === "yearly" ? "חיוב למחזור שנתי" : "חיוב למחזור חודשי";
+  const cycleChargeLabel = BILLING_CYCLE_CHARGE_LABELS[billingCycleLabel] ?? "חיוב למחזור";
   const activeModules = (tenant.subscription_modules ?? []).filter((item) => item.status === "active");
   const currentValidity = tenant.identity?.valid_to
     ? `${fmtDate(tenant.identity.valid_from)} עד ${fmtDate(tenant.identity.valid_to)}`
@@ -1933,6 +1945,7 @@ function TenantDeleteModal({
         purge_audit_logs: purgeAuditLogs,
         delete_logo: deleteLogo,
       });
+      dispatchTenantOptionsUpdated();
       onDeleted();
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, "מחיקת הארגון נכשלה"));
@@ -3102,6 +3115,7 @@ export default function TenantDetailPage() {
         industry_code: tenant.identity.industry_code || null,
       },
     });
+    dispatchTenantOptionsUpdated();
 
     setTenant(saved);
     setHistory((prev) => {
@@ -3351,11 +3365,6 @@ export default function TenantDetailPage() {
               onClick: () => setShowSyncTemplate(true),
               icon: <Send size={12} />,
             },
-            ...(canForceOrgStructureOverride ? [{
-              label: "שינוי חריג למבנה",
-              onClick: () => setShowOrgStructureOverrideModal(true),
-              icon: <AlertCircle size={12} />,
-            }] : []),
             ...(canHardDeleteTenant ? [{
               label: "מחק ארגון",
               onClick: () => setShowDeleteTenant(true),

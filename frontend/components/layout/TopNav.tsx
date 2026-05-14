@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { api, getStoredUser, logout, type UserInfo } from "@/lib/api";
+import { getStoredUser, logout, restoreSession, type UserInfo } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import {
   ADMIN_SCREEN_IDS,
@@ -28,8 +28,8 @@ import {
   subscribeToPinnedDashboardScreens,
   togglePinnedDashboardScreen,
   type DashboardScreen,
-  type ModuleNavItem,
 } from "@/lib/dashboardScreens";
+import { useTenantModuleNav } from "@/lib/tenantModuleNav";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
 import { InsightsDropdownTab } from "./InsightsDropdownTab";
@@ -71,7 +71,6 @@ export function TopNav() {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [modules, setModules] = useState<ModuleNavItem[]>([]);
   const [adminOpen, setAdminOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -80,15 +79,16 @@ export function TopNav() {
   const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
   const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    setUser(getStoredUser());
-  }, []);
+  const { modules } = useTenantModuleNav(workspace?.selectedTenantId ?? "");
 
   useEffect(() => {
-    api
-      .get<ModuleNavItem[]>("/api/admin/modules")
-      .then((data) => setModules(Array.isArray(data) ? data : []))
-      .catch(() => {});
+    const storedUser = getStoredUser();
+    setUser(storedUser);
+    if (!storedUser) {
+      void restoreSession()
+        .then((nextUser) => setUser(nextUser))
+        .catch(() => undefined);
+    }
   }, []);
 
   const visibleScreens = useMemo(
@@ -145,8 +145,8 @@ export function TopNav() {
     setScreenMenu(null);
   }, [pathname]);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

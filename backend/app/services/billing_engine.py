@@ -68,23 +68,34 @@ def clamp_anchor_day(year: int, month: int, anchor_day: int) -> date:
     return date(year, month, min(anchor_day, calendar.monthrange(year, month)[1]))
 
 
-def cycle_bounds(contract: BillingContract, as_of: date) -> tuple[date, date]:
-    if contract.billing_cycle == "yearly":
-        anchor_month = contract.start_date.month
-        start_year = as_of.year
-        candidate = clamp_anchor_day(start_year, anchor_month, contract.anchor_day)
-        if candidate > as_of:
-            candidate = clamp_anchor_day(start_year - 1, anchor_month, contract.anchor_day)
-        return candidate, add_months(candidate, 12) - timedelta(days=1)
+def cycle_step_months(billing_cycle: str) -> int:
+    if billing_cycle == "yearly":
+        return 12
+    if billing_cycle == "quarterly":
+        return 3
+    return 1
 
-    current_anchor = clamp_anchor_day(as_of.year, as_of.month, contract.anchor_day)
-    if as_of >= current_anchor:
-        start = current_anchor
-    else:
-        prev = add_months(date(as_of.year, as_of.month, 1), -1)
-        start = clamp_anchor_day(prev.year, prev.month, contract.anchor_day)
-    end = add_months(start, 1) - timedelta(days=1)
-    return start, end
+
+def cycle_bounds(contract: BillingContract, as_of: date) -> tuple[date, date]:
+    step_months = cycle_step_months(contract.billing_cycle)
+    candidate = clamp_anchor_day(
+        contract.start_date.year,
+        contract.start_date.month,
+        contract.anchor_day,
+    )
+
+    while candidate > as_of:
+        prev_month = add_months(date(candidate.year, candidate.month, 1), -step_months)
+        candidate = clamp_anchor_day(prev_month.year, prev_month.month, contract.anchor_day)
+
+    while True:
+        next_month = add_months(date(candidate.year, candidate.month, 1), step_months)
+        next_candidate = clamp_anchor_day(next_month.year, next_month.month, contract.anchor_day)
+        if next_candidate > as_of:
+            break
+        candidate = next_candidate
+
+    return candidate, add_months(candidate, step_months) - timedelta(days=1)
 
 
 def remaining_proration_ratio(effective_at: date, period_start: date, period_end: date) -> Decimal:

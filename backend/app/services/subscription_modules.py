@@ -381,11 +381,8 @@ def calculate_subscription_pricing(
     current_monthly_total = round2(monthly_subtotal * discount_ratio)
     current_yearly_total = round2(current_monthly_total * Decimal("12"))
     current_setup_total = round2(setup_subtotal * discount_ratio)
-    current_cycle_total = (
-        current_yearly_total
-        if _contract_cycle(subscription.billing_cycle) == "yearly"
-        else current_monthly_total
-    )
+    cycle_months = _subscription_cycle_step_months(subscription.billing_cycle)
+    current_cycle_total = round2(current_monthly_total * Decimal(str(cycle_months)))
     initial_charge_total = round2(current_cycle_total + current_setup_total)
     return {
         "current_monthly_total_ils": current_monthly_total,
@@ -398,7 +395,9 @@ def calculate_subscription_pricing(
 
 
 def _contract_cycle(subscription_cycle: str) -> str:
-    return "yearly" if subscription_cycle == "yearly" else "monthly"
+    if subscription_cycle in {"quarterly", "yearly"}:
+        return subscription_cycle
+    return "monthly"
 
 
 def _subscription_cycle_step_months(subscription_cycle: str) -> int:

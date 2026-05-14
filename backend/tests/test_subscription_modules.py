@@ -123,6 +123,31 @@ def test_calculate_subscription_pricing_yearly_uses_annual_cycle_total():
     assert summary["next_charge_total_ils"] == Decimal("2760.00")
 
 
+def test_calculate_subscription_pricing_quarterly_uses_quarter_cycle_total():
+    subscription = SimpleNamespace(billing_cycle="quarterly", discount_pct=Decimal("0"))
+    module_rows = [
+        SimpleNamespace(
+            module_slug="core",
+            seats=9,
+            status="active",
+            pricing_mode="override",
+            override_base_price_ils=Decimal("180.00"),
+            override_per_seat_ils=Decimal("10.00"),
+            override_setup_fee_ils=Decimal("99.00"),
+            override_included_seats=4,
+        ),
+    ]
+
+    summary = calculate_subscription_pricing(subscription, module_rows, {})
+
+    assert summary["current_monthly_total_ils"] == Decimal("230.00")
+    assert summary["current_yearly_total_ils"] == Decimal("2760.00")
+    assert summary["current_cycle_total_ils"] == Decimal("690.00")
+    assert summary["current_setup_total_ils"] == Decimal("99.00")
+    assert summary["initial_charge_total_ils"] == Decimal("789.00")
+    assert summary["next_charge_total_ils"] == Decimal("690.00")
+
+
 def test_sync_subscription_header_derives_snapshot_fields():
     subscription = SimpleNamespace(selected_module_slugs=[], seat_count=0)
     rows = [
@@ -172,3 +197,15 @@ def test_calculate_next_subscription_renewal_before_subscription_start_keeps_fir
     renewal = calculate_next_subscription_renewal(subscription, as_of=date(2026, 4, 20))
 
     assert renewal == date(2026, 5, 1)
+
+
+def test_calculate_next_subscription_renewal_quarterly_uses_next_quarter_anchor():
+    subscription = SimpleNamespace(
+        valid_from=date(2026, 4, 1),
+        billing_cycle="quarterly",
+        billing_anchor_day=1,
+    )
+
+    renewal = calculate_next_subscription_renewal(subscription, as_of=date(2026, 5, 9))
+
+    assert renewal == date(2026, 7, 1)
