@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, core, admin_users, lookups, templates, audit, ai, insights, dynamic_reports
+from app.routers import auth, tenants, modules, core, admin_users, lookups, templates, audit, ai, insights, dynamic_reports, org_admin
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.saved_report_view      # noqa: F401 – ensure saved report model is registered
 
@@ -59,6 +59,7 @@ app.include_router(audit.router)
 app.include_router(ai.router)
 app.include_router(insights.router)
 app.include_router(dynamic_reports.router)
+app.include_router(org_admin.router)
 
 
 @app.get("/api/health")

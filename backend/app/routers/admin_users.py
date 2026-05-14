@@ -171,6 +171,20 @@ async def create_user(
             detail={"error": "Only super_admin can create super_admin users", "code": "FORBIDDEN"},
         )
 
+    # org_admin requires a tenant_id
+    if body.role == "org_admin" and not body.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "tenant_id is required for org_admin users", "code": "BAD_REQUEST"},
+        )
+
+    # system roles must not have a tenant_id
+    if body.role != "org_admin" and body.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "tenant_id is only allowed for org_admin users", "code": "BAD_REQUEST"},
+        )
+
     # Check duplicate email in our table
     existing = await db.execute(select(AdminUser).where(AdminUser.email == body.email))
     if existing.scalar_one_or_none():
@@ -188,6 +202,7 @@ async def create_user(
         full_name=body.full_name,
         email=body.email,
         role=body.role,
+        tenant_id=body.tenant_id,
         created_by=current_user.id,
         valid_from=body.valid_from or date.today(),
     )

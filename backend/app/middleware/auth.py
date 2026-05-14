@@ -28,15 +28,20 @@ class CurrentUser:
         email: str,
         role: str,
         permissions: dict[str, dict[str, bool]],
+        tenant_id: uuid.UUID | None = None,
     ):
         self.id = id
         self.email = email
         self.role = role
+        self.tenant_id = tenant_id
         # permissions: {"tenants": {"can_view": True, "can_edit": False}, ...}
         self.permissions = permissions
 
     def is_super_admin(self) -> bool:
         return self.role == "super_admin"
+
+    def is_org_admin(self) -> bool:
+        return self.role == "org_admin"
 
     def can_view(self, resource: str) -> bool:
         if self.is_super_admin():
@@ -108,10 +113,10 @@ async def get_current_user(
                 "can_manage_sensitive": getattr(p, "can_manage_sensitive", False),
             }
 
-    current_user = CurrentUser(id=user.id, email=user.email, role=user.role, permissions=perms)
+    current_user = CurrentUser(id=user.id, email=user.email, role=user.role, permissions=perms, tenant_id=user.tenant_id)
     request.state.user_id = user.id
     request.state.actor_type = "admin_user"
-    request.state.tenant_id = None
+    request.state.tenant_id = user.tenant_id
     return current_user
 
 
@@ -159,3 +164,33 @@ def require_permission(resource: str, action: str = "view"):
 require_admin = require_roles("super_admin", "admin")
 require_super_admin = require_roles("super_admin")
 require_any = get_current_user
+
+
+def require_org_or_system_admin():
+    """Allows org_admin, super_admin, and admin roles to access org-scoped endpoints."""
+    async def _check(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if current_user.role not in ("org_admin", "super_admin", "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "Insufficient permissions", "code": "FORBIDDEN"},
+            )
+        return current_user
+    return _check
+
+
+def get_enforced_tenant_id(
+    tenant_id_param: uuid.UUID | None,
+    current_user: CurrentUser,
+) -> uuid.UUID:
+    """
+    For org_admin: always returns their own tenant_id, ignoring any param.
+    For super_admin/admin: uses the provided tenant_id_param (required).
+    """
+    if current_user.is_org_admin():
+        return current_user.tenant_id  # type: ignore[return-value]
+    if tenant_id_param is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "tenant_id is required", "code": "BAD_REQUEST"},
+        )
+    return tenant_id_param

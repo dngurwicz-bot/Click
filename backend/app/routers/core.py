@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, func, cast, Integer
+from sqlalchemy import select, update, func, cast, Integer, text
 
 from app.database import get_db
 from app.middleware.auth import require_permission, CurrentUser
@@ -551,56 +551,230 @@ async def get_employee(
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
     emp = await _get_employee_or_404(db, employee_id, tenant_id)
-    extra = {"employee_id": employee_id}
 
-    # Load all temporal histories
-    identity_rows = await get_history(db, EmployeeIdentity, tenant_id, extra)
-    personal_rows = await get_history(db, EmployeePersonal, tenant_id, extra)
-    contact_rows = await get_history(db, EmployeeContact, tenant_id, extra)
-    employment_rows = await get_history(db, EmployeeEmployment, tenant_id, extra)
-    compensation_rows = await get_history(db, EmployeeCompensation, tenant_id, extra)
-    bank_rows = await get_history(db, EmployeeBankAccount, tenant_id, extra)
+    async def fetch_mappings(query: str) -> list[dict[str, Any]]:
+        result = await db.execute(text(query), {"tenant_id": tenant_id, "employee_id": employee_id})
+        return [dict(row) for row in result.mappings().all()]
 
-    # Non-temporal
-    events_result = await db.execute(
-        select(EmploymentEvent)
-        .where(EmploymentEvent.employee_id == employee_id)
-        .order_by(EmploymentEvent.event_date.desc())
+    async def fetch_scalar(query: str, **params: Any) -> Any | None:
+        result = await db.execute(text(query), params)
+        return result.scalar_one_or_none()
+
+    identity_rows = await fetch_mappings(
+        """
+        SELECT id, first_name, last_name, legal_id_number, gender, valid_from, valid_to, created_at
+        FROM employee_identity
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY valid_from DESC
+        """
     )
-    events = list(events_result.scalars().all())
-
-    training_result = await db.execute(
-        select(EmployeeTraining)
-        .where(EmployeeTraining.employee_id == employee_id)
-        .order_by(EmployeeTraining.course_date.desc())
+    employment_rows = await fetch_mappings(
+        """
+        SELECT id, org_unit_id, position_id, manager_employee_id, branch_name, employment_type,
+               employment_status, salary_type, start_date, end_date, work_site, valid_from, valid_to, created_at
+        FROM employee_employment
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY valid_from DESC
+        """
     )
-    trainings = list(training_result.scalars().all())
+    compensation_rows = await fetch_mappings(
+        """
+        SELECT id, base_salary, currency, pay_cycle, cost_center, valid_from, valid_to, created_at
+        FROM employee_compensation
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY valid_from DESC
+        """
+    )
+    bank_rows = await fetch_mappings(
+        """
+        SELECT id, bank_code, bank_name, branch_number, branch_description, account_number,
+               account_holder_name, payment_method, payment_percent, fixed_amount, payment_priority,
+               company_name, notes, valid_from, valid_to, created_at
+        FROM employee_bank_accounts
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY valid_from DESC, created_at DESC
+        """
+    )
+    event_rows = await fetch_mappings(
+        """
+        SELECT id, event_type, effective_date, notes, created_at
+        FROM employment_events
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY effective_date DESC, created_at DESC
+        """
+    )
+    training_rows = await fetch_mappings(
+        """
+        SELECT id, course_name, provider, started_on, completed_on, score, created_at
+        FROM employee_courses
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY COALESCE(completed_on, started_on) DESC NULLS LAST, created_at DESC
+        """
+    )
+    child_rows = await fetch_mappings(
+        """
+        SELECT id, child_name, last_name, legal_id_number, birth_date, gender, allowance_eligible, notes, created_at
+        FROM employee_children
+        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+        ORDER BY birth_date DESC NULLS LAST, created_at DESC
+        """
+    )
 
-    # Resolve org/position names for employment rows
-    emp_names = await _resolve_org_pos_names(db, tenant_id, employment_rows)
+    active_ident = next((row for row in identity_rows if row["valid_to"] is None), identity_rows[0] if identity_rows else None)
 
-    # Active identity for header
-    active_ident = next((r for r in identity_rows if r.valid_to is None), None)
+    employment_payload: list[dict[str, Any]] = []
+    for row in employment_rows:
+        org_name = None
+        if row["org_unit_id"]:
+            org_name = await fetch_scalar("SELECT name FROM org_units WHERE id = :id", id=row["org_unit_id"])
+
+        position_name = None
+        if row["position_id"]:
+            position_name = await fetch_scalar("SELECT title FROM positions WHERE id = :id", id=row["position_id"])
+
+        manager_name = None
+        if row["manager_employee_id"]:
+            manager_result = await db.execute(
+                text(
+                    """
+                    SELECT first_name, last_name
+                    FROM employee_identity
+                    WHERE employee_id = :manager_employee_id
+                    ORDER BY valid_to IS NULL DESC, valid_from DESC
+                    LIMIT 1
+                    """
+                ),
+                {"manager_employee_id": row["manager_employee_id"]},
+            )
+            manager_row = manager_result.mappings().first()
+            if manager_row:
+                manager_name = f"{manager_row['first_name']} {manager_row['last_name']}".strip()
+
+        employment_payload.append({
+            "id": str(row["id"]),
+            "org_unit_id": str(row["org_unit_id"]) if row["org_unit_id"] else None,
+            "org_unit_name": org_name,
+            "position_id": str(row["position_id"]) if row["position_id"] else None,
+            "position_name": position_name,
+            "branch_name": row["branch_name"],
+            "employment_type": row["employment_type"],
+            "employment_status": row["employment_status"],
+            "salary_type": row["salary_type"],
+            "manager_id": str(row["manager_employee_id"]) if row["manager_employee_id"] else None,
+            "manager_name": manager_name,
+            "work_site": row["work_site"],
+            "start_date": _fmtd(row["start_date"]),
+            "end_date": _fmtd(row["end_date"]),
+            "valid_from": _fmtd(row["valid_from"]),
+            "valid_to": _fmtd(row["valid_to"]),
+            "created_at": _fmtdt(row["created_at"]),
+            "_current": row["valid_to"] is None,
+            "_valid_from_raw": _fmtd(row["valid_from"]),
+            "_valid_to_raw": _fmtd(row["valid_to"]),
+        })
 
     return {
         "id": str(emp.id),
         "employee_number": emp.employee_number,
         "status": emp.status,
         "photo_url": emp.photo_url,
-        "full_name": f"{active_ident.first_name} {active_ident.last_name}" if active_ident else "—",
-        "id_number": active_ident.id_number if active_ident else None,
+        "full_name": f"{active_ident['first_name']} {active_ident['last_name']}" if active_ident else "—",
+        "id_number": active_ident["legal_id_number"] if active_ident else None,
         "created_at": _fmtdt(emp.created_at),
-        "identity": [_ser_identity(r) for r in identity_rows],
-        "personal": [_ser_personal(r) for r in personal_rows],
-        "contact": [_ser_contact(r) for r in contact_rows],
-        "employment": [
-            _ser_employment(r, emp_names.get(r.id, (None, None))[0], emp_names.get(r.id, (None, None))[1])
-            for r in employment_rows
+        "identity": [
+            {
+                "id": str(row["id"]),
+                "first_name": row["first_name"],
+                "last_name": row["last_name"],
+                "id_number": row["legal_id_number"],
+                "gender": row["gender"],
+                "valid_from": _fmtd(row["valid_from"]),
+                "valid_to": _fmtd(row["valid_to"]),
+                "created_at": _fmtdt(row["created_at"]),
+                "_current": row["valid_to"] is None,
+                "_valid_from_raw": _fmtd(row["valid_from"]),
+                "_valid_to_raw": _fmtd(row["valid_to"]),
+            }
+            for row in identity_rows
         ],
-        "compensation": [_ser_compensation(r) for r in compensation_rows],
-        "bank": [_ser_bank(r) for r in bank_rows],
-        "events": [_ser_event(r) for r in events],
-        "training": [_ser_training(r) for r in trainings],
+        "personal": [],
+        "contact": [],
+        "employment": employment_payload,
+        "compensation": [
+            {
+                "id": str(row["id"]),
+                "base_salary": float(row["base_salary"]) if row["base_salary"] is not None else None,
+                "currency": row["currency"],
+                "pay_cycle": row["pay_cycle"],
+                "cost_center": row["cost_center"],
+                "valid_from": _fmtd(row["valid_from"]),
+                "valid_to": _fmtd(row["valid_to"]),
+                "created_at": _fmtdt(row["created_at"]),
+                "_current": row["valid_to"] is None,
+                "_valid_from_raw": _fmtd(row["valid_from"]),
+                "_valid_to_raw": _fmtd(row["valid_to"]),
+            }
+            for row in compensation_rows
+        ],
+        "bank": [
+            {
+                "id": str(row["id"]),
+                "bank_code": row["bank_code"],
+                "bank_name": row["bank_name"],
+                "branch": row["branch_number"],
+                "branch_description": row["branch_description"],
+                "account": row["account_number"],
+                "account_holder_name": row["account_holder_name"],
+                "payment_method": row["payment_method"],
+                "pct_payment": float(row["payment_percent"]) if row["payment_percent"] is not None else None,
+                "fixed_amount": float(row["fixed_amount"]) if row["fixed_amount"] is not None else None,
+                "payment_priority": row["payment_priority"],
+                "company_name": row["company_name"],
+                "notes": row["notes"],
+                "valid_from": _fmtd(row["valid_from"]),
+                "valid_to": _fmtd(row["valid_to"]),
+                "created_at": _fmtdt(row["created_at"]),
+                "_current": row["valid_to"] is None,
+                "_valid_from_raw": _fmtd(row["valid_from"]),
+                "_valid_to_raw": _fmtd(row["valid_to"]),
+            }
+            for row in bank_rows
+        ],
+        "children": [
+            {
+                "id": str(row["id"]),
+                "first_name": row["child_name"],
+                "last_name": row["last_name"],
+                "gender": row["gender"],
+                "id_number": row["legal_id_number"],
+                "birth_date": _fmtd(row["birth_date"]),
+                "receives_allowance": row["allowance_eligible"],
+                "notes": row["notes"],
+                "created_at": _fmtdt(row["created_at"]),
+            }
+            for row in child_rows
+        ],
+        "events": [
+            {
+                "id": str(row["id"]),
+                "event_type": row["event_type"],
+                "event_date": _fmtd(row["effective_date"]),
+                "description": row["notes"],
+                "created_at": _fmtdt(row["created_at"]),
+            }
+            for row in event_rows
+        ],
+        "training": [
+            {
+                "id": str(row["id"]),
+                "course_name": row["course_name"],
+                "course_date": _fmtd(row["completed_on"] or row["started_on"]),
+                "score": row["score"],
+                "institute": row["provider"],
+                "created_at": _fmtdt(row["created_at"]),
+            }
+            for row in training_rows
+        ],
     }
 
 
@@ -630,13 +804,31 @@ async def delete_employee(
 ):
     employee = await _get_employee_or_404(db, employee_id, tenant_id)
 
-    # Employees may be referenced as managers in other employment rows.
+    # The live schema uses manager_employee_id; use SQL directly so deletion
+    # remains stable even while legacy ORM field names are being aligned.
     await db.execute(
-        update(EmployeeEmployment)
-        .where(EmployeeEmployment.tenant_id == tenant_id)
-        .where(EmployeeEmployment.manager_id == employee.id)
-        .values(manager_id=None)
-        .execution_options(synchronize_session=False)
+        text(
+            """
+            UPDATE employee_employment
+            SET manager_employee_id = NULL
+            WHERE tenant_id = :tenant_id
+              AND manager_employee_id = :employee_id
+            """
+        ),
+        {"tenant_id": tenant_id, "employee_id": employee.id},
+    )
+
+    # Older org unit rows may still point to this employee as unit manager.
+    await db.execute(
+        text(
+            """
+            UPDATE org_units
+            SET manager_employee_id = NULL
+            WHERE tenant_id = :tenant_id
+              AND manager_employee_id = :employee_id
+            """
+        ),
+        {"tenant_id": tenant_id, "employee_id": employee.id},
     )
 
     await db.delete(employee)
@@ -822,15 +1014,29 @@ async def list_org_units(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
-    today = date.today()
     result = await db.execute(
-        select(OrgUnit)
-        .where(OrgUnit.tenant_id == tenant_id)
-        .where(OrgUnit.valid_from <= today)
-        .where((OrgUnit.valid_to.is_(None)) | (OrgUnit.valid_to >= today))
-        .order_by(OrgUnit.name)
+        text(
+            """
+            SELECT id, code, name, unit_type, parent_unit_id
+            FROM org_units
+            WHERE tenant_id = :tenant_id
+              AND valid_from <= CURRENT_DATE
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY name
+            """
+        ),
+        {"tenant_id": tenant_id},
     )
-    return [{"id": str(r.id), "code": r.code, "name": r.name, "unit_type": r.unit_type} for r in result.scalars()]
+    return [
+        {
+            "id": str(row["id"]),
+            "code": row["code"],
+            "name": row["name"],
+            "unit_type": row["unit_type"],
+            "parent_id": str(row["parent_unit_id"]) if row["parent_unit_id"] else None,
+        }
+        for row in result.mappings().all()
+    ]
 
 
 @router.get("/positions")
@@ -839,12 +1045,17 @@ async def list_positions(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
-    today = date.today()
     result = await db.execute(
-        select(Position)
-        .where(Position.tenant_id == tenant_id)
-        .where(Position.valid_from <= today)
-        .where((Position.valid_to.is_(None)) | (Position.valid_to >= today))
-        .order_by(Position.name)
+        text(
+            """
+            SELECT id, code, title
+            FROM positions
+            WHERE tenant_id = :tenant_id
+              AND valid_from <= CURRENT_DATE
+              AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+            ORDER BY title
+            """
+        ),
+        {"tenant_id": tenant_id},
     )
-    return [{"id": str(r.id), "code": r.code, "name": r.name} for r in result.scalars()]
+    return [{"id": str(row["id"]), "code": row["code"], "name": row["title"]} for row in result.mappings().all()]

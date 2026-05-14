@@ -242,6 +242,7 @@ export interface UserInfo {
   email: string;
   full_name: string;
   role: string;
+  tenant_id?: string | null;
   permissions: PermissionInfo[];
 }
 
@@ -258,6 +259,9 @@ export async function login(email: string, password: string): Promise<LoginRespo
   setCookie(SESSION_COOKIE_NAME, data.access_token, 60 * 60 * 24);
   setCookie(SESSION_HINT_COOKIE_NAME, "1", 60 * 60 * 24);
   persistStoredUser(data.user);
+  if (data.user.role === "org_admin" && data.user.tenant_id) {
+    localStorage.setItem("click_selected_tenant_id", data.user.tenant_id);
+  }
   return data;
 }
 
@@ -318,4 +322,13 @@ export function canManageSensitive(resource: string): boolean {
   if (!user) return false;
   if (user.role === "super_admin") return true;
   return user.permissions?.some((p) => p.resource === resource && p.can_manage_sensitive) ?? false;
+}
+
+export function isOrgAdmin(): boolean {
+  return getStoredUser()?.role === "org_admin";
+}
+
+export function getOrgAdminTenantId(): string | null {
+  const user = getStoredUser();
+  return user?.role === "org_admin" ? (user.tenant_id ?? null) : null;
 }

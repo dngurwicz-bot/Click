@@ -32,6 +32,7 @@ def _create_token(user: AdminUser) -> str:
         "sub": str(user.id),
         "email": user.email,
         "role": user.role,
+        "tenant_id": str(user.tenant_id) if user.tenant_id else None,
         "exp": expire,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
@@ -139,6 +140,7 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
         email=user.email,
         full_name=user.full_name,
         role=user.role,
+        tenant_id=user.tenant_id,
         permissions=perms,
     )
     _set_session_cookie(response, token)
@@ -165,5 +167,6 @@ async def me(current_user: CurrentUser = Depends(get_current_user), db: AsyncSes
         email=user.email,
         full_name=user.full_name,
         role=user.role,
+        tenant_id=user.tenant_id,
         permissions=perms,
     )

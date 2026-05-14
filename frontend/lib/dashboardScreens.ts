@@ -2,9 +2,11 @@
 
 import {
   BarChart3,
+  BookOpen,
   Building2,
   ClipboardList,
   FileText,
+  FolderTree,
   Home,
   List,
   Package,
@@ -34,7 +36,7 @@ export interface DashboardScreen {
   fullDescription: string;
   icon: LucideIcon;
   resource?: string;
-  navGroup: "primary" | "admin" | "billing" | "module";
+  navGroup: "primary" | "admin" | "billing" | "module" | "org_admin";
   pinToDashboard?: boolean;
   hideFromNav?: boolean;
 }
@@ -230,9 +232,45 @@ export const DASHBOARD_SCREEN_DEFS: DashboardScreen[] = [
     navGroup: "module",
     hideFromNav: true,
   },
+  {
+    id: "org:positions",
+    href: "/org/positions",
+    label: "תפקידים",
+    shortDescription: "ניהול רשימת התפקידים של הארגון.",
+    fullDescription:
+      "מסך התפקידים מאפשר לנהל את קטלוג התפקידים הארגוניים: הוספה, עדכון, הגדרת תקופת תוקף ושיוך לרמה הארגונית המתאימה.",
+    icon: ShieldCheck,
+    navGroup: "org_admin",
+  },
+  {
+    id: "org:structure",
+    href: "/org/structure",
+    label: "יחידות ארגוניות",
+    shortDescription: "ניהול חטיבות, אגפים, מחלקות וצוותים.",
+    fullDescription:
+      "מסך היחידות הארגוניות מאפשר לנהל את ההיררכיה הארגונית של הארגון: חטיבות, אגפים, מחלקות וצוותים, כולל הגדרת הורה-ילד ומנהל יחידה.",
+    icon: FolderTree,
+    navGroup: "org_admin",
+  },
+  {
+    id: "org:courses",
+    href: "/org/courses",
+    label: "קורסים",
+    shortDescription: "קטלוג הקורסים וההכשרות הארגוניות.",
+    fullDescription:
+      "מסך הקורסים מאפשר לנהל את קטלוג הקורסים וההכשרות של הארגון: שם, קטגוריה, משך, חובה/רשות ותקופת תוקף.",
+    icon: BookOpen,
+    navGroup: "org_admin",
+  },
 ];
 
 const STATIC_SCREEN_BY_ID = new Map(DASHBOARD_SCREEN_DEFS.map((screen) => [screen.id, screen]));
+
+export const ORG_ADMIN_SCREEN_IDS = [
+  "org:positions",
+  "org:structure",
+  "org:courses",
+] as const;
 
 export const ADMIN_SCREEN_IDS = [
   "admin:tenants",
@@ -286,6 +324,8 @@ export function buildModuleScreen(module: Pick<ModuleNavItem, "slug" | "name">):
   };
 }
 
+const ORG_ADMIN_ACCESSIBLE = new Set(["org_admin", "super_admin", "admin"]);
+
 export function getVisibleDashboardScreens({
   modules,
   user,
@@ -297,6 +337,7 @@ export function getVisibleDashboardScreens({
     if (!BILLING_ENABLED && screen.resource === "billing") return false;
     if (screen.id.startsWith("insights:") && !modules.some(m => m.slug === "insights" && m.is_active)) return false;
     if (screen.id.startsWith("core:") && !modules.some(m => m.slug === "core" && m.is_active)) return false;
+    if (screen.navGroup === "org_admin" && (!user || !ORG_ADMIN_ACCESSIBLE.has(user.role))) return false;
     return hasScreenAccess(screen, user);
   });
 

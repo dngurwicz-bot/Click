@@ -22,6 +22,7 @@ class UserInfo(BaseModel):
     email: str
     full_name: str
     role: str
+    tenant_id: Optional[uuid.UUID] = None
     permissions: list[PermissionInfo] = []
 
     model_config = {"from_attributes": True}

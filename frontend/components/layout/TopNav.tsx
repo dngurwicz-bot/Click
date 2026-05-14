@@ -29,6 +29,7 @@ import {
   togglePinnedDashboardScreen,
   type DashboardScreen,
 } from "@/lib/dashboardScreens";
+import { getOrgStructureNavEntries, useTenantOrgStructureItems } from "@/lib/orgStructureConfig";
 import { useTenantModuleNav } from "@/lib/tenantModuleNav";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
@@ -44,7 +45,18 @@ interface NavItem extends DashboardScreen {
   active: boolean;
 }
 
+interface HierarchicalMenuItem {
+  id: string;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  active: boolean;
+  screen?: DashboardScreen;
+  children?: HierarchicalMenuItem[];
+}
+
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
+const ORG_ADMIN_ACCESSIBLE_ROLES = ["org_admin", "super_admin", "admin"];
 
 function UserAvatar({ name }: { name: string | null | undefined }) {
   const initials = (name || "")
@@ -72,6 +84,7 @@ export function TopNav() {
 
   const [user, setUser] = useState<UserInfo | null>(null);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [orgAdminOpen, setOrgAdminOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -79,7 +92,9 @@ export function TopNav() {
   const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
   const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
 
+  const selectedTenantId = workspace?.selectedTenantId ?? user?.tenant_id ?? "";
   const { modules } = useTenantModuleNav(workspace?.selectedTenantId ?? "");
+  const { tenantConfig } = useTenantOrgStructureItems(selectedTenantId);
 
   useEffect(() => {
     const storedUser = getStoredUser();
@@ -112,6 +127,7 @@ export function TopNav() {
     function handleOutside(event: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
         setAdminOpen(false);
+        setOrgAdminOpen(false);
         setBillingOpen(false);
         setUserOpen(false);
         setScreenMenu(null);
@@ -121,6 +137,7 @@ export function TopNav() {
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setAdminOpen(false);
+        setOrgAdminOpen(false);
         setBillingOpen(false);
         setUserOpen(false);
         setMobileOpen(false);
@@ -139,6 +156,7 @@ export function TopNav() {
 
   useEffect(() => {
     setAdminOpen(false);
+    setOrgAdminOpen(false);
     setBillingOpen(false);
     setUserOpen(false);
     setMobileOpen(false);
@@ -152,6 +170,7 @@ export function TopNav() {
 
   function navigateTo(href: string) {
     setAdminOpen(false);
+    setOrgAdminOpen(false);
     setBillingOpen(false);
     setUserOpen(false);
     setMobileOpen(false);
@@ -175,6 +194,8 @@ export function TopNav() {
   }
 
   const isAdmin = Boolean(user && ADMIN_ROLES.includes(user.role));
+  const isOrgAdminUser = user?.role === "org_admin";
+  const canSeeOrgAdminMenu = Boolean(user && ORG_ADMIN_ACCESSIBLE_ROLES.includes(user.role));
   const dashboardScreen = getStaticScreen("dashboard");
   const insightsScreen = visibleScreenMap.get("module:insights") ?? null;
   const coreScreen = visibleScreenMap.get("module:core") ?? null;
@@ -192,6 +213,56 @@ export function TopNav() {
           : Boolean(pathname?.startsWith(screen.href)),
       }));
   }, [isAdmin, pathname, visibleScreenMap]);
+
+  const orgAdminMenuItems = useMemo<HierarchicalMenuItem[]>(() => {
+    if (!canSeeOrgAdminMenu) return [];
+
+    const structureItem = visibleScreenMap.get("org:structure");
+    const positionsItem = visibleScreenMap.get("org:positions");
+    const coursesItem = visibleScreenMap.get("org:courses");
+    const orgStructureEntries = getOrgStructureNavEntries(tenantConfig?.levels ?? []);
+
+    const items: HierarchicalMenuItem[] = [];
+
+    if (structureItem && orgStructureEntries.length > 0) {
+      items.push({
+        id: structureItem.id,
+        label: structureItem.label,
+        href: structureItem.href,
+        icon: structureItem.icon,
+        active: orgStructureEntries.some((entry) => pathname === entry.href || pathname?.startsWith(`${entry.href}/`)),
+        screen: structureItem,
+        children: orgStructureEntries
+          .filter((entry) => entry.key !== "position" || Boolean(positionsItem))
+          .map((entry) => ({
+            id: `${structureItem.id}:${entry.key}`,
+            label: entry.label,
+            href: entry.href,
+            icon: entry.key === "position" && positionsItem ? positionsItem.icon : structureItem.icon,
+            active: pathname === entry.href || Boolean(pathname?.startsWith(`${entry.href}/`)),
+            screen:
+              entry.key === "position"
+                ? positionsItem ?? undefined
+                : entry.key === "overview"
+                  ? structureItem
+                  : undefined,
+          })),
+      });
+    }
+
+    if (coursesItem) {
+      items.push({
+        id: coursesItem.id,
+        label: coursesItem.label,
+        href: coursesItem.href,
+        icon: coursesItem.icon,
+        active: coursesItem.active,
+        screen: coursesItem,
+      });
+    }
+
+    return items;
+  }, [canSeeOrgAdminMenu, pathname, tenantConfig?.levels, visibleScreenMap]);
 
   const billingItems = useMemo<NavItem[]>(() => {
     if (!BILLING_ENABLED) return [];
@@ -313,7 +384,38 @@ export function TopNav() {
             <span className="absolute left-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand-500" />
           </button>
 
-          {isAdmin && adminItems.length > 0 && (
+          {canSeeOrgAdminMenu && orgAdminMenuItems.length > 0 && (
+            <div className="relative hidden md:block">
+              <button
+                type="button"
+                onClick={() => setOrgAdminOpen((value) => !value)}
+                className={`flex h-8 items-center gap-1 rounded px-2.5 text-xs font-medium transition ${
+                  orgAdminOpen || pathname?.startsWith("/org/")
+                    ? "bg-brand-50 text-brand-700"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                }`}
+              >
+                <FolderTree size={13} />
+                ניהול ארגון
+                <ChevronDown size={11} className={`transition-transform ${orgAdminOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {orgAdminOpen && (
+                <div className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[180px] overflow-visible rounded border border-slate-200 bg-white shadow-lg">
+                  <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    ניהול ארגון
+                  </div>
+                  <div className="py-1">
+                    {orgAdminMenuItems.map((item) => (
+                      <HierarchicalMenuLink key={item.id} item={item} onNavigate={navigateTo} onScreenContextMenu={openScreenMenu} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isOrgAdminUser && isAdmin && adminItems.length > 0 && (
             <div className="relative hidden md:block">
               <button
                 type="button"
@@ -450,9 +552,20 @@ export function TopNav() {
                 </div>
               )}
 
-              {isAdmin && adminItems.length > 0 && (
+              {canSeeOrgAdminMenu && orgAdminMenuItems.length > 0 && (
                 <div>
-                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ניהול</div>
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ניהול ארגון</div>
+                  <div className="space-y-0.5">
+                    {orgAdminMenuItems.map((item) => (
+                      <MobileHierarchicalMenuLink key={item.id} item={item} onNavigate={navigateTo} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!isOrgAdminUser && isAdmin && adminItems.length > 0 && (
+                <div>
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">ניהול מערכת</div>
                   <div className="space-y-0.5">
                     {adminItems.map((item) =>
                       item.id === "admin:billing" ? (
@@ -590,6 +703,77 @@ function AdminMenuLink({
   );
 }
 
+function HierarchicalMenuLink({
+  item,
+  onNavigate,
+  onScreenContextMenu,
+}: {
+  item: HierarchicalMenuItem;
+  onNavigate: (href: string) => void;
+  onScreenContextMenu: (screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) => void;
+}) {
+  const Icon = item.icon;
+
+  if (!item.children?.length) {
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigate(item.href)}
+        onContextMenu={item.screen ? (event) => onScreenContextMenu(item.screen!, event) : undefined}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+          item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={13} className={item.active ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">{item.label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="group/menu-item relative">
+      <button
+        type="button"
+        onClick={() => onNavigate(item.href)}
+        onContextMenu={item.screen ? (event) => onScreenContextMenu(item.screen!, event) : undefined}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+          item.active ? "bg-brand-50 text-brand-700" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={13} className={item.active ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">{item.label}</span>
+        <ChevronRight size={11} className={item.active ? "text-brand-500" : "text-slate-400"} />
+      </button>
+
+      <div className="invisible absolute right-full top-0 z-50 mr-1 min-w-[190px] overflow-hidden rounded border border-slate-200 bg-white opacity-0 shadow-lg transition-all duration-150 group-hover/menu-item:visible group-hover/menu-item:opacity-100 group-focus-within/menu-item:visible group-focus-within/menu-item:opacity-100">
+        <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          {item.label}
+        </div>
+        <div className="py-1">
+          {item.children.map((child) => {
+            const ChildIcon = child.icon;
+
+            return (
+              <button
+                key={child.id}
+                type="button"
+                onClick={() => onNavigate(child.href)}
+                onContextMenu={child.screen ? (event) => onScreenContextMenu(child.screen!, event) : undefined}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition ${
+                  child.active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <ChildIcon size={12} className={`${child.active ? "text-brand-500" : "text-slate-400"} shrink-0`} />
+                <span className="flex-1 text-right">{child.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MobileLink({
   item,
   onNavigate,
@@ -612,6 +796,72 @@ function MobileLink({
       <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
       {item.label}
     </button>
+  );
+}
+
+function MobileHierarchicalMenuLink({
+  item,
+  onNavigate,
+}: {
+  item: HierarchicalMenuItem;
+  onNavigate: (href: string) => void;
+}) {
+  const Icon = item.icon as LucideIcon;
+  const [open, setOpen] = useState(item.active);
+
+  if (!item.children?.length) {
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigate(item.href)}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
+          item.active
+            ? "bg-brand-50 font-medium text-brand-700"
+            : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
+        {item.label}
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm transition ${
+          item.active ? "bg-brand-50 font-medium text-brand-700" : "text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        <Icon size={14} className={item.active ? "text-brand-500" : "text-slate-400"} />
+        <span className="flex-1 text-right">{item.label}</span>
+        <ChevronRight size={13} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="mr-4 mt-0.5 space-y-0.5 border-r-2 border-brand-200">
+          {item.children.map((child) => {
+            const ChildIcon = child.icon;
+
+            return (
+              <button
+                key={child.id}
+                type="button"
+                onClick={() => onNavigate(child.href)}
+                className={`flex w-full items-center gap-2 rounded px-3 py-2 text-sm transition ${
+                  child.active ? "bg-brand-50 font-medium text-brand-700" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <ChildIcon size={13} className={`${child.active ? "text-brand-500" : "text-slate-400"} shrink-0`} />
+                {child.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

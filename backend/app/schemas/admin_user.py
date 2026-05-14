@@ -8,10 +8,10 @@ settings = get_settings()
 
 if settings.BILLING_ENABLED:
     RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "billing", "core", "users", "templates", "audit"]
-    ROLE_NAMES = Literal["super_admin", "admin", "support", "billing"]
+    ROLE_NAMES = Literal["super_admin", "admin", "support", "billing", "org_admin"]
 else:
     RESOURCE_NAMES = Literal["tenants", "lookups", "modules", "reports", "core", "users", "templates", "audit"]
-    ROLE_NAMES = Literal["super_admin", "admin", "support"]
+    ROLE_NAMES = Literal["super_admin", "admin", "support", "org_admin"]
 
 # Default permissions per role (applied when creating a user)
 DEFAULT_PERMISSIONS: dict[str, dict[str, dict]] = {
@@ -78,6 +78,7 @@ class AdminUserCreate(BaseModel):
     email: EmailStr
     password: str
     role: ROLE_NAMES = "admin"
+    tenant_id: Optional[uuid.UUID] = None  # required when role == "org_admin"
     permissions: Optional[list[PermissionIn]] = None  # None = use role defaults
     valid_from: Optional[date] = None
 
@@ -96,6 +97,7 @@ class AdminUserOut(BaseModel):
     full_name: str
     email: str
     role: str
+    tenant_id: Optional[uuid.UUID] = None
     is_active: bool
     last_login_at: Optional[datetime] = None
     created_at: datetime

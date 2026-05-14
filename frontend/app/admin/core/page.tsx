@@ -388,8 +388,8 @@ export default function CoreEmployeesPage() {
                   <tr
                     key={e.id}
                     className={`cursor-pointer transition-colors ${i % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
-                    onDoubleClick={() => router.push(`/admin/core/${e.id}`)}
-                    onClick={() => router.push(`/admin/core/${e.id}`)}
+                    onDoubleClick={() => router.push(`/admin/core/${e.id}?tenant_id=${tenantId}`)}
+                    onClick={() => router.push(`/admin/core/${e.id}?tenant_id=${tenantId}`)}
                   >
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-500 font-mono">{e.employee_number}</td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-800 font-medium">{e.full_name}</td>

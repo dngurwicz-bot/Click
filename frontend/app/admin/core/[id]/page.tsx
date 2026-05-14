@@ -1,10 +1,11 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { ShieldCheck, UserRound } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ShieldCheck, Trash2, UserRound } from "lucide-react";
 
 import { api, ApiRequestError, isLoggedIn } from "@/lib/api";
+import { useTenantOrgStructureItems, type TenantOrgStructureConfig } from "@/lib/orgStructureConfig";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
 import {
@@ -341,6 +342,64 @@ interface LookupOption {
   code?: string;
   name: string;
   title?: string;
+  unit_type?: "division" | "department" | "section" | "team";
+  parent_id?: string | null;
+}
+
+type OrgStructureLevel = "division" | "department" | "section" | "team";
+type OrgUnitAssignments = Partial<Record<OrgStructureLevel, string>>;
+
+const ORG_STRUCTURE_LEVEL_LABELS: Record<OrgStructureLevel, string> = {
+  division: "חטיבה",
+  department: "אגף",
+  section: "מחלקה",
+  team: "צוות",
+};
+
+function getOrgUnitAssignmentsFromSelection(
+  selectedOrgUnitId: string | undefined,
+  orgUnitOptions: LookupOption[],
+): OrgUnitAssignments {
+  if (!selectedOrgUnitId) return {};
+
+  const unitsById = new Map(orgUnitOptions.map((unit) => [unit.id, unit]));
+  const assignments: OrgUnitAssignments = {};
+  let currentUnit = unitsById.get(selectedOrgUnitId);
+
+  while (currentUnit?.unit_type) {
+    assignments[currentUnit.unit_type] = currentUnit.id;
+    currentUnit = currentUnit.parent_id ? unitsById.get(currentUnit.parent_id) : undefined;
+  }
+
+  return assignments;
+}
+
+function getDeepestSelectedOrgUnitId(levels: OrgStructureLevel[], assignments: OrgUnitAssignments) {
+  for (let index = levels.length - 1; index >= 0; index -= 1) {
+    const selectedId = assignments[levels[index]];
+    if (selectedId) return selectedId;
+  }
+  return "";
+}
+
+function getOrgUnitOptionsForLevel(
+  level: OrgStructureLevel,
+  levels: OrgStructureLevel[],
+  assignments: OrgUnitAssignments,
+  orgUnitOptions: LookupOption[],
+  isHierarchical: boolean,
+) {
+  const levelIndex = levels.indexOf(level);
+  if (levelIndex === -1) return [];
+
+  return orgUnitOptions.filter((option) => {
+    if (option.unit_type !== level) return false;
+    if (!isHierarchical || levelIndex === 0) return true;
+    const parentLevel = levels[levelIndex - 1];
+    const selectedParentId = assignments[parentLevel];
+    if (!selectedParentId) return false;
+    return option.parent_id === selectedParentId;
+  });
 }
 
 type TemporalSection = "identity" | "personal" | "spouse" | "additional" | "contact" | "employment" | "compensation" | "bank";
@@ -709,6 +768,7 @@ function TemporalModal({
   state,
   tenantId,
   employeeId,
+  tenantConfig,
   orgUnitOptions,
   positionOptions,
   managerOptions,
@@ -718,6 +778,7 @@ function TemporalModal({
   state: TemporalModalState;
   tenantId: string;
   employeeId: string;
+  tenantConfig: TenantOrgStructureConfig | null;
   orgUnitOptions: LookupOption[];
   positionOptions: LookupOption[];
   managerOptions: EmployeeOption[];
@@ -740,9 +801,39 @@ function TemporalModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [orgUnitAssignments, setOrgUnitAssignments] = useState<OrgUnitAssignments>(() =>
+    getOrgUnitAssignmentsFromSelection((state.prefill?.org_unit_id as string | undefined) ?? undefined, orgUnitOptions),
+  );
+  const activeOrgLevels = tenantConfig?.levels ?? [];
+  const showHierarchicalOrgAssignment = state.section === "employment" && activeOrgLevels.length > 0;
+
+  useEffect(() => {
+    if (state.section !== "employment") return;
+    setOrgUnitAssignments(getOrgUnitAssignmentsFromSelection(form.org_unit_id || undefined, orgUnitOptions));
+  }, [form.org_unit_id, orgUnitOptions, state.section]);
 
   function setField(key: string, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleOrgUnitLevelChange(level: OrgStructureLevel, value: string) {
+    setOrgUnitAssignments((current) => {
+      const nextAssignments: OrgUnitAssignments = {};
+      const changedLevelIndex = activeOrgLevels.indexOf(level);
+
+      activeOrgLevels.forEach((currentLevel, index) => {
+        if (index < changedLevelIndex) {
+          if (current[currentLevel]) nextAssignments[currentLevel] = current[currentLevel];
+          return;
+        }
+        if (index === changedLevelIndex && value) {
+          nextAssignments[currentLevel] = value;
+        }
+      });
+
+      setField("org_unit_id", getDeepestSelectedOrgUnitId(activeOrgLevels, nextAssignments));
+      return nextAssignments;
+    });
   }
 
   function switchMode(nextMode: TemporalMode) {
@@ -1067,16 +1158,52 @@ function TemporalModal({
                 <div className="space-y-4">
                   <ModalSection title="שיוך ארגוני" description="היחידה, התפקיד והדיווח הישיר של העובד בארגון.">
                     <div className={ADMIN_MODAL_GRID}>
-                      <ModalField label="יחידה ארגונית">
-                        <select className={ADMIN_MODAL_INPUT} value={form.org_unit_id ?? ""} onChange={(event) => setField("org_unit_id", event.target.value)}>
-                          <option value="">בחר יחידה</option>
-                          {orgUnitOptions.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.code ? `${option.code} - ${option.name}` : option.name}
-                            </option>
-                          ))}
-                        </select>
-                      </ModalField>
+                      {showHierarchicalOrgAssignment ? (
+                        activeOrgLevels.map((level) => {
+                          const options = getOrgUnitOptionsForLevel(
+                            level,
+                            activeOrgLevels,
+                            orgUnitAssignments,
+                            orgUnitOptions,
+                            tenantConfig?.is_hierarchical ?? true,
+                          );
+                          const parentLevel = activeOrgLevels[activeOrgLevels.indexOf(level) - 1];
+                          const isDisabled = Boolean(
+                            tenantConfig?.is_hierarchical &&
+                            parentLevel &&
+                            !orgUnitAssignments[parentLevel],
+                          );
+
+                          return (
+                            <ModalField key={level} label={ORG_STRUCTURE_LEVEL_LABELS[level]}>
+                              <select
+                                className={ADMIN_MODAL_INPUT}
+                                value={orgUnitAssignments[level] ?? ""}
+                                onChange={(event) => handleOrgUnitLevelChange(level, event.target.value)}
+                                disabled={isDisabled}
+                              >
+                                <option value="">{`בחר ${ORG_STRUCTURE_LEVEL_LABELS[level]}`}</option>
+                                {options.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {option.code ? `${option.code} - ${option.name}` : option.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </ModalField>
+                          );
+                        })
+                      ) : (
+                        <ModalField label="יחידה ארגונית">
+                          <select className={ADMIN_MODAL_INPUT} value={form.org_unit_id ?? ""} onChange={(event) => setField("org_unit_id", event.target.value)}>
+                            <option value="">בחר יחידה</option>
+                            {orgUnitOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.code ? `${option.code} - ${option.name}` : option.name}
+                              </option>
+                            ))}
+                          </select>
+                        </ModalField>
+                      )}
                       <ModalField label="תפקיד">
                         <select className={ADMIN_MODAL_INPUT} value={form.position_id ?? ""} onChange={(event) => setField("position_id", event.target.value)}>
                           <option value="">בחר תפקיד</option>
@@ -1695,9 +1822,12 @@ function DeleteEmployeeModal({
 export default function EmployeeCardPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const employeeRouteParam = params.id as string;
   const workspace = useWorkspace();
+  const initialTenant = searchParams.get("tenant_id") || "";
   const tenantId = workspace?.selectedTenantId ?? "";
+  const { tenantConfig } = useTenantOrgStructureItems(tenantId);
 
   const [card, setCard] = useState<EmployeeCard | null>(null);
   const [resolvedEmployeeId, setResolvedEmployeeId] = useState<string | null>(null);
@@ -1754,7 +1884,9 @@ export default function EmployeeCardPage() {
     }
 
     Promise.all([
-      api.get<Array<{ id: string; code?: string; name: string }>>(`/api/core/org-units?tenant_id=${tenantId}`),
+      api.get<Array<{ id: string; code?: string; name: string; unit_type?: OrgStructureLevel; parent_id?: string | null }>>(
+        `/api/core/org-units?tenant_id=${tenantId}`,
+      ),
       api.get<Array<{ id: string; code?: string; name?: string; title?: string }>>(`/api/core/positions?tenant_id=${tenantId}`),
       api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${tenantId}`),
     ])
@@ -1776,6 +1908,12 @@ export default function EmployeeCardPage() {
       router.replace("/login");
     }
   }, [router]);
+
+  useEffect(() => {
+    if (initialTenant && workspace && initialTenant !== workspace.selectedTenantId) {
+      workspace.setSelectedTenantId(initialTenant);
+    }
+  }, [initialTenant, workspace]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -2185,7 +2323,21 @@ export default function EmployeeCardPage() {
         backHref="/admin/core"
         backLabel="רשימת עובדים"
         status={statusType && statusLabel ? { label: statusLabel, type: statusType } : undefined}
-        primaryActions={[]}
+        primaryActions={
+          card && resolvedEmployeeId
+            ? [
+                {
+                  label: "שינוי סטטוס",
+                  onClick: () => setShowStatusModal(true),
+                },
+                {
+                  label: "מחק עובד",
+                  onClick: () => setShowDeleteModal(true),
+                  icon: <Trash2 size={14} />,
+                },
+              ]
+            : []
+        }
         parentContent={parentContent}
         parentContentMode="compact"
         formTabs={[]}
@@ -2199,6 +2351,7 @@ export default function EmployeeCardPage() {
           state={temporalModal}
           tenantId={tenantId}
           employeeId={resolvedEmployeeId}
+          tenantConfig={tenantConfig}
           orgUnitOptions={orgUnitOptions}
           positionOptions={positionOptions}
           managerOptions={managerOptions}
@@ -2222,6 +2375,33 @@ export default function EmployeeCardPage() {
           employeeId={resolvedEmployeeId}
           onClose={() => setShowTrainingModal(false)}
           onSaved={loadCard}
+        />
+      ) : null}
+
+      {showStatusModal && tenantId && resolvedEmployeeId && card ? (
+        <StatusModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          current={card.status}
+          onClose={() => setShowStatusModal(false)}
+          onSaved={() => {
+            setShowStatusModal(false);
+            loadCard();
+          }}
+        />
+      ) : null}
+
+      {showDeleteModal && tenantId && resolvedEmployeeId && card ? (
+        <DeleteEmployeeModal
+          tenantId={tenantId}
+          employeeId={resolvedEmployeeId}
+          employeeNumber={card.employee_number}
+          fullName={card.full_name}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => {
+            setShowDeleteModal(false);
+            router.push("/admin/core");
+          }}
         />
       ) : null}
 
