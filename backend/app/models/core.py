@@ -66,7 +66,7 @@ class Employee(Base):
 
 
 class EmployeeIdentity(Base):
-    """General details: name, title, gender, username."""
+    """General details: supported identity fields for the employee card."""
     __tablename__ = "employee_identity"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -111,34 +111,6 @@ class EmployeeIdentity(Base):
     @id_number.setter
     def id_number(self, value: str | None) -> None:
         self.legal_id_number = value
-
-    @property
-    def first_name_en(self) -> str | None:
-        return None
-
-    @property
-    def last_name_en(self) -> str | None:
-        return None
-
-    @property
-    def title(self) -> str | None:
-        return None
-
-    @property
-    def username(self) -> str | None:
-        return None
-
-    @property
-    def api_username(self) -> str | None:
-        return None
-
-    @property
-    def is_partner(self) -> bool:
-        return False
-
-    @property
-    def is_manager(self) -> bool:
-        return False
 
 
 class EmployeePersonal(Base):
