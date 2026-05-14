@@ -30,6 +30,24 @@ interface EmployeeListItem {
   created_at: string;
 }
 
+interface LegacyEmployeeListItem {
+  id: string;
+  employee_number: string;
+  full_name: string;
+  is_active?: boolean;
+  created_at?: string;
+}
+
+interface EmployeeDetailIdentityFallback {
+  id_number?: string | null;
+  legal_id_number?: string | null;
+}
+
+interface EmployeeDetailFallback {
+  id_number?: string | null;
+  current_identity?: EmployeeDetailIdentityFallback | null;
+}
+
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 const STATUS_CFG: Record<string, { label: string; dot: string; text: string; bg: string }> = {
@@ -52,11 +70,12 @@ function StatusBadge({ status }: { status: string }) {
 
 interface NewEmployeeModalProps {
   tenantId: string;
+  employees: EmployeeListItem[];
   onClose: () => void;
   onCreated: (id: string) => void;
 }
 
-function NewEmployeeModal({ tenantId, onClose, onCreated }: NewEmployeeModalProps) {
+function NewEmployeeModal({ tenantId, employees, onClose, onCreated }: NewEmployeeModalProps) {
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -69,10 +88,55 @@ function NewEmployeeModal({ tenantId, onClose, onCreated }: NewEmployeeModalProp
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
   function digitsOnly(value: string) { return value.replace(/\D/g, "").slice(0, 9); }
+  function todayIso() { return new Date().toISOString().slice(0, 10); }
+  function getAutoEmployeeNumber() {
+    const next = employees
+      .map((employee) => Number.parseInt(employee.employee_number, 10))
+      .filter((value) => Number.isFinite(value))
+      .reduce((max, value) => Math.max(max, value), 0) + 1;
+    return String(next).slice(0, 9);
+  }
   function getUiError(err: unknown) {
-    if (err instanceof ApiRequestError) return err.error ?? err.message ?? "שגיאה ביצירת עובד";
+    if (err instanceof ApiRequestError) {
+      if (err.code === "EMPLOYEE_NUMBER_EXISTS") return "מספר עובד כבר קיים בארגון";
+      if (err.code === "ID_NUMBER_EXISTS") return "תעודת זהות כבר קיימת בארגון";
+      if (err.code === "BAD_EMPLOYEE_NUMBER") return "מספר עובד לא יכול להכיל יותר מ-9 ספרות";
+      return err.error ?? err.message ?? "שגיאה ביצירת עובד";
+    }
     if (err instanceof Error) return err.message;
     return "שגיאה ביצירת עובד";
+  }
+  function isLegacyCreateValidation(err: unknown) {
+    if (!(err instanceof ApiRequestError) || err.status !== 422 || !Array.isArray(err.details)) return false;
+    const locations = err.details
+      .map((item) => (item && typeof item === "object" ? (item as { loc?: unknown }).loc : null))
+      .filter((loc): loc is unknown[] => Array.isArray(loc))
+      .map((loc) => loc.join("."));
+    return ["body.tenant_id", "body.identity", "body.employment"].every((key) => locations.includes(key));
+  }
+  function buildLegacyPayload() {
+    const employeeNumber = form.employee_number_mode === "manual" ? form.employee_number.trim() : getAutoEmployeeNumber();
+    const currentDate = todayIso();
+    return {
+      tenant_id: tenantId,
+      employee_number: employeeNumber,
+      identity: {
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        legal_id_type: "national_id",
+        legal_id_number: form.id_number.trim(),
+        valid_from: currentDate,
+      },
+      employment: {
+        start_date: currentDate,
+        employment_status: "active",
+        employment_type: "employee",
+        salary_type: "monthly",
+        employment_scope_pct: 100,
+        valid_from: currentDate,
+      },
+      documents: [],
+    };
   }
 
   async function handleSave() {
@@ -85,18 +149,39 @@ function NewEmployeeModal({ tenantId, onClose, onCreated }: NewEmployeeModalProp
       setError("יש למלא את כל שדות החובה");
       return;
     }
+    if (employees.some((employee) => employee.id_number === form.id_number.trim())) {
+      setError("תעודת זהות כבר קיימת בארגון");
+      return;
+    }
+    if (
+      form.employee_number_mode === "manual" &&
+      employees.some((employee) => employee.employee_number === form.employee_number.trim())
+    ) {
+      setError("מספר עובד כבר קיים בארגון");
+      return;
+    }
     setSaving(true); setError(null);
     try {
-      const res = await api.post<{ id: string; employee_number: string }>(
-        `/api/core/employees?tenant_id=${tenantId}`,
-        {
-          first_name: form.first_name.trim(),
-          last_name: form.last_name.trim(),
-          id_number: form.id_number.trim(),
-          employee_number_mode: form.employee_number_mode,
-          employee_number: form.employee_number_mode === "manual" ? form.employee_number.trim() : undefined,
-        }
-      );
+      const payload = {
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        id_number: form.id_number.trim(),
+        employee_number_mode: form.employee_number_mode,
+        employee_number: form.employee_number_mode === "manual" ? form.employee_number.trim() : undefined,
+      };
+      let res: { id: string; employee_number: string };
+      try {
+        res = await api.post<{ id: string; employee_number: string }>(
+          `/api/core/employees?tenant_id=${tenantId}`,
+          payload
+        );
+      } catch (err: unknown) {
+        if (!isLegacyCreateValidation(err)) throw err;
+        res = await api.post<{ id: string; employee_number: string }>(
+          `/api/core/employees?tenant_id=${tenantId}`,
+          buildLegacyPayload()
+        );
+      }
       onCreated(res.id);
     } catch (err: unknown) {
       setError(getUiError(err));
@@ -182,10 +267,51 @@ export default function CoreEmployeesPage() {
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
 
+  function normalizeEmployees(rows: Array<EmployeeListItem | LegacyEmployeeListItem>): EmployeeListItem[] {
+    return rows.map((row) => {
+      if ("status" in row) {
+        return row;
+      }
+      return {
+        id: row.id,
+        employee_number: row.employee_number,
+        full_name: row.full_name,
+        id_number: null,
+        status: row.is_active === false ? "inactive" : "active",
+        created_at: row.created_at ?? "",
+      };
+    });
+  }
+
+  async function hydrateEmployeeIdNumbers(rows: EmployeeListItem[]) {
+    const missingIdRows = rows.filter((row) => !row.id_number);
+    if (missingIdRows.length === 0) return rows;
+
+    const detailResults = await Promise.all(
+      missingIdRows.map(async (row) => {
+        try {
+          const detail = await api.get<EmployeeDetailFallback>(`/api/core/employees/${row.id}?tenant_id=${tenantId}`);
+          const idNumber = detail.id_number ?? detail.current_identity?.id_number ?? detail.current_identity?.legal_id_number ?? null;
+          return [row.id, idNumber] as const;
+        } catch {
+          return [row.id, null] as const;
+        }
+      })
+    );
+
+    const idNumberByEmployeeId = new Map(detailResults);
+    return rows.map((row) => ({
+      ...row,
+      id_number: row.id_number ?? idNumberByEmployeeId.get(row.id) ?? null,
+    }));
+  }
+
   function loadEmployees() {
     if (!tenantId) return;
     setLoading(true);
     api.get<EmployeeListItem[]>(`/api/core/employees?tenant_id=${tenantId}`)
+      .then(normalizeEmployees)
+      .then(hydrateEmployeeIdNumbers)
       .then(setEmployees)
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -270,7 +396,7 @@ export default function CoreEmployeesPage() {
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-600">{e.id_number ?? "—"}</td>
                     <td className="px-4 py-2 border-b border-slate-100"><StatusBadge status={e.status} /></td>
                     <td className="px-4 py-2 border-b border-slate-100 text-slate-500">
-                      {new Date(e.created_at).toLocaleDateString("he-IL")}
+                      {e.created_at ? new Date(e.created_at).toLocaleDateString("he-IL") : "—"}
                     </td>
                   </tr>
                 ))}
@@ -287,6 +413,7 @@ export default function CoreEmployeesPage() {
       {showNew && tenantId && (
         <NewEmployeeModal
           tenantId={tenantId}
+          employees={employees}
           onClose={() => setShowNew(false)}
           onCreated={() => {
             setShowNew(false);

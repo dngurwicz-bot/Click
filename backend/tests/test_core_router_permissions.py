@@ -255,3 +255,53 @@ async def test_status_only_event_preserves_existing_employment_fields(monkeypatc
 
     assert captured["payload"]["branch_name"] == "Jerusalem"
     assert captured["payload"]["time_clock_id"] == "CLK-77"
+
+
+@pytest.mark.asyncio
+async def test_update_identity_maps_id_number_to_model_column(monkeypatch):
+    employee_id = uuid4()
+    tenant_id = uuid4()
+    current_user = CurrentUser(
+        id=uuid4(),
+        email="admin@example.com",
+        role="admin",
+        permissions={"core": {"can_view": True, "can_edit": True, "can_manage_sensitive": True}},
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_get_employee_or_404(_db, requested_employee_id, requested_tenant_id):
+        return SimpleNamespace(id=requested_employee_id, tenant_id=requested_tenant_id)
+
+    async def fake_handle_temporal(_db, model, requested_tenant_id, requested_employee_id, body, actor_id, data_fields):
+        captured["model"] = model
+        captured["tenant_id"] = requested_tenant_id
+        captured["employee_id"] = requested_employee_id
+        captured["body"] = body
+        captured["actor_id"] = actor_id
+        captured["data_fields"] = data_fields
+
+    monkeypatch.setattr(core_router, "_get_employee_or_404", fake_get_employee_or_404)
+    monkeypatch.setattr(core_router, "_handle_temporal", fake_handle_temporal)
+
+    body = core_router.TemporalActionBody(
+        action="update",
+        first_name="Diego",
+        last_name="Gurbicz",
+        id_number="313842650",
+        username="diegog",
+    )
+
+    await core_router.update_identity(
+        employee_id,
+        tenant_id,
+        body,
+        db=SimpleNamespace(),
+        user=current_user,
+    )
+
+    data_fields = captured["data_fields"]
+    assert data_fields["first_name"] == "Diego"
+    assert data_fields["last_name"] == "Gurbicz"
+    assert data_fields["legal_id_number"] == "313842650"
+    assert "id_number" not in data_fields
+    assert "username" not in data_fields

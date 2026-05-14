@@ -207,6 +207,39 @@ def _ser_identity(r: EmployeeIdentity) -> dict[str, Any]:
     }
 
 
+def _build_identity_temporal_data(body: "TemporalActionBody") -> dict[str, Any]:
+    columns = set(EmployeeIdentity.__table__.columns.keys())
+    data: dict[str, Any] = {}
+
+    if body.first_name is not None:
+        data["first_name"] = body.first_name
+    if body.last_name is not None:
+        data["last_name"] = body.last_name
+    if body.gender is not None:
+        data["gender"] = body.gender
+
+    if body.id_number is not None:
+        if "id_number" in columns:
+            data["id_number"] = body.id_number
+        elif "legal_id_number" in columns:
+            data["legal_id_number"] = body.id_number
+
+    optional_identity_fields = {
+        "first_name_en": body.first_name_en,
+        "last_name_en": body.last_name_en,
+        "title": body.title,
+        "username": body.username,
+        "api_username": body.api_username,
+        "is_partner": body.is_partner,
+        "is_manager": body.is_manager,
+    }
+    for key, value in optional_identity_fields.items():
+        if value is not None and key in columns:
+            data[key] = value
+
+    return data
+
+
 def _ser_personal(r: EmployeePersonal) -> dict[str, Any]:
     return {
         "id": str(r.id),
@@ -630,19 +663,7 @@ async def update_identity(
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
     await _get_employee_or_404(db, employee_id, tenant_id)
-    data = {k: v for k, v in {
-        "first_name": body.first_name,
-        "last_name": body.last_name,
-        "first_name_en": body.first_name_en,
-        "last_name_en": body.last_name_en,
-        "id_number": body.id_number,
-        "title": body.title,
-        "gender": body.gender,
-        "username": body.username,
-        "api_username": body.api_username,
-        "is_partner": body.is_partner,
-        "is_manager": body.is_manager,
-    }.items() if v is not None}
+    data = _build_identity_temporal_data(body)
     await _handle_temporal(db, EmployeeIdentity, tenant_id, employee_id, body, user.id, data)
     return {"ok": True}
 

@@ -169,6 +169,81 @@ interface EmployeeCard {
   training: TrainingRow[];
 }
 
+interface LegacyEmployeeSummary {
+  id: string;
+  employee_number: string;
+  full_name: string;
+  is_active: boolean;
+  start_date?: string | null;
+  employment_status?: string | null;
+  employment_type?: string | null;
+  org_unit_name?: string | null;
+  position_title?: string | null;
+  manager_name?: string | null;
+  branch_name?: string | null;
+  work_site?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+interface LegacyEmployeeIdentity {
+  id: string;
+  first_name: string;
+  last_name: string;
+  gender?: string | null;
+  legal_id_number?: string | null;
+  birth_date?: string | null;
+  marital_status?: string | null;
+  country?: string | null;
+  city?: string | null;
+  postal_code?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  valid_from: string;
+  valid_to?: string | null;
+  created_at?: string;
+}
+
+interface LegacyEmployeeEmployment {
+  id: string;
+  org_unit_id?: string | null;
+  manager_employee_id?: string | null;
+  position_id?: string | null;
+  org_unit_name?: string | null;
+  manager_name?: string | null;
+  position_title?: string | null;
+  employment_status?: string | null;
+  employment_type?: string | null;
+  start_date?: string | null;
+  branch_name?: string | null;
+  work_site?: string | null;
+  valid_from: string;
+  valid_to?: string | null;
+  created_at?: string;
+}
+
+interface LegacyEmployeeDetail {
+  employee: LegacyEmployeeSummary;
+  current_identity?: LegacyEmployeeIdentity | null;
+  current_employment?: LegacyEmployeeEmployment | null;
+  identity_history?: LegacyEmployeeIdentity[];
+  employment_history?: LegacyEmployeeEmployment[];
+  timeline?: Array<{
+    id: string;
+    event_type: string;
+    effective_date: string;
+    notes?: string | null;
+  }>;
+  courses?: Array<{
+    id: string;
+    course_name: string;
+    completion_date?: string | null;
+    provider?: string | null;
+  }>;
+}
+
 interface EmployeeOption {
   id: string;
   employee_number: string;
@@ -192,7 +267,93 @@ interface TemporalModalState {
   prefill?: Record<string, unknown>;
 }
 
-function normalizeEmployeeCard(card: EmployeeCard): EmployeeCard {
+function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): EmployeeCard {
+  if ("employee" in card) {
+    const identityHistory = card.identity_history ?? (card.current_identity ? [card.current_identity] : []);
+    const employmentHistory = card.employment_history ?? (card.current_employment ? [card.current_employment] : []);
+    const activeIdentity = card.current_identity ?? identityHistory[0];
+    const activeEmployment = card.current_employment ?? employmentHistory[0];
+
+    return {
+      id: card.employee.id,
+      employee_number: card.employee.employee_number,
+      status: card.employee.is_active ? "active" : "inactive",
+      full_name: card.employee.full_name,
+      id_number: activeIdentity?.legal_id_number ?? undefined,
+      created_at: activeIdentity?.created_at,
+      identity: identityHistory.map((row) => ({
+        id: row.id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        id_number: row.legal_id_number ?? undefined,
+        gender: row.gender ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      personal: identityHistory.map((row) => ({
+        id: row.id,
+        birth_date: row.birth_date ?? undefined,
+        marital_status: row.marital_status ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      contact: identityHistory.map((row) => ({
+        id: row.id,
+        address1: row.address_line1 ?? undefined,
+        address2: row.address_line2 ?? undefined,
+        city: row.city ?? undefined,
+        zip_code: row.postal_code ?? undefined,
+        country: row.country ?? undefined,
+        phone: row.phone ?? undefined,
+        email: row.email ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      employment: employmentHistory.map((row) => ({
+        id: row.id,
+        org_unit_id: row.org_unit_id ?? undefined,
+        org_unit_name: row.org_unit_name ?? undefined,
+        position_id: row.position_id ?? undefined,
+        position_name: row.position_title ?? undefined,
+        employment_type: row.employment_type ?? undefined,
+        manager_id: row.manager_employee_id ?? undefined,
+        start_date: row.start_date ?? undefined,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to ?? undefined,
+        created_at: row.created_at,
+        _current: !row.valid_to,
+        _valid_from_raw: row.valid_from,
+        _valid_to_raw: row.valid_to ?? undefined,
+      })),
+      compensation: [],
+      bank: [],
+      events: (card.timeline ?? []).map((row) => ({
+        id: row.id,
+        event_type: row.event_type,
+        event_date: row.effective_date,
+        description: row.notes ?? undefined,
+      })),
+      training: (card.courses ?? []).map((row) => ({
+        id: row.id,
+        course_name: row.course_name,
+        course_date: row.completion_date ?? undefined,
+        institute: row.provider ?? undefined,
+      })),
+    };
+  }
+
   return {
     ...card,
     identity: card.identity ?? [],
