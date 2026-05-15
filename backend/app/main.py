@@ -1,11 +1,14 @@
 import sys
 import io
+import os
 
 # Fix UnicodeEncodeError on Windows when logging Hebrew/non-ASCII text
 # SQLAlchemy echo logs can contain Hebrew strings (tenant names etc.)
-if sys.stdout and hasattr(sys.stdout, 'buffer'):
+RUNNING_UNDER_PYTEST = "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules
+
+if not RUNNING_UNDER_PYTEST and sys.stdout and hasattr(sys.stdout, 'buffer'):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-if sys.stderr and hasattr(sys.stderr, 'buffer'):
+if not RUNNING_UNDER_PYTEST and sys.stderr and hasattr(sys.stderr, 'buffer'):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from fastapi import FastAPI, Request, HTTPException
@@ -14,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.middleware.audit import AuditMiddleware
-from app.routers import auth, tenants, modules, core, admin_users, lookups, templates, audit, ai, insights, dynamic_reports, org_admin
+from app.routers import auth, tenants, modules, core, admin_users, lookups, templates, audit, insights, dynamic_reports, org_admin
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.saved_report_view      # noqa: F401 – ensure saved report model is registered
 
@@ -56,7 +59,6 @@ if settings.BILLING_ENABLED:
     app.include_router(billing.router)
     app.include_router(billing_engine.router)
 app.include_router(audit.router)
-app.include_router(ai.router)
 app.include_router(insights.router)
 app.include_router(dynamic_reports.router)
 app.include_router(org_admin.router)

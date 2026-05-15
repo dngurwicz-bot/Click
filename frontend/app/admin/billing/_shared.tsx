@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, apiFetch } from "@/lib/api";
 import { HebrewMonthPicker } from "@/components/ui/HebrewMonthPicker";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import {
   Plus, Zap, FileText, FileDown, X, AlertCircle,
   CheckCircle2, Ban, Send, Wallet, Quote, Trash2, TrendingUp,
@@ -270,16 +271,16 @@ export function GenerateChargesModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-[#dce4f0] rounded-t-lg">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-4xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
           <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
             <Zap size={14} /> יצירת חיובים אוטומטית
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
-        <div className="px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-4xl space-y-4">
           <p className="text-xs text-slate-500">
             המערכת תייצר חיובי דמי מנוי עבור כל הארגונים הפעילים/ניסיון לתקופה הנבחרת,
             בהתאם לחבילה ולמחירון הנוכחי. הפעולה בטוחה — חיובים קיימים לא יכפלו.
@@ -298,8 +299,9 @@ export function GenerateChargesModal({
               <AlertCircle size={13} /> {error}
             </div>
           )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-5 pb-4 flex-row-reverse">
+        <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 flex-row-reverse">
           <button
             onClick={handleGenerate}
             disabled={loading}
@@ -313,8 +315,8 @@ export function GenerateChargesModal({
             ביטול
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -380,16 +382,16 @@ export function NewInvoiceModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-[#dce4f0] rounded-t-lg shrink-0">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
             <FileText size={14} /> חשבונית חדשה
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
-        <div className="px-5 py-4 overflow-auto space-y-4 flex-1">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-6xl space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">ארגון <span className="text-red-400">*</span></label>
@@ -507,8 +509,9 @@ export function NewInvoiceModal({
               <AlertCircle size={13} /> {error}
             </div>
           )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
+        <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 flex-row-reverse">
           <button onClick={handleCreate} disabled={saving || selected.size === 0}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-brand-600 hover:bg-brand-700
                        text-white rounded-md transition-colors disabled:opacity-50 font-semibold">
@@ -519,8 +522,8 @@ export function NewInvoiceModal({
             ביטול
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -649,10 +652,9 @@ export function InvoiceDetailModal({
   const statusCfg = INVOICE_STATUS[initial.status] ?? INVOICE_STATUS.draft;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-[#1a3a6e]">{initial.invoice_number}</span>
             <StatusBadge cfg={statusCfg} />
@@ -664,7 +666,8 @@ export function InvoiceDetailModal({
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : inv ? (
-          <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+          <div className="flex-1 overflow-auto px-6 py-6">
+            <div className="mx-auto w-full max-w-6xl space-y-4">
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div className="space-y-0.5">
                 <p className="text-slate-400">ארגון</p>
@@ -783,10 +786,11 @@ export function InvoiceDetailModal({
                 <AlertCircle size={13} /> {error}
               </div>
             )}
+            </div>
           </div>
         ) : null}
         {inv && (
-          <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
+          <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 flex-row-reverse">
             {inv.status === "draft" && (
               <button onClick={doFinalize} disabled={saving}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700
@@ -829,8 +833,8 @@ export function InvoiceDetailModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -940,16 +944,16 @@ export function QuoteBuilderModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[92vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-[#dce4f0] rounded-t-lg shrink-0">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
             <Quote size={14} /> הצעת מחיר חדשה
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
-        <div className="px-5 py-4 overflow-auto space-y-4 flex-1">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-6xl space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">כותרת ההצעה <span className="text-red-400">*</span></label>
@@ -1117,8 +1121,9 @@ export function QuoteBuilderModal({
               <AlertCircle size={13} /> {error}
             </div>
           )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
+        <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 flex-row-reverse">
           <button onClick={handleSave} disabled={saving}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-brand-600 hover:bg-brand-700
                        text-white rounded-md transition-colors disabled:opacity-50 font-semibold">
@@ -1129,8 +1134,8 @@ export function QuoteBuilderModal({
             ביטול
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -1179,10 +1184,9 @@ export function QuoteDetailModal({
   const statusCfg = QUOTE_STATUS[quote?.status ?? "draft"] ?? QUOTE_STATUS.draft;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-[#1a3a6e]">{quote?.quote_number ?? "הצעת מחיר"}</span>
             <StatusBadge cfg={statusCfg} />
@@ -1194,7 +1198,8 @@ export function QuoteDetailModal({
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : quote ? (
-          <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+          <div className="flex-1 overflow-auto px-6 py-6">
+            <div className="mx-auto w-full max-w-6xl space-y-4">
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div className="col-span-2 space-y-0.5">
                 <p className="text-slate-400">כותרת</p>
@@ -1280,10 +1285,11 @@ export function QuoteDetailModal({
                 <AlertCircle size={13} /> {error}
               </div>
             )}
+            </div>
           </div>
         ) : null}
         {quote && (
-          <div className="flex items-center gap-2 px-5 py-3 border-t border-slate-200 shrink-0 flex-row-reverse">
+          <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 flex-row-reverse">
             {quote.status === "draft" && (
               <button onClick={() => doAction("send")} disabled={saving}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors disabled:opacity-50 font-semibold">
@@ -1319,7 +1325,7 @@ export function QuoteDetailModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }

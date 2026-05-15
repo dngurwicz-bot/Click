@@ -1649,8 +1649,16 @@ async def _load_auto_dataset_rows(
         query = query.where(getattr(model, "created_at") >= datetime.combine(date_from, datetime.min.time(), tzinfo=UTC))
         query = query.where(getattr(model, "created_at") <= datetime.combine(date_to, datetime.max.time(), tzinfo=UTC))
 
-    result = await db.execute(query)
-    rows = result.scalars().all()
+    try:
+        result = await db.execute(query)
+        rows = result.scalars().all()
+    except ProgrammingError as exc:
+        message = str(exc).lower()
+        if "undefinedtableerror" not in message and "undefinedcolumnerror" not in message and "relation" not in message:
+            raise
+        await db.rollback()
+        return []
+
     column_names = AUTO_MODEL_DATASET_COLUMNS[dataset_id]
     return [
         {column_name: _serialize_value(getattr(row, column_name, None)) for column_name in column_names}

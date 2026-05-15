@@ -6,6 +6,7 @@ import { isLoggedIn, getStoredUser, api } from "@/lib/api";
 import { BILLING_ENABLED } from "@/lib/features";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
 import {
@@ -319,19 +320,19 @@ function UserModal({
   // ── CREATE modal
   if (!isEdit) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" style={{ direction: "rtl" }}>
+      <AdminModal onBackdropClick={onClose}>
+        <AdminModalPanel className="max-w-6xl" style={{ direction: "rtl" }}>
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-brand-50 rounded-xl"><ShieldCheck size={16} className="text-brand-600" /></div>
-              <h2 className="text-sm font-bold text-slate-800">הוספת משתמש חדש</h2>
+              <h2 className="text-lg font-bold text-[#1a3a6e]">הוספת משתמש חדש</h2>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"><X size={16} /></button>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"><X size={16} /></button>
           </div>
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="mx-auto w-full max-w-5xl space-y-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">שם מלא</label>
@@ -427,34 +428,34 @@ function UserModal({
             )}
             {error && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-xs text-red-600">{error}</div>}
           </div>
+          </div>
           {/* Footer */}
-          <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/60">
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
             <button onClick={onClose} className="px-4 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">ביטול</button>
             <button onClick={handleCreate} disabled={saving} className="px-5 py-2 text-xs font-semibold text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-60 transition-colors flex items-center gap-2">
               {saving && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
               צור משתמש
             </button>
           </div>
-        </div>
-      </div>
+        </AdminModalPanel>
+      </AdminModal>
     );
   }
 
   // ── EDIT modal (with split-button)
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden" dir="rtl"
-           onClick={() => setDropdownOpen(false)}>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* Header */}
-        <div className={`flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg ${editHeaderBg}`}>
-          <h2 className={`text-sm font-bold ${editHeaderText}`}>{editModalTitle}</h2>
+        <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${editHeaderBg}`}>
+          <h2 className={`text-lg font-bold ${editHeaderText}`}>{editModalTitle}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-5xl space-y-4">
 
           {/* DELETE mode */}
           {userMode === "delete" && (
@@ -607,10 +608,11 @@ function UserModal({
               {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{error}</p>}
             </>
           )}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           {userMode === "delete" ? (
             <>
               <button onClick={() => { setUserMode("update"); setError(null); }}
@@ -678,8 +680,8 @@ function UserModal({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -711,23 +713,25 @@ function DeleteConfirm({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6"
-        style={{ direction: "rtl" }}
-      >
-        <h2 className="text-sm font-bold text-slate-800 mb-2">מחיקת משתמש</h2>
-        <p className="text-xs text-slate-500 mb-1">
-          האם למחוק את <span className="font-semibold text-slate-700">{user.full_name}</span>?
-        </p>
-        <p className="text-[10px] text-slate-400 mb-5">
-          הפעולה תמחק את המשתמש מהמערכת ומ-Supabase Auth ולא ניתן לבטל אותה.
-        </p>
-        {error && (
-          <p className="text-xs text-red-600 mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
-        )}
-        <div className="flex gap-3 justify-end">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-5xl" style={{ direction: "rtl" }}>
+        <div className="border-b border-slate-200 bg-red-50 px-6 py-5">
+          <h2 className="text-lg font-bold text-red-800">מחיקת משתמש</h2>
+        </div>
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-4xl">
+            <p className="text-sm text-slate-600 mb-1">
+              האם למחוק את <span className="font-semibold text-slate-700">{user.full_name}</span>?
+            </p>
+            <p className="text-xs text-slate-400 mb-5">
+              הפעולה תמחק את המשתמש מהמערכת ומ-Supabase Auth ולא ניתן לבטל אותה.
+            </p>
+            {error && (
+              <p className="text-xs text-red-600 mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
           <button
             onClick={onClose}
             className="px-4 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
@@ -746,8 +750,8 @@ function DeleteConfirm({
             מחק
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 

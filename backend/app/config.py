@@ -31,9 +31,6 @@ class Settings(BaseSettings):
     # Feature flags
     BILLING_ENABLED: bool = False
 
-    # AI
-    GEMINI_API_KEY: str = ""
-
     # Company / Issuer details (printed on invoice PDFs)
     COMPANY_NAME_HE: str = "חברת CLICK בע\"מ"
     COMPANY_NAME_EN: str = "CLICK Ltd."

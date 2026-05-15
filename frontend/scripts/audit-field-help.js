@@ -12,7 +12,6 @@ const IGNORE_LABELS = new Set([
   "סגור",
   "סגור תפריט",
   "פתח תפריט",
-  "Open AI Assistant",
   "צפיה",
   "עריכה",
   "חיפוש",

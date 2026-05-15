@@ -292,28 +292,33 @@ async def _build_tenant_delete_impact(
             )
         ).scalars().all()
     )
-    contract_ids = list(
-        (
-            await db.execute(
-                select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id)
-            )
-        ).scalars().all()
-    )
-    invoice_ids = list(
-        (
-            await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-    quote_ids = list(
-        (
-            await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-    document_ids = list(
-        (
-            await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
+    contract_ids: list[uuid.UUID] = []
+    invoice_ids: list[uuid.UUID] = []
+    quote_ids: list[uuid.UUID] = []
+    document_ids: list[uuid.UUID] = []
+    if settings.BILLING_ENABLED:
+        contract_ids = list(
+            (
+                await db.execute(
+                    select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id)
+                )
+            ).scalars().all()
+        )
+        invoice_ids = list(
+            (
+                await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
+        quote_ids = list(
+            (
+                await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
+        document_ids = list(
+            (
+                await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
 
     counts: dict[str, int] = {
         "identity_rows": len((await db.execute(select(TenantIdentity.id).where(TenantIdentity.tenant_id == tenant.tenant_id))).scalars().all()),
@@ -331,20 +336,25 @@ async def _build_tenant_delete_impact(
             ).scalars().all()
         ) if subscription_ids else 0,
         "seat_change_logs": len((await db.execute(select(SeatChangeLog.id).where(SeatChangeLog.tenant_id == tenant.tenant_id))).scalars().all()),
-        "billing_charges": len((await db.execute(select(BillingCharge.id).where(BillingCharge.tenant_id == tenant.tenant_id))).scalars().all()),
+        "billing_charges": 0,
         "invoices": len(invoice_ids),
         "invoice_lines": len((await db.execute(select(InvoiceLine.id).where(InvoiceLine.invoice_id.in_(invoice_ids)))).scalars().all()) if invoice_ids else 0,
         "quotes": len(quote_ids),
         "quote_lines": len((await db.execute(select(QuoteLine.id).where(QuoteLine.quote_id.in_(quote_ids)))).scalars().all()) if quote_ids else 0,
         "billing_contracts": len(contract_ids),
         "billing_contract_items": len((await db.execute(select(BillingContractItem.id).where(BillingContractItem.contract_id.in_(contract_ids)))).scalars().all()) if contract_ids else 0,
-        "billing_change_events": len((await db.execute(select(BillingChangeEvent.id).where(BillingChangeEvent.tenant_id == tenant.tenant_id))).scalars().all()),
+        "billing_change_events": 0,
         "billing_bill_runs": len((await db.execute(select(BillingBillRun.id).where(BillingBillRun.contract_id.in_(contract_ids)))).scalars().all()) if contract_ids else 0,
         "billing_documents": len(document_ids),
         "billing_document_lines": len((await db.execute(select(BillingDocumentLine.id).where(BillingDocumentLine.document_id.in_(document_ids)))).scalars().all()) if document_ids else 0,
-        "billing_ledger_entries": len((await db.execute(select(BillingLedgerEntry.id).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))).scalars().all()),
+        "billing_ledger_entries": 0,
         "audit_logs": len((await db.execute(select(AuditLog.id).where(AuditLog.tenant_id == tenant.tenant_id))).scalars().all()) if include_audit_logs else 0,
     }
+
+    if settings.BILLING_ENABLED:
+        counts["billing_charges"] = len((await db.execute(select(BillingCharge.id).where(BillingCharge.tenant_id == tenant.tenant_id))).scalars().all())
+        counts["billing_change_events"] = len((await db.execute(select(BillingChangeEvent.id).where(BillingChangeEvent.tenant_id == tenant.tenant_id))).scalars().all())
+        counts["billing_ledger_entries"] = len((await db.execute(select(BillingLedgerEntry.id).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))).scalars().all())
 
     return TenantDeleteImpactOut(
         tenant_id=tenant.tenant_id,
@@ -1663,51 +1673,57 @@ async def hard_delete_tenant(
             await db.execute(select(TenantSubscription.id).where(TenantSubscription.tenant_id == tenant.tenant_id))
         ).scalars().all()
     )
-    contract_ids = list(
-        (
-            await db.execute(select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-    invoice_ids = list(
-        (
-            await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-    quote_ids = list(
-        (
-            await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-    document_ids = list(
-        (
-            await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
-        ).scalars().all()
-    )
-
-    if invoice_ids:
-        await db.execute(
-            sa.update(Quote)
-            .where(Quote.converted_invoice_id.in_(invoice_ids))
-            .values(converted_invoice_id=None)
+    contract_ids: list[uuid.UUID] = []
+    invoice_ids: list[uuid.UUID] = []
+    quote_ids: list[uuid.UUID] = []
+    document_ids: list[uuid.UUID] = []
+    if settings.BILLING_ENABLED:
+        contract_ids = list(
+            (
+                await db.execute(select(BillingContract.id).where(BillingContract.tenant_id == tenant.tenant_id))
+            ).scalars().all()
         )
-        await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id.in_(invoice_ids)))
-    if quote_ids:
-        await db.execute(delete(QuoteLine).where(QuoteLine.quote_id.in_(quote_ids)))
-    if document_ids:
-        await db.execute(delete(BillingDocumentLine).where(BillingDocumentLine.document_id.in_(document_ids)))
+        invoice_ids = list(
+            (
+                await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
+        quote_ids = list(
+            (
+                await db.execute(select(Quote.id).where(Quote.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
+        document_ids = list(
+            (
+                await db.execute(select(BillingDocument.id).where(BillingDocument.tenant_id == tenant.tenant_id))
+            ).scalars().all()
+        )
+
+        if invoice_ids:
+            await db.execute(
+                sa.update(Quote)
+                .where(Quote.converted_invoice_id.in_(invoice_ids))
+                .values(converted_invoice_id=None)
+            )
+            await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id.in_(invoice_ids)))
+        if quote_ids:
+            await db.execute(delete(QuoteLine).where(QuoteLine.quote_id.in_(quote_ids)))
+        if document_ids:
+            await db.execute(delete(BillingDocumentLine).where(BillingDocumentLine.document_id.in_(document_ids)))
 
     await db.execute(delete(SeatChangeLog).where(SeatChangeLog.tenant_id == tenant.tenant_id))
-    await db.execute(delete(BillingLedgerEntry).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))
-    await db.execute(delete(BillingChangeEvent).where(BillingChangeEvent.tenant_id == tenant.tenant_id))
-    await db.execute(delete(BillingCharge).where(BillingCharge.tenant_id == tenant.tenant_id))
-    await db.execute(delete(Quote).where(Quote.tenant_id == tenant.tenant_id))
-    await db.execute(delete(BillingDocument).where(BillingDocument.tenant_id == tenant.tenant_id))
-    await db.execute(delete(Invoice).where(Invoice.tenant_id == tenant.tenant_id))
+    if settings.BILLING_ENABLED:
+        await db.execute(delete(BillingLedgerEntry).where(BillingLedgerEntry.tenant_id == tenant.tenant_id))
+        await db.execute(delete(BillingChangeEvent).where(BillingChangeEvent.tenant_id == tenant.tenant_id))
+        await db.execute(delete(BillingCharge).where(BillingCharge.tenant_id == tenant.tenant_id))
+        await db.execute(delete(Quote).where(Quote.tenant_id == tenant.tenant_id))
+        await db.execute(delete(BillingDocument).where(BillingDocument.tenant_id == tenant.tenant_id))
+        await db.execute(delete(Invoice).where(Invoice.tenant_id == tenant.tenant_id))
 
-    if contract_ids:
-        await db.execute(delete(BillingBillRun).where(BillingBillRun.contract_id.in_(contract_ids)))
-        await db.execute(delete(BillingContractItem).where(BillingContractItem.contract_id.in_(contract_ids)))
-    await db.execute(delete(BillingContract).where(BillingContract.tenant_id == tenant.tenant_id))
+        if contract_ids:
+            await db.execute(delete(BillingBillRun).where(BillingBillRun.contract_id.in_(contract_ids)))
+            await db.execute(delete(BillingContractItem).where(BillingContractItem.contract_id.in_(contract_ids)))
+        await db.execute(delete(BillingContract).where(BillingContract.tenant_id == tenant.tenant_id))
 
     if subscription_ids:
         await db.execute(

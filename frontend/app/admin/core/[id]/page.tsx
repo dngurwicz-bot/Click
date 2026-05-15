@@ -874,23 +874,24 @@ function TemporalModal({
     setSaving(true);
     setError(null);
 
-    const requestMethod =
-      state.section === "bank" && !state.recordId && mode === "add" ? "post" : "put";
+    const requestMethod = "put";
     const requestPath =
-      state.section === "identity" || state.section === "personal" || state.section === "spouse" || state.section === "additional" || state.section === "contact"
+      state.section === "identity" || state.section === "spouse"
         ? `/api/core/employees/${employeeId}/identity/record`
+      : state.section === "personal" || state.section === "additional"
+        ? `/api/core/employees/${employeeId}/personal?tenant_id=${tenantId}`
+      : state.section === "contact"
+        ? `/api/core/employees/${employeeId}/contact?tenant_id=${tenantId}`
       : state.section === "employment"
-        ? `/api/core/employees/${employeeId}/employment/record`
+        ? `/api/core/employees/${employeeId}/employment?tenant_id=${tenantId}`
       : state.section === "compensation"
-        ? `/api/core/employees/${employeeId}/compensation/record`
-      : state.section === "bank" && state.recordId
-        ? `/api/core/employees/${employeeId}/bank-accounts/${state.recordId}/record`
+        ? `/api/core/employees/${employeeId}/compensation?tenant_id=${tenantId}`
       : state.section === "bank"
-        ? `/api/core/employees/${employeeId}/bank-accounts`
+        ? `/api/core/employees/${employeeId}/bank?tenant_id=${tenantId}`
       : `/api/core/employees/${employeeId}/${state.section}?tenant_id=${tenantId}`;
 
     const body: Record<string, unknown> = {
-      ...(requestMethod === "put" ? { action: mode } : {}),
+      action: mode,
       valid_from: validFrom || todayIso(),
     };
 
@@ -911,44 +912,32 @@ function TemporalModal({
         Object.assign(body, {
           birth_date: toDate(form.birth_date),
           birth_country: form.birth_country?.trim() || undefined,
-          birth_place: form.birth_place?.trim() || undefined,
-          immigration_date: toDate(form.immigration_date),
           marital_status: form.marital_status || undefined,
-          prev_marital_status: form.prev_marital_status || undefined,
-          marital_status_change_date: toDate(form.marital_status_change_date),
-          nationality: form.citizenship1?.trim() || undefined,
+          citizenship1: form.citizenship1?.trim() || undefined,
           citizenship2: form.citizenship2?.trim() || undefined,
-          children_count: form.num_children ? toNum(form.num_children) : undefined,
-          prev_surname: form.prev_surname?.trim() || undefined,
-          father_name: form.father_name?.trim() || undefined,
+          num_children: form.num_children ? toNum(form.num_children) : undefined,
         });
       } else if (state.section === "spouse") {
+        const spouseName = [form.spouse_first_name?.trim(), form.spouse_last_name?.trim()]
+          .filter(Boolean)
+          .join(" ");
         Object.assign(body, {
-          spouse_first_name: form.spouse_first_name?.trim() || undefined,
-          spouse_last_name: form.spouse_last_name?.trim() || undefined,
-          spouse_id_number: form.spouse_id_number?.trim() || undefined,
-          spouse_workplace: form.spouse_workplace?.trim() || undefined,
-          spouse_birth_date: toDate(form.spouse_birth_date),
-          spouse_immigration_date: toDate(form.spouse_immigration_date),
-          spouse_mobile: form.spouse_mobile?.trim() || undefined,
-          spouse_work_phone: form.spouse_work_phone?.trim() || undefined,
+          spouse_name: spouseName || undefined,
+          spouse_legal_id: form.spouse_id_number?.trim() || undefined,
         });
       } else if (state.section === "additional") {
-        Object.assign(body, {
-          license_number: form.license_number?.trim() || undefined,
-          license_issue_year: form.license_issue_year?.trim() || undefined,
-          license_type: form.license_type?.trim() || undefined,
-          license_expiry: toDate(form.license_expiry),
-          health_fund: form.health_fund?.trim() || undefined,
-        });
+        Object.assign(body, {});
       } else if (state.section === "contact") {
         Object.assign(body, {
-          address_line1: form.address1?.trim() || undefined,
-          address_line2: form.address2?.trim() || undefined,
+          address1: form.address1?.trim() || undefined,
+          address2: form.address2?.trim() || undefined,
           city: form.city?.trim() || undefined,
-          postal_code: form.zip_code?.trim() || undefined,
+          zip_code: form.zip_code?.trim() || undefined,
           country: form.country?.trim() || undefined,
           phone: form.phone?.trim() || undefined,
+          mobile: form.mobile?.trim() || undefined,
+          home_phone: form.home_phone?.trim() || undefined,
+          fax: form.fax?.trim() || undefined,
           email: form.email?.trim() || undefined,
         });
       } else if (state.section === "employment") {
@@ -990,11 +979,7 @@ function TemporalModal({
     }
 
     try {
-      if (requestMethod === "post") {
-        await api.post(requestPath, body);
-      } else {
-        await api.put(requestPath, body);
-      }
+      await api.put(requestPath, body);
       onSaved();
       onClose();
     } catch (err) {
@@ -1826,7 +1811,7 @@ function EmployeeCardPageContent() {
   const employeeRouteParam = params.id as string;
   const workspace = useWorkspace();
   const initialTenant = searchParams.get("tenant_id") || "";
-  const tenantId = workspace?.selectedTenantId ?? "";
+  const tenantId = initialTenant || workspace?.selectedTenantId || "";
   const { tenantConfig } = useTenantOrgStructureItems(tenantId);
 
   const [card, setCard] = useState<EmployeeCard | null>(null);
@@ -1845,9 +1830,10 @@ function EmployeeCardPageContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadCard = useCallback(() => {
-    if (!tenantId) return;
+    if (!tenantId) return () => undefined;
     setLoading(true);
     setLoadError(null);
+    let active = true;
 
     const resolveEmployeeId = async () => {
       if (UUID_PATTERN.test(employeeRouteParam)) return employeeRouteParam;
@@ -1862,17 +1848,30 @@ function EmployeeCardPageContent() {
 
     resolveEmployeeId()
       .then((employeeId) => {
+        if (!active) return null;
         setResolvedEmployeeId(employeeId);
         return api.get<EmployeeCard>(`/api/core/employees/${employeeId}?tenant_id=${tenantId}`);
       })
-      .then((data) => setCard(normalizeEmployeeCard(data)))
+      .then((data) => {
+        if (!active || !data) return;
+        setCard(normalizeEmployeeCard(data));
+      })
       .catch((error) => {
+        if (!active) return;
         console.error(error);
         setCard(null);
         setResolvedEmployeeId(null);
         setLoadError("לא הצלחנו לטעון את פרטי העובד. בדוק שהעובד קיים בארגון הפעיל.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [employeeRouteParam, tenantId]);
 
   const loadEmploymentLookups = useCallback(() => {
@@ -1917,8 +1916,9 @@ function EmployeeCardPageContent() {
 
   useEffect(() => {
     if (!tenantId) return;
-    loadCard();
+    const cleanup = loadCard();
     loadEmploymentLookups();
+    return cleanup;
   }, [tenantId, loadCard, loadEmploymentLookups]);
 
   const identityRows = card?.identity ?? [];

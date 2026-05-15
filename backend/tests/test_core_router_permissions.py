@@ -369,19 +369,28 @@ def test_build_identity_temporal_data_rejects_invalid_supported_fields(field_nam
 async def test_get_employee_returns_model_aligned_sections(monkeypatch):
     employee_id = uuid4()
     tenant_id = uuid4()
+    mgr_id = uuid4()
     employment_row = SimpleNamespace(
         id=uuid4(),
         org_unit_id=uuid4(),
         position_id=uuid4(),
-        company="Click",
+        manager_employee_id=mgr_id,
+        employment_status="active",
         employment_type="employee",
-        manager_id=uuid4(),
+        salary_type="monthly",
         start_date=date(2026, 1, 1),
+        end_date=None,
+        employment_scope_pct=100,
+        branch_name=None,
+        work_site=None,
+        time_clock_id=None,
+        notes=None,
         valid_from=date(2026, 1, 1),
         valid_to=None,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     db_results = [
+        # identity
         _ScalarResult(
             [
                 SimpleNamespace(
@@ -396,6 +405,7 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
                 )
             ]
         ),
+        # personal
         _ScalarResult(
             [
                 SimpleNamespace(
@@ -412,6 +422,7 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
                 )
             ]
         ),
+        # contact
         _ScalarResult(
             [
                 SimpleNamespace(
@@ -432,39 +443,56 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
                 )
             ]
         ),
+        # employment
         _ScalarResult([employment_row]),
+        # compensation
         _ScalarResult(
             [
                 SimpleNamespace(
                     id=uuid4(),
-                    comp_code="BASE",
-                    comp_name="Base salary",
-                    amount=14500,
-                    percentage=None,
+                    base_salary=14500,
+                    currency="ILS",
+                    pay_cycle="monthly",
+                    cost_center=None,
+                    components_json=None,
                     valid_from=date(2026, 1, 1),
                     valid_to=None,
                     created_at=datetime(2026, 1, 1, tzinfo=UTC),
                 )
             ]
         ),
+        # bank
         _ScalarResult(
             [
                 SimpleNamespace(
                     id=uuid4(),
-                    payment_code="MAIN",
                     bank_code="10",
                     bank_name="Leumi",
-                    branch="123",
-                    account="456789",
-                    pct_payment=100,
-                    fixed_amount=0,
-                    signature_date=date(2026, 1, 1),
+                    branch_number="123",
+                    branch_description=None,
+                    account_number="456789",
+                    account_holder_name="Dana Levi",
+                    payment_method="bank_transfer",
+                    payment_percent=None,
+                    fixed_amount=None,
+                    payment_priority=None,
+                    company_name=None,
+                    notes=None,
                     valid_from=date(2026, 1, 1),
                     valid_to=None,
                     created_at=datetime(2026, 1, 1, tzinfo=UTC),
                 )
             ]
         ),
+        # documents
+        _ScalarResult([]),
+        # certifications
+        _ScalarResult([]),
+        # courses
+        _ScalarResult([]),
+        # work_breaks
+        _ScalarResult([]),
+        # events
         _ScalarResult(
             [
                 SimpleNamespace(
@@ -477,6 +505,7 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
                 )
             ]
         ),
+        # training
         _ScalarResult(
             [
                 SimpleNamespace(
@@ -489,7 +518,12 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
                 )
             ]
         ),
-        _MappingResult([]),
+        # children
+        _ScalarResult([]),
+        # awards
+        _ScalarResult([]),
+        # skills
+        _ScalarResult([]),
     ]
 
     class _FakeDb:
@@ -515,7 +549,7 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
         return {employment_row.id: ("Operations", "Analyst")}
 
     async def fake_resolve_manager_names(_db, _rows):
-        return {employment_row.manager_id: "Manager Name"}
+        return {employment_row.manager_employee_id: "Manager Name"}
 
     monkeypatch.setattr(core_router, "_get_employee_or_404", fake_get_employee_or_404)
     monkeypatch.setattr(core_router, "_resolve_org_pos_names", fake_resolve_org_pos_names)
@@ -538,8 +572,8 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
     assert payload["contact"][0]["email"] == "dana@example.com"
     assert payload["employment"][0]["position_name"] == "Analyst"
     assert payload["employment"][0]["manager_name"] == "Manager Name"
-    assert payload["compensation"][0]["amount"] == 14500.0
-    assert "base_salary" not in payload["compensation"][0]
-    assert payload["bank"][0]["branch"] == "123"
+    assert payload["compensation"][0]["base_salary"] == 14500.0
+    assert "amount" not in payload["compensation"][0]
+    assert payload["bank"][0]["branch_number"] == "123"
     assert payload["events"][0]["event_date"] == "2026-01-01"
     assert payload["training"][0]["institute"] == "Click Academy"

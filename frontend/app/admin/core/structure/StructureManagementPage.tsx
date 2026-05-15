@@ -83,6 +83,7 @@ interface EmployeeOption {
 
 type StructureRow = OrgUnitRow | PositionRow;
 type StructureModalMode = "add" | "update" | "set" | "close" | "delete";
+type EditingState = { row: StructureRow; initialMode?: StructureModalMode };
 
 function formatRowLabel(code: string, name: string) {
   return `${code} - ${name}`;
@@ -110,6 +111,7 @@ function StructureRecordModal({
   config,
   tenantId,
   row,
+  initialMode,
   parentOptions,
   orgUnitOptions,
   managerOptions,
@@ -120,6 +122,7 @@ function StructureRecordModal({
   config: CoreStructureConfigItem;
   tenantId: string;
   row: StructureRow | null;
+  initialMode?: StructureModalMode;
   parentOptions: OrgUnitRow[];
   orgUnitOptions: OrgUnitRow[];
   managerOptions: EmployeeOption[];
@@ -129,7 +132,7 @@ function StructureRecordModal({
 }) {
   const isPosition = !config.unitType;
   const positionAttachmentEnabled = isPosition && !!tenantConfig?.position_attachment_level;
-  const [mode, setMode] = useState<StructureModalMode>(row ? "update" : "add");
+  const [mode, setMode] = useState<StructureModalMode>(initialMode ?? (row ? "update" : "add"));
   const [validFrom, setValidFrom] = useState(row?.valid_from ?? new Date().toISOString().slice(0, 10));
   const [validTo, setValidTo] = useState(row?.valid_to ?? "");
   const [name, setName] = useState(row ? ("name" in row ? row.name : row.title) : "");
@@ -164,29 +167,25 @@ function StructureRecordModal({
     try {
       if (!row) {
         if (config.unitType) {
-          await api.post("/api/core/org-units", {
-            tenant_id: tenantId,
+          await api.post(`/api/org/org-units?tenant_id=${tenantId}`, {
             unit_type: config.unitType,
             parent_unit_id: parentUnitId || null,
             manager_employee_id: managerEmployeeId || null,
             name,
             description: description || null,
             valid_from: validFrom,
-            is_active: true,
           });
         } else {
-          await api.post("/api/core/positions", {
-            tenant_id: tenantId,
+          await api.post(`/api/org/positions?tenant_id=${tenantId}`, {
             org_unit_id: positionAttachmentEnabled ? (orgUnitId || null) : null,
             title: name,
             description: description || null,
             employment_type_default: employmentTypeDefault || null,
             valid_from: validFrom,
-            is_active: true,
           });
         }
       } else if (config.unitType) {
-        await api.put(`/api/core/org-units/${row.id}/record`, {
+        await api.put(`/api/org/org-units/${row.id}/record?tenant_id=${tenantId}`, {
           action: mode,
           unit_type: config.unitType,
           parent_unit_id: parentUnitId || null,
@@ -196,10 +195,9 @@ function StructureRecordModal({
           description: description || null,
           valid_from: validFrom || null,
           valid_to: validTo || null,
-          is_active: true,
         });
       } else {
-        await api.put(`/api/core/positions/${row.id}/record`, {
+        await api.put(`/api/org/positions/${row.id}/record?tenant_id=${tenantId}`, {
           action: mode,
           org_unit_id: positionAttachmentEnabled ? (orgUnitId || null) : null,
           title: name,
@@ -207,7 +205,6 @@ function StructureRecordModal({
           employment_type_default: employmentTypeDefault || null,
           valid_from: validFrom || null,
           valid_to: validTo || null,
-          is_active: true,
         });
       }
       onSaved();
@@ -243,6 +240,12 @@ function StructureRecordModal({
               הקוד נוצר אוטומטית בעת השמירה.
             </AdminModalMessage>
           )}
+
+          {row ? (
+            <AdminField label="קוד">
+              <input className={`${inputCls} font-mono bg-slate-50 text-slate-600`} value={row.code} readOnly />
+            </AdminField>
+          ) : null}
 
           {mode !== "delete" && mode !== "close" ? (
             <>
@@ -401,7 +404,7 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
   const [managerOptions, setManagerOptions] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [tenantConfig, setTenantConfig] = useState<TenantOrgStructureConfig | null>(null);
-  const [editingRow, setEditingRow] = useState<StructureRow | null>(null);
+  const [editingState, setEditingState] = useState<EditingState | null>(null);
   const [creating, setCreating] = useState(false);
   const [temporalFilter, setTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
   const [resolvedTenantId, setResolvedTenantId] = useState("");
@@ -422,16 +425,16 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
 
     const structureRequest = api.get<TenantOrgStructureConfig>(`/api/admin/tenants/${nextTenantId}/org-structure`);
     const mainRequest = config.unitType
-      ? api.get<OrgUnitRow[]>(`/api/core/org-units?tenant_id=${nextTenantId}&unit_type=${config.unitType}`)
-      : api.get<PositionRow[]>(`/api/core/positions?tenant_id=${nextTenantId}`);
+      ? api.get<OrgUnitRow[]>(`/api/org/org-units?tenant_id=${nextTenantId}&unit_type=${config.unitType}`)
+      : api.get<PositionRow[]>(`/api/org/positions?tenant_id=${nextTenantId}`);
 
     const parentRequest = config.parentType
-      ? api.get<OrgUnitRow[]>(`/api/core/org-units?tenant_id=${nextTenantId}&unit_type=${config.parentType}`)
+      ? api.get<OrgUnitRow[]>(`/api/org/org-units?tenant_id=${nextTenantId}&unit_type=${config.parentType}`)
       : Promise.resolve([]);
 
     const unitOptionsRequest = config.unitType
       ? Promise.resolve([])
-      : api.get<OrgUnitRow[]>(`/api/core/org-units?tenant_id=${nextTenantId}`);
+      : api.get<OrgUnitRow[]>(`/api/org/org-units?tenant_id=${nextTenantId}`);
     const managerRequest = config.unitType
       ? api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${nextTenantId}`)
       : Promise.resolve([]);
@@ -566,7 +569,7 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
                   {visibleRows.map((row, index) => (
                     <tr
                       key={row.id}
-                      onDoubleClick={() => setEditingRow(row)}
+                      onDoubleClick={() => setEditingState({ row })}
                       className={`cursor-pointer transition-colors ${index % 2 === 0 ? "bg-white hover:bg-brand-50/40" : "bg-slate-50/60 hover:bg-brand-50/40"}`}
                     >
                       <td className="border-b border-slate-100 px-4 py-2 text-slate-500">{formatDate(row.valid_from)}</td>
@@ -579,10 +582,10 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
                       <td className="border-b border-slate-100 px-4 py-2"><RowStatusBadge active={row.is_active} /></td>
                       <td className="border-b border-slate-100 px-4 py-2">
                         <div className="flex items-center justify-center gap-1">
-                          <button onClick={(event) => { event.stopPropagation(); setEditingRow(row); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600">
+                          <button onClick={(event) => { event.stopPropagation(); setEditingState({ row }); }} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600">
                             <Pencil size={14} />
                           </button>
-                          <button onClick={(event) => { event.stopPropagation(); setEditingRow(row); }} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                          <button onClick={(event) => { event.stopPropagation(); setEditingState({ row, initialMode: "delete" }); }} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -612,18 +615,19 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
           }}
         />
       ) : null}
-      {editingRow && tenantId && levelEnabled ? (
+      {editingState && tenantId && levelEnabled ? (
           <StructureRecordModal
             config={config}
             tenantId={tenantId}
-            row={editingRow}
+            row={editingState.row}
+            initialMode={editingState.initialMode}
             parentOptions={parentOptions}
             orgUnitOptions={unitOptionsForPosition}
             managerOptions={managerOptions}
             tenantConfig={tenantConfig}
-            onClose={() => setEditingRow(null)}
+            onClose={() => setEditingState(null)}
             onSaved={() => {
-            setEditingRow(null);
+            setEditingState(null);
             loadData(tenantId);
           }}
         />

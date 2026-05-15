@@ -14,44 +14,6 @@ class _UnexpectedDbSession:
 
 
 @pytest.mark.asyncio
-async def test_ai_status_requires_authentication():
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/api/ai/status")
-        assert response.status_code == 401
-        assert response.json()["detail"]["code"] == "AUTH_REQUIRED"
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_ai_chat_rejects_non_admin_user():
-    async def override_current_user():
-        return CurrentUser(
-            id=uuid4(),
-            email="support@example.com",
-            role="support",
-            permissions={"reports": {"can_view": True, "can_edit": False}},
-        )
-
-    async def override_db():
-        yield _UnexpectedDbSession()
-
-    app.dependency_overrides[get_current_user] = override_current_user
-    app.dependency_overrides[get_db] = override_db
-
-    payload = {"messages": [{"role": "user", "content": "שלום"}]}
-
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/api/ai/chat", json=payload)
-        assert response.status_code == 403
-        assert response.json()["detail"]["code"] == "FORBIDDEN"
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
 async def test_dynamic_report_builder_requires_reports_view_permission():
     async def override_current_user():
         return CurrentUser(

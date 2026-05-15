@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { X, Save, Users, Lock } from "lucide-react";
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import type { Visibility } from "./types";
 
 interface ReportSaveModalProps {
@@ -37,36 +38,28 @@ export function ReportSaveModal({ isOpen, onClose, onSave, defaultName = "" }: R
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" dir="rtl">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="relative z-10 w-full max-w-md mx-4 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-l from-blue-50 to-white">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-4xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
               <Save size={16} />
             </div>
             <div>
-              <h2 className="font-semibold text-slate-900 text-sm">שמירת דוח</h2>
-              <p className="text-[11px] text-slate-500">שמור את הגדרות הדוח לשימוש עתידי</p>
+              <h2 className="text-lg font-bold text-[#1a3a6e]">שמירת דוח</h2>
+              <p className="text-sm text-slate-600">שמור את הגדרות הדוח לשימוש עתידי</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
           >
             <X size={16} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-4xl space-y-4">
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
               {error}
@@ -132,9 +125,9 @@ export function ReportSaveModal({ isOpen, onClose, onSave, defaultName = "" }: R
             </div>
           </div>
         </div>
+        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0">
           <button
             onClick={onClose}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
@@ -154,7 +147,7 @@ export function ReportSaveModal({ isOpen, onClose, onSave, defaultName = "" }: R
             שמור דוח
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }

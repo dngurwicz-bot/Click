@@ -211,6 +211,94 @@ async def test_update_position_add_creates_new_history_row():
 
 
 @pytest.mark.asyncio
+async def test_update_org_unit_update_with_future_valid_from_splits_active_row():
+    tenant_id = uuid4()
+    unit = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        code="003",
+        unit_type="division",
+        name="חטיבת מערכות מידע",
+        description=None,
+        parent_unit_id=None,
+        manager_employee_id=None,
+        valid_from=date(2026, 1, 1),
+        valid_to=None,
+        updated_by=None,
+        updated_at=None,
+    )
+    db = _FakeSession([unit, _org_structure(levels=["division"])])
+
+    result = await org_admin.update_org_unit_record(
+        unit.id,
+        org_admin.OrgUnitUpdate(
+            action="update",
+            name="חטיבת דאטה",
+            valid_from=date(2026, 6, 1),
+        ),
+        tenant_id=tenant_id,
+        db=db,
+        user=_current_user(),
+    )
+
+    assert result == {"ok": True}
+    assert db.commit_calls == 1
+    assert unit.valid_to == date(2026, 5, 31)
+    assert len(db.added) == 1
+    assert db.added[0].code == "003"
+    assert db.added[0].name == "חטיבת דאטה"
+    assert db.added[0].valid_from == date(2026, 6, 1)
+    assert db.added[0].valid_to is None
+
+
+@pytest.mark.asyncio
+async def test_update_position_update_with_future_valid_from_splits_active_row():
+    tenant_id = uuid4()
+    org_unit_id = uuid4()
+    position = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        code="007",
+        title="רכז/ת גיוס",
+        description="תפקיד קיים",
+        org_unit_id=org_unit_id,
+        employment_type_default="employee",
+        valid_from=date(2026, 1, 1),
+        valid_to=None,
+        updated_by=None,
+        updated_at=None,
+    )
+    db = _FakeSession(
+        [
+            position,
+            _org_structure(position_attachment_level="team"),
+            SimpleNamespace(id=org_unit_id, tenant_id=tenant_id, unit_type="team"),
+        ]
+    )
+
+    result = await org_admin.update_position_record(
+        position.id,
+        org_admin.PositionUpdate(
+            action="update",
+            title="רכז/ת גיוס בכיר/ה",
+            valid_from=date(2026, 6, 1),
+        ),
+        tenant_id=tenant_id,
+        db=db,
+        user=_current_user(),
+    )
+
+    assert result == {"ok": True}
+    assert db.commit_calls == 1
+    assert position.valid_to == date(2026, 5, 31)
+    assert len(db.added) == 1
+    assert db.added[0].code == "007"
+    assert db.added[0].title == "רכז/ת גיוס בכיר/ה"
+    assert db.added[0].valid_from == date(2026, 6, 1)
+    assert db.added[0].valid_to is None
+
+
+@pytest.mark.asyncio
 async def test_update_org_unit_set_uses_kabiya_for_same_code(monkeypatch):
     tenant_id = uuid4()
     unit = SimpleNamespace(

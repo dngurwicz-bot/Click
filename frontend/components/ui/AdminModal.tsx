@@ -26,6 +26,15 @@ export const ADMIN_MODAL_INPUT =
 export const ADMIN_MODAL_TEXTAREA =
   "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 resize-y min-h-[80px] disabled:bg-slate-50";
 
+export const ADMIN_MODAL_OVERLAY_CLASS =
+  "fixed inset-x-0 bottom-0 top-[52px] z-50 bg-[linear-gradient(180deg,rgba(241,245,249,0.92)_0%,rgba(226,232,240,0.96)_100%)] backdrop-blur-sm";
+
+export const ADMIN_MODAL_CONTAINER_CLASS =
+  "flex h-full w-full justify-center overflow-hidden px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2 lg:px-4 lg:pb-4";
+
+export const ADMIN_MODAL_PANEL_CLASS =
+  "relative flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]";
+
 // ── Components ────────────────────────────────────────────────────────────────
 
 interface AdminModalProps {
@@ -35,14 +44,15 @@ interface AdminModalProps {
 
 export function AdminModal({ onBackdropClick, children }: AdminModalProps) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
-      style={{ background: "rgba(15, 23, 42, 0.45)" }}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onBackdropClick?.();
-      }}
-    >
-      {children}
+    <div className={ADMIN_MODAL_OVERLAY_CLASS}>
+      <div
+        className={ADMIN_MODAL_CONTAINER_CLASS}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onBackdropClick?.();
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -56,8 +66,7 @@ export function AdminModalPanel({ className, children, ...props }: AdminModalPan
   return (
     <div
       {...props}
-      className={`relative w-full rounded-xl bg-white shadow-2xl ${className ?? "max-w-lg"}`}
-      style={{ maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+      className={`${ADMIN_MODAL_PANEL_CLASS} ${className ?? ""}`}
     >
       {children}
     </div>
@@ -72,17 +81,17 @@ interface AdminModalHeaderProps {
 
 export function AdminModalHeader({ title, subtitle, onClose }: AdminModalHeaderProps) {
   return (
-    <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 shrink-0">
+    <div className="flex items-start justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
       <div>
-        <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+        <h2 className="text-lg font-bold text-[#1a3a6e]">{title}</h2>
+        {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
       </div>
       {onClose && (
         <button
           onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
         >
-          <X size={14} />
+          <X size={16} />
         </button>
       )}
     </div>
@@ -96,7 +105,7 @@ interface AdminModalBodyProps {
 
 export function AdminModalBody({ className, children }: AdminModalBodyProps) {
   return (
-    <div className={`overflow-y-auto px-5 py-4 ${className ?? ""}`} style={{ flex: "1 1 auto" }}>
+    <div className={`overflow-y-auto px-6 py-6 ${className ?? ""}`} style={{ flex: "1 1 auto" }}>
       {children}
     </div>
   );
@@ -109,7 +118,7 @@ interface AdminModalFooterProps {
 
 export function AdminModalFooter({ className, children }: AdminModalFooterProps) {
   return (
-    <div className={`flex items-center gap-2 border-t border-slate-100 px-5 py-3 shrink-0 ${className ?? "justify-end"}`}>
+    <div className={`flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 ${className ?? "justify-end"}`}>
       {children}
     </div>
   );

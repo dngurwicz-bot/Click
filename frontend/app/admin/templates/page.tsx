@@ -6,6 +6,7 @@ import { isLoggedIn, api } from "@/lib/api";
 import { AdminActionBar, AdminCountLabel, AdminSearchField, AdminStatusBar, AdminTitleBar } from "@/components/layout/AdminShell";
 import { TemporalFilterBar } from "@/components/ui/TemporalFilterBar";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import {
   createDefaultTemporalFilterState,
@@ -411,25 +412,16 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
     mode === "delete" ? "text-red-800"    :
     mode === "close"  ? "text-orange-800" :
     "text-[#1a3a6e]";
-  const isFullscreen = mode === "add" || mode === "update";
-
   const inputCls = "border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 text-right";
   const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
 
   return (
-    <>
-      <div
-        className={`fixed inset-0 z-50 transition-opacity ${isFullscreen ? "bg-white" : "bg-slate-900/20 backdrop-blur-sm"}`}
-        onClick={isFullscreen ? undefined : onClose}
-      />
-      <div
-        className={`fixed z-50 flex flex-col bg-white ${
-          isFullscreen
-            ? "inset-0 w-full shadow-none"
-            : "inset-y-0 left-0 w-full max-w-2xl shadow-[20px_0_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-left duration-300"
-        }`}
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel
+        className="max-w-6xl"
         dir="rtl"
-           onClick={() => setDropdownOpen(false)}>
+        onClick={() => setDropdownOpen(false)}
+      >
 
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b border-slate-200 ${headerBg}`}>
@@ -438,7 +430,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
         </div>
 
         {/* Body */}
-        <div className={`space-y-3 overflow-y-auto ${isFullscreen ? "px-8 py-6" : "px-5 py-4"}`}>
+        <div className="space-y-3 overflow-y-auto px-8 py-6">
 
           {/* DELETE mode */}
           {mode === "delete" && (
@@ -485,7 +477,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
             )}
 
             <div className={`space-y-4 ${mode === "add" && hasActiveRow ? "hidden" : ""}`}>
-              <div className={`grid gap-4 ${isFullscreen ? "xl:grid-cols-[minmax(0,1.75fr)_minmax(360px,0.9fr)]" : "lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.95fr)]"}`}>
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(360px,0.9fr)]">
                 <div className="space-y-4">
                   <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                     <div className="mb-3">
@@ -793,7 +785,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
         </div>
 
         {/* Footer */}
-        <div className={`flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 ${isFullscreen ? "px-8 py-4" : "px-5 py-3 rounded-b-lg"}`}>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-8 py-4">
           {mode === "delete" ? (
             <>
               <button onClick={switchToUpdateMode}
@@ -899,8 +891,8 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
             </>
           )}
         </div>
-      </div>
-    </>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 

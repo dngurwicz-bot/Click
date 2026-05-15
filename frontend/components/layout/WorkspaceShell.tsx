@@ -13,7 +13,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { api, restoreSession } from "@/lib/api";
 import { TENANT_OPTIONS_UPDATED_EVENT } from "@/lib/workspaceTenants";
 import { TopNav } from "./TopNav";
-import { AIAssistant } from "../ai/AIAssistant";
 
 export interface ScreenDescriptor {
   pathname: string;
@@ -306,8 +305,6 @@ function WorkspaceShellInner({
           </div>
         </div>
       </div>
-
-      <AIAssistant />
     </WorkspaceContext.Provider>
   );
 }

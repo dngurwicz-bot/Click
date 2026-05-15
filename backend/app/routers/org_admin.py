@@ -50,6 +50,14 @@ def _normalize_required_text(value: str, *, field_name: str, code: str) -> str:
     return cleaned
 
 
+def _should_split_active_row(
+    current_valid_from: date,
+    current_valid_to: date | None,
+    requested_valid_from: date,
+) -> bool:
+    return current_valid_to is None and requested_valid_from > current_valid_from
+
+
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class OrgUnitCreate(BaseModel):
@@ -605,14 +613,34 @@ async def update_org_unit_record(
             current_unit_id=unit.id,
         )
         await _ensure_manager_employee(db, t_id, payload["manager_employee_id"])
-        unit.name = payload["name"]
-        unit.description = payload["description"]
-        unit.parent_unit_id = payload["parent_unit_id"]
-        unit.manager_employee_id = payload["manager_employee_id"]
-        unit.valid_from = payload["valid_from"]
-        unit.valid_to = payload["valid_to"]
-        unit.updated_by = user.id
-        unit.updated_at = now
+        if _should_split_active_row(unit.valid_from, unit.valid_to, payload["valid_from"]):
+            unit.valid_to = payload["valid_from"] - date.resolution
+            unit.updated_by = user.id
+            unit.updated_at = now
+            db.add(
+                OrgUnit(
+                    id=uuid.uuid4(),
+                    tenant_id=t_id,
+                    code=unit.code,
+                    unit_type=unit.unit_type,
+                    name=payload["name"],
+                    description=payload["description"],
+                    parent_unit_id=payload["parent_unit_id"],
+                    manager_employee_id=payload["manager_employee_id"],
+                    valid_from=payload["valid_from"],
+                    valid_to=payload["valid_to"],
+                    created_by=user.id,
+                )
+            )
+        else:
+            unit.name = payload["name"]
+            unit.description = payload["description"]
+            unit.parent_unit_id = payload["parent_unit_id"]
+            unit.manager_employee_id = payload["manager_employee_id"]
+            unit.valid_from = payload["valid_from"]
+            unit.valid_to = payload["valid_to"]
+            unit.updated_by = user.id
+            unit.updated_at = now
     elif body.action == "add":
         payload = _org_unit_payload_from_body(body, unit)
         if body.valid_from is None:
@@ -796,14 +824,33 @@ async def update_position_record(
             org_unit_id=payload["org_unit_id"],
             structure=structure,
         )
-        position.title = payload["title"]
-        position.description = payload["description"]
-        position.org_unit_id = payload["org_unit_id"]
-        position.employment_type_default = payload["employment_type_default"]
-        position.valid_from = payload["valid_from"]
-        position.valid_to = payload["valid_to"]
-        position.updated_by = user.id
-        position.updated_at = now
+        if _should_split_active_row(position.valid_from, position.valid_to, payload["valid_from"]):
+            position.valid_to = payload["valid_from"] - date.resolution
+            position.updated_by = user.id
+            position.updated_at = now
+            db.add(
+                Position(
+                    id=uuid.uuid4(),
+                    tenant_id=t_id,
+                    code=position.code,
+                    title=payload["title"],
+                    description=payload["description"],
+                    org_unit_id=payload["org_unit_id"],
+                    employment_type_default=payload["employment_type_default"],
+                    valid_from=payload["valid_from"],
+                    valid_to=payload["valid_to"],
+                    created_by=user.id,
+                )
+            )
+        else:
+            position.title = payload["title"]
+            position.description = payload["description"]
+            position.org_unit_id = payload["org_unit_id"]
+            position.employment_type_default = payload["employment_type_default"]
+            position.valid_from = payload["valid_from"]
+            position.valid_to = payload["valid_to"]
+            position.updated_by = user.id
+            position.updated_at = now
     elif body.action == "add":
         payload = _position_payload_from_body(body, position)
         if body.valid_from is None:

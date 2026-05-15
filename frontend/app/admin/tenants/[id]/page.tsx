@@ -702,14 +702,12 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
   const activeRow = relevantRows.find((r) => !r.valid_to);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4" dir="rtl"
-           onClick={() => setDropdownOpen(false)}>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-200 rounded-t-2xl ${headerBg}`}>
-          <h2 className={`text-sm font-bold ${headerText}`}>
+        <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${headerBg}`}>
+          <h2 className={`text-lg font-bold ${headerText}`}>
             {modalTitle}
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500">
@@ -718,7 +716,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
         </div>
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
-        <div className="px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-auto px-6 py-6 space-y-4">
 
           {/* ── מחיקה mode ──────────────────────────────────────────────── */}
           {mode === "delete" && (
@@ -1016,8 +1014,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
             </>
           )}
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -1959,9 +1957,9 @@ function TenantDeleteModal({
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-5 py-3 rounded-t-xl">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-3xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-6 py-5">
           <div>
             <h3 className="text-sm font-semibold text-red-900">מחיקת ארגון לצמיתות</h3>
             <p className="mt-1 text-[11px] text-red-700">הפעולה מוחקת את הארגון ואת כל הנתונים המשויכים אליו ואינה ניתנת לשחזור.</p>
@@ -1969,7 +1967,7 @@ function TenantDeleteModal({
           <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-red-700"><X size={16} /></button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-auto px-6 py-6 space-y-4">
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900 space-y-1">
             <div><strong>ארגון:</strong> {tenant.identity?.name_he ?? "—"} ({tenant.org_number})</div>
             <div><strong>ח.פ / ע.מ:</strong> {tenant.identity?.tax_id ?? "—"}</div>
@@ -2051,8 +2049,8 @@ function TenantDeleteModal({
             {saving ? "מוחק..." : "מחק ארגון וכל הנתונים"}
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -2110,18 +2108,17 @@ function ApplyTemplateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-5xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">החל תבנית על הארגון</h3>
-            <p className="mt-1 text-[11px] text-slate-500">הפעולה תעדכן את פרטי המנוי, המודולים והמושבים של הארגון מתאריך שתבחר.</p>
+            <h3 className="text-lg font-bold text-[#1a3a6e]">החל תבנית על הארגון</h3>
+            <p className="mt-1 text-sm text-slate-600">הפעולה תעדכן את פרטי המנוי, המודולים והמושבים של הארגון מתאריך שתבחר.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
         </div>
 
-        <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
+        <div className="flex-1 overflow-auto grid gap-4 px-6 py-6 md:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)]">
           <div className="space-y-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">תבנית</label>
@@ -2214,8 +2211,8 @@ function ApplyTemplateModal({
             {saving ? "מחיל..." : "החל תבנית"}
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -2357,25 +2354,20 @@ function SubscriptionModuleModal({
   const isExistingRow = Boolean(initial);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-2xl rounded-xl bg-white shadow-xl"
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel
+        className="max-w-6xl"
         dir="rtl"
         onClick={() => setDropdownOpen(false)}
       >
-        <div className={`flex items-center justify-between border-b border-slate-200 px-5 py-3 rounded-t-xl ${headerBg}`}>
+        <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${headerBg}`}>
           <div>
-            <h3 className={`text-sm font-semibold ${headerText}`}>{titleMap[mode]}</h3>
-            <p className={`mt-1 text-[11px] ${mode === "update" || mode === "add" ? "text-slate-500" : headerText}`}>{subtitleMap[mode]}</p>
+            <h3 className={`text-lg font-bold ${headerText}`}>{titleMap[mode]}</h3>
+            <p className={`mt-1 text-sm ${mode === "update" || mode === "add" ? "text-slate-600" : headerText}`}>{subtitleMap[mode]}</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
         </div>
-        <div className="grid gap-4 p-5 md:grid-cols-2">
+        <div className="flex-1 overflow-auto grid gap-4 px-6 py-6 md:grid-cols-2">
           {mode === "set" && (
             <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               הפעולה תחליף או תפצל כל רשומה חופפת של המודול בטווח התאריכים שתגדיר.
@@ -2559,8 +2551,8 @@ function SubscriptionModuleModal({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -2637,16 +2629,16 @@ function SyncTemplateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3 rounded-t-xl">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">רענון מנוי מתבנית</h3>
-            <p className="mt-1 text-[11px] text-slate-500">המערכת תחשב פערים מול התבנית ותאפשר apply רק אחרי תצוגה מקדימה.</p>
+            <h3 className="text-lg font-bold text-[#1a3a6e]">רענון מנוי מתבנית</h3>
+            <p className="mt-1 text-sm text-slate-600">המערכת תחשב פערים מול התבנית ותאפשר apply רק אחרי תצוגה מקדימה.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
         </div>
-        <div className="grid gap-4 p-5 md:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="flex-1 overflow-auto grid gap-4 px-6 py-6 md:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">תבנית</label>
@@ -2733,8 +2725,8 @@ function SyncTemplateModal({
             {applying ? "מחיל..." : "החל סנכרון"}
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -2770,12 +2762,11 @@ function InvoiceViewModal({
   const st = INVOICE_STATUS_CFG[initial.status] ?? INVOICE_STATUS_CFG.draft;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl mx-4 max-h-[90vh] flex flex-col" dir="rtl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-[#dce4f0] rounded-t-2xl shrink-0">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-6xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-800">{initial.invoice_number}</span>
+            <span className="text-lg font-bold text-[#1a3a6e]">{initial.invoice_number}</span>
             <BillingStatusBadge cfg={st} />
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
@@ -2786,7 +2777,7 @@ function InvoiceViewModal({
             <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : inv ? (
-          <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+          <div className="flex-1 overflow-auto px-6 py-6 space-y-4">
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div><p className="text-slate-400 mb-0.5">תקופה</p><p className="font-medium">{periodShort(inv.billing_period)}</p></div>
               <div><p className="text-slate-400 mb-0.5">הנפקה</p><p className="font-medium">{fmtDate(inv.issue_date)}</p></div>
@@ -2886,8 +2877,8 @@ function InvoiceViewModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -2930,17 +2921,17 @@ function PaymentTrackingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-5 py-4 rounded-t-2xl">
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-5xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
           <div>
-            <h3 className="text-sm font-bold text-[#1a3a6e]">תיעוד תשלום חיצוני</h3>
-            <p className="mt-1 text-xs text-slate-500">הגבייה עצמה נעשית במערכת נפרדת. כאן מתעדים מה קרה בפועל עבור {initial.billing_period}.</p>
+            <h3 className="text-lg font-bold text-[#1a3a6e]">תיעוד תשלום חיצוני</h3>
+            <p className="mt-1 text-sm text-slate-600">הגבייה עצמה נעשית במערכת נפרדת. כאן מתעדים מה קרה בפועל עבור {initial.billing_period}.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-white/70"><X size={16} /></button>
         </div>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="flex-1 overflow-auto space-y-4 px-6 py-6">
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <div className="text-slate-400">חודש חיוב</div>
@@ -3024,8 +3015,8 @@ function PaymentTrackingModal({
             {saving ? "שומר..." : "שמור"}
           </button>
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -3077,7 +3068,9 @@ export default function TenantDetailPage() {
       api.get<TenantOut>(`/api/admin/tenants/${id}`),
       api.get<TenantHistory>(`/api/admin/tenants/${id}/history`),
       api.get<TemplateOption[]>("/api/admin/templates").catch(() => []),
-      api.get<TenantPaymentTrackingSummary>(`/api/admin/tenants/${id}/payment-tracking`).catch(() => null),
+      (BILLING_ENABLED
+        ? api.get<TenantPaymentTrackingSummary>(`/api/admin/tenants/${id}/payment-tracking`).catch(() => null)
+        : Promise.resolve(null)),
       (BILLING_ENABLED
         ? api.get<TenantBillingSummary>(`/api/admin/tenants/${id}/billing`).catch(() => null)
         : Promise.resolve(null)),
@@ -3323,10 +3316,10 @@ export default function TenantDetailPage() {
         toolbarNote: "כאן מנהלים אילו מודולים באמת פעילים ללקוח, כולל מושבים, override והיסטוריית תוקף.",
       },
     ) : billingChargesTab,
-    {
+    ...(BILLING_ENABLED ? [{
       ...paymentTrackingTab,
       toolbarNote: "כאן מתעדים ידנית אם כל חודש שולם, לא שולם או שולם חלקית במערכת החיצונית.",
-    },
+    }] : []),
     {
       ...buildOrgStructureTab(
         history.org_structure ?? [],

@@ -2,6 +2,7 @@
 
 import { HelpCircle, LayoutGrid, MinusCircle, PlusCircle, X } from "lucide-react";
 
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import type { DashboardScreen } from "@/lib/dashboardScreens";
 
 export interface ScreenMenuState {
@@ -86,19 +87,19 @@ export function ScreenExplanationModal({
   const Icon = screen.icon;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 px-4" onClick={onClose}>
-      <div
-        className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel
+        className="max-w-5xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div className="flex items-start gap-3">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+          <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
               <Icon size={18} />
             </div>
             <div className="text-right">
-              <div className="text-sm font-semibold text-slate-900">{screen.label}</div>
-              <div className="mt-1 text-xs text-slate-500">{screen.shortDescription}</div>
+              <div className="text-lg font-bold text-[#1a3a6e]">{screen.label}</div>
+              <div className="mt-1 text-sm text-slate-600">{screen.shortDescription}</div>
             </div>
           </div>
 
@@ -112,7 +113,8 @@ export function ScreenExplanationModal({
           </button>
         </div>
 
-        <div className="space-y-4 px-5 py-5 text-right">
+        <div className="flex-1 overflow-auto px-6 py-6 text-right">
+          <div className="mx-auto w-full max-w-5xl space-y-4">
           <div className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-3">
             <div className="mb-1 flex items-center justify-end gap-2 text-xs font-semibold text-brand-700">
               <LayoutGrid size={13} />
@@ -128,7 +130,8 @@ export function ScreenExplanationModal({
             </div>
           </div>
         </div>
-      </div>
-    </div>
+        </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }

@@ -6,6 +6,7 @@ import { isLoggedIn, api } from "@/lib/api";
 import { CardPage } from "@/components/layout/CardPage";
 import { FormField } from "@/components/ui/FormField";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
+import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
 import { SplitActionButton } from "@/components/ui/SplitActionButton";
 import { X, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -183,21 +184,22 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
 
   if (confirmDel) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4" dir="rtl">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg bg-red-50">
-            <h2 className="text-sm font-bold text-red-800">מחיקת מודול — {data.name}</h2>
+      <AdminModal onBackdropClick={onClose}>
+        <AdminModalPanel className="max-w-5xl" dir="rtl">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-red-50 px-6 py-5">
+            <h2 className="text-lg font-bold text-red-800">מחיקת מודול — {data.name}</h2>
             <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
           </div>
-          <div className="px-5 py-4 space-y-3">
+          <div className="flex-1 overflow-auto px-6 py-6">
+            <div className="mx-auto w-full max-w-5xl space-y-3">
             <div className="bg-red-50 border border-red-300 rounded px-4 py-3 text-xs text-red-800 space-y-1.5">
               <div className="font-bold text-sm">⚠️ מחיקת מודול — פעולה בלתי הפיכה</div>
               <div>המודול <strong>{data.name}</strong> ({data.slug}) יימחק לצמיתות כולל כל היסטוריית המחירים שלו.</div>
             </div>
             {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{error}</p>}
           </div>
-          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
             <button onClick={() => setConfirmDel(false)}
               className="px-3 py-1.5 text-xs border border-slate-300 rounded text-slate-600 hover:bg-slate-100">
               ← ביטול
@@ -207,23 +209,22 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
               {saving ? "מוחק..." : "מחק לצמיתות"}
             </button>
           </div>
-        </div>
-      </div>
+        </AdminModalPanel>
+      </AdminModal>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4" dir="rtl"
-           onClick={() => setDropdownOpen(false)}>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-5xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
 
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg bg-[#dce4f0]">
-          <h2 className="text-sm font-bold text-[#1a3a6e]">עדכון — פרטי מודול</h2>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
+          <h2 className="text-lg font-bold text-[#1a3a6e]">עדכון — פרטי מודול</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
 
-        <div className="px-5 py-4 space-y-3">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-5xl space-y-3">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded px-3 py-2">{error}</div>}
 
           {[
@@ -266,8 +267,9 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
             <input type="number" value={form.sort_order} onChange={(e) => set("sort_order", e.target.value)} className={inputCls} />
           </div>
         </div>
+        </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           <button onClick={onClose}
             className="px-3 py-1.5 text-xs border border-slate-300 rounded text-slate-600 hover:bg-slate-100 transition-colors">
             ביטול
@@ -298,8 +300,8 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
             ]}
           />
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
@@ -434,19 +436,18 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
   const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4" dir="rtl"
-           onClick={() => setDropdownOpen(false)}>
+    <AdminModal onBackdropClick={onClose}>
+      <AdminModalPanel className="max-w-5xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* Header */}
-        <div className={`flex items-center justify-between px-5 py-3 border-b border-slate-200 rounded-t-lg ${headerBg}`}>
-          <h2 className={`text-sm font-bold ${headerText}`}>{modalTitle}</h2>
+        <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${headerBg}`}>
+          <h2 className={`text-lg font-bold ${headerText}`}>{modalTitle}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
 
         {/* Body */}
-        <div className="px-5 py-4 space-y-3">
+        <div className="flex-1 overflow-auto px-6 py-6">
+          <div className="mx-auto w-full max-w-5xl space-y-3">
 
           {/* מחיקה mode */}
           {mode === "delete" && (
@@ -565,10 +566,11 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
               <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{error}</p>
             )}
           </>)}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           {mode === "delete" ? (
             <>
               <button onClick={switchToUpdateMode}
@@ -672,8 +674,8 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
             </>
           )}
         </div>
-      </div>
-    </div>
+      </AdminModalPanel>
+    </AdminModal>
   );
 }
 
