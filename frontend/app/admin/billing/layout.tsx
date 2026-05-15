@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 export default function BillingLayout({
@@ -6,6 +5,5 @@ export default function BillingLayout({
 }: {
   children: ReactNode;
 }) {
-  void children;
-  redirect("/admin/modules");
+  return <>{children}</>;
 }

@@ -32,8 +32,52 @@ const ORG_POSITION_NAV: OrgStructureNavEntry = {
 
 export const ORG_STRUCTURE_UPDATED_EVENT = "click:org-structure-updated";
 
+const tenantOrgStructureCache = new Map<string, TenantOrgStructureConfig>();
+const tenantOrgStructureRequests = new Map<string, Promise<TenantOrgStructureConfig>>();
+
+function getTenantOrgStructureCacheKey(selectedTenantId: string, orgAdminTenantId: string | null) {
+  return `${orgAdminTenantId ? "org" : "admin"}:${selectedTenantId}`;
+}
+
+function fetchTenantOrgStructure(
+  selectedTenantId: string,
+  orgAdminTenantId: string | null,
+) {
+  const cacheKey = getTenantOrgStructureCacheKey(selectedTenantId, orgAdminTenantId);
+  const cached = tenantOrgStructureCache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
+  const existingRequest = tenantOrgStructureRequests.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = api
+    .get<TenantOrgStructureConfig>(
+      orgAdminTenantId
+        ? "/api/org/org-structure"
+        : `/api/admin/tenants/${selectedTenantId}/org-structure`,
+    )
+    .then((data) => {
+      tenantOrgStructureCache.set(cacheKey, data);
+      tenantOrgStructureRequests.delete(cacheKey);
+      return data;
+    })
+    .catch((error) => {
+      tenantOrgStructureRequests.delete(cacheKey);
+      throw error;
+    });
+
+  tenantOrgStructureRequests.set(cacheKey, request);
+  return request;
+}
+
 export function dispatchOrgStructureUpdated(tenantId: string) {
   if (typeof window === "undefined") return;
+  tenantOrgStructureCache.delete(getTenantOrgStructureCacheKey(tenantId, null));
+  tenantOrgStructureCache.delete(getTenantOrgStructureCacheKey(tenantId, tenantId));
   window.dispatchEvent(new CustomEvent(ORG_STRUCTURE_UPDATED_EVENT, { detail: { tenantId } }));
 }
 
@@ -46,9 +90,12 @@ export function getOrgStructureNavEntries(levels: OrgStructureLevel[]) {
 }
 
 export function useTenantOrgStructureItems(selectedTenantId: string) {
-  const [tenantConfig, setTenantConfig] = useState<TenantOrgStructureConfig | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const orgAdminTenantId = getOrgAdminTenantId();
+  const cacheKey = selectedTenantId ? getTenantOrgStructureCacheKey(selectedTenantId, orgAdminTenantId) : "";
+  const [tenantConfig, setTenantConfig] = useState<TenantOrgStructureConfig | null>(() =>
+    cacheKey ? tenantOrgStructureCache.get(cacheKey) ?? null : null,
+  );
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     function handleOrgStructureUpdated(event: Event) {
@@ -62,23 +109,25 @@ export function useTenantOrgStructureItems(selectedTenantId: string) {
   }, [selectedTenantId]);
 
   useEffect(() => {
-    let cancelled = false;
     if (!selectedTenantId) {
       setTenantConfig(null);
       return;
     }
 
-    api
-      .get<TenantOrgStructureConfig>(
-        orgAdminTenantId
-          ? "/api/org/org-structure"
-          : `/api/admin/tenants/${selectedTenantId}/org-structure`,
-      )
+    const nextCacheKey = getTenantOrgStructureCacheKey(selectedTenantId, orgAdminTenantId);
+    const cached = tenantOrgStructureCache.get(nextCacheKey);
+    if (cached) {
+      setTenantConfig(cached);
+    }
+
+    let cancelled = false;
+
+    fetchTenantOrgStructure(selectedTenantId, orgAdminTenantId)
       .then((data) => {
         if (!cancelled) setTenantConfig(data);
       })
       .catch(() => {
-        if (!cancelled) setTenantConfig(null);
+        if (!cancelled && !tenantOrgStructureCache.has(nextCacheKey)) setTenantConfig(null);
       });
 
     return () => {

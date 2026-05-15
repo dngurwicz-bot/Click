@@ -1,7 +1,7 @@
 """core hr module
 
 Revision ID: 0022
-Revises: 0021
+Revises: 0021, 0021_billing_payment_tracking
 Create Date: 2026-05-02
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "0022"
-down_revision = "0021"
+down_revision = ("0021", "0021_billing_payment_tracking")
 branch_labels = None
 depends_on = None
 

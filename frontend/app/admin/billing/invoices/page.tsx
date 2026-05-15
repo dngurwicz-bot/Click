@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { isLoggedIn, api } from "@/lib/api";
@@ -25,7 +25,7 @@ function currentPeriod() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export default function BillingInvoicesPage() {
+function BillingInvoicesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([]);
@@ -241,5 +241,13 @@ export default function BillingInvoicesPage() {
         />
       )}
     </main>
+  );
+}
+
+export default function BillingInvoicesPage() {
+  return (
+    <Suspense fallback={<main className="flex min-h-0 flex-1 items-center justify-center text-sm text-slate-400">טוען חשבוניות...</main>}>
+      <BillingInvoicesPageContent />
+    </Suspense>
   );
 }

@@ -404,6 +404,7 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
   const [editingRow, setEditingRow] = useState<StructureRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [temporalFilter, setTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
+  const [resolvedTenantId, setResolvedTenantId] = useState("");
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -435,20 +436,33 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
       ? api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${nextTenantId}`)
       : Promise.resolve([]);
 
+    let active = true;
+
     Promise.all([structureRequest, mainRequest, parentRequest, unitOptionsRequest, managerRequest])
       .then(([structure, mainRows, parentRows, unitRows, managerRows]) => {
+        if (!active) return;
         setTenantConfig(structure);
         setRows(mainRows);
         setParentOptions(parentRows);
         setOrgUnitOptions(unitRows);
         setManagerOptions(managerRows);
+        setResolvedTenantId(nextTenantId);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [config.parentType, config.unitType]);
 
   useEffect(() => {
-    if (tenantId) loadData(tenantId);
+    if (!tenantId) return;
+    return loadData(tenantId);
   }, [tenantId, loadData]);
 
   const filteredRows = useMemo(() => {
@@ -488,6 +502,7 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
       ),
     [filteredRows, temporalFilter, temporalFilterError]
   );
+  const isCurrentTenantResolved = resolvedTenantId === tenantId;
 
   return (
     <>
@@ -526,7 +541,7 @@ function StructureManagementPageContent({ config }: { config: CoreStructureConfi
           <div className="flex-1 overflow-auto bg-white min-h-0">
             {loading ? (
               <div className="py-20 text-center text-sm text-slate-400">טוען נתונים...</div>
-            ) : !levelEnabled ? (
+            ) : isCurrentTenantResolved && !levelEnabled ? (
               <div className="py-20 text-center text-sm text-slate-400">
                 הרמה הזו לא הוגדרה ללקוח הנבחר.
               </div>

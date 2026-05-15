@@ -18,6 +18,38 @@ class FakeSession:
         raise AssertionError("DB should not be queried before sensitive permission guard rejects the request")
 
 
+class _ScalarRows:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def all(self):
+        return list(self._rows)
+
+
+class _ScalarResult:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def scalars(self):
+        return _ScalarRows(self._rows)
+
+
+class _MappingRows:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def all(self):
+        return list(self._rows)
+
+
+class _MappingResult:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def mappings(self):
+        return _MappingRows(self._rows)
+
+
 @pytest.mark.asyncio
 async def test_create_employee_rejects_sensitive_write_without_manage_sensitive():
     async def override_current_user():
@@ -331,3 +363,183 @@ def test_build_identity_temporal_data_rejects_invalid_supported_fields(field_nam
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["error"] == expected_error
+
+
+@pytest.mark.asyncio
+async def test_get_employee_returns_model_aligned_sections(monkeypatch):
+    employee_id = uuid4()
+    tenant_id = uuid4()
+    employment_row = SimpleNamespace(
+        id=uuid4(),
+        org_unit_id=uuid4(),
+        position_id=uuid4(),
+        company="Click",
+        employment_type="employee",
+        manager_id=uuid4(),
+        start_date=date(2026, 1, 1),
+        valid_from=date(2026, 1, 1),
+        valid_to=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    db_results = [
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    first_name="Dana",
+                    last_name="Levi",
+                    id_number="123456789",
+                    gender="F",
+                    valid_from=date(2026, 1, 1),
+                    valid_to=None,
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    birth_date=date(1990, 5, 2),
+                    birth_country="IL",
+                    citizenship1="IL",
+                    citizenship2=None,
+                    marital_status="single",
+                    num_children=0,
+                    valid_from=date(2026, 1, 1),
+                    valid_to=None,
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    address1="Herzl 1",
+                    address2=None,
+                    city="Jerusalem",
+                    zip_code="91000",
+                    country="IL",
+                    phone="02-0000000",
+                    mobile="0501234567",
+                    home_phone=None,
+                    fax=None,
+                    email="dana@example.com",
+                    valid_from=date(2026, 1, 1),
+                    valid_to=None,
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult([employment_row]),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    comp_code="BASE",
+                    comp_name="Base salary",
+                    amount=14500,
+                    percentage=None,
+                    valid_from=date(2026, 1, 1),
+                    valid_to=None,
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    payment_code="MAIN",
+                    bank_code="10",
+                    bank_name="Leumi",
+                    branch="123",
+                    account="456789",
+                    pct_payment=100,
+                    fixed_amount=0,
+                    signature_date=date(2026, 1, 1),
+                    valid_from=date(2026, 1, 1),
+                    valid_to=None,
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    event_type="hire",
+                    event_date=date(2026, 1, 1),
+                    reason="new hire",
+                    description="joined",
+                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _ScalarResult(
+            [
+                SimpleNamespace(
+                    id=uuid4(),
+                    course_name="Safety",
+                    course_date=date(2026, 2, 1),
+                    score="95",
+                    institute="Click Academy",
+                    created_at=datetime(2026, 2, 1, tzinfo=UTC),
+                )
+            ]
+        ),
+        _MappingResult([]),
+    ]
+
+    class _FakeDb:
+        def __init__(self, execute_results):
+            self.execute_results = list(execute_results)
+
+        async def execute(self, _query, _params=None):
+            if not self.execute_results:
+                raise AssertionError("Unexpected execute call")
+            return self.execute_results.pop(0)
+
+    async def fake_get_employee_or_404(_db, requested_employee_id, requested_tenant_id):
+        return SimpleNamespace(
+            id=requested_employee_id,
+            tenant_id=requested_tenant_id,
+            employee_number="1001",
+            status="active",
+            photo_url=None,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    async def fake_resolve_org_pos_names(_db, _tenant_id, _rows):
+        return {employment_row.id: ("Operations", "Analyst")}
+
+    async def fake_resolve_manager_names(_db, _rows):
+        return {employment_row.manager_id: "Manager Name"}
+
+    monkeypatch.setattr(core_router, "_get_employee_or_404", fake_get_employee_or_404)
+    monkeypatch.setattr(core_router, "_resolve_org_pos_names", fake_resolve_org_pos_names)
+    monkeypatch.setattr(core_router, "_resolve_manager_names", fake_resolve_manager_names)
+
+    payload = await core_router.get_employee(
+        employee_id,
+        tenant_id,
+        db=_FakeDb(db_results),
+        user=CurrentUser(
+            id=uuid4(),
+            email="admin@example.com",
+            role="admin",
+            permissions={"core": {"can_view": True, "can_edit": True, "can_manage_sensitive": True}},
+        ),
+    )
+
+    assert payload["id_number"] == "123456789"
+    assert payload["personal"][0]["birth_country"] == "IL"
+    assert payload["contact"][0]["email"] == "dana@example.com"
+    assert payload["employment"][0]["position_name"] == "Analyst"
+    assert payload["employment"][0]["manager_name"] == "Manager Name"
+    assert payload["compensation"][0]["amount"] == 14500.0
+    assert "base_salary" not in payload["compensation"][0]
+    assert payload["bank"][0]["branch"] == "123"
+    assert payload["events"][0]["event_date"] == "2026-01-01"
+    assert payload["training"][0]["institute"] == "Click Academy"

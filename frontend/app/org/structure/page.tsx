@@ -20,7 +20,7 @@ const ORG_STRUCTURE_ITEM_TITLES = {
 export default function OrgStructureOverviewPage() {
   const workspace = useWorkspace();
   const user = getStoredUser();
-  const selectedTenantId = workspace?.selectedTenantId ?? user?.tenant_id ?? "";
+  const selectedTenantId = workspace?.selectedTenantId || user?.tenant_id || "";
   const { tenantConfig } = useTenantOrgStructureItems(selectedTenantId);
   const items = getOrgStructureNavEntries(tenantConfig?.levels ?? []).filter((item) => item.key !== "overview");
 

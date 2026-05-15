@@ -1,6 +1,6 @@
 """tenant payment tracking and subscription billing anchor day
 
-Revision ID: 0021
+Revision ID: 0021_billing_payment_tracking
 Revises: 0020
 Create Date: 2026-05-02
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0021"
+revision = "0021_billing_payment_tracking"
 down_revision = "0020"
 branch_labels = None
 depends_on = None

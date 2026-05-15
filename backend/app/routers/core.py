@@ -16,6 +16,7 @@ from app.models.core import (
     EmploymentEvent, EmployeeTraining,
     OrgUnit, Position,
 )
+from app.schemas.core import EmployeeIdentityActionBody
 from app.services.temporal import (
     close_and_create, get_active, get_history,
     update_in_place, delete_specific_row, close_active_row, kabiya,
@@ -365,13 +366,13 @@ async def _resolve_org_pos_names(
         res = await db.execute(
             select(OrgUnit.id, OrgUnit.name).where(OrgUnit.id.in_(org_ids))
         )
-        org_names = {row.id: row.name for row in res}
+        org_names = {row.id: row.name for row in res.all()}
 
     if pos_ids:
         res = await db.execute(
-            select(Position.id, Position.name).where(Position.id.in_(pos_ids))
+            select(Position.id, Position.title).where(Position.id.in_(pos_ids))
         )
-        pos_names = {row.id: row.name for row in res}
+        pos_names = {row.id: row.title for row in res.all()}
 
     return {
         r.id: (
@@ -379,6 +380,52 @@ async def _resolve_org_pos_names(
             pos_names.get(r.position_id) if r.position_id else None,
         )
         for r in employment_rows
+    }
+
+
+async def _fetch_employee_rows(
+    db: AsyncSession,
+    model: type,
+    employee_id: uuid.UUID,
+) -> list[Any]:
+    result = await db.execute(
+        select(model)
+        .where(model.employee_id == employee_id)
+        .order_by(model.valid_from.desc(), model.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def _resolve_manager_names(
+    db: AsyncSession,
+    employment_rows: list[EmployeeEmployment],
+) -> dict[uuid.UUID, str]:
+    manager_ids = {row.manager_id for row in employment_rows if row.manager_id}
+    if not manager_ids:
+        return {}
+
+    result = await db.execute(
+        select(EmployeeIdentity)
+        .where(EmployeeIdentity.employee_id.in_(manager_ids))
+        .order_by(
+            EmployeeIdentity.employee_id,
+            EmployeeIdentity.valid_from.desc(),
+            EmployeeIdentity.created_at.desc(),
+        )
+    )
+    identities = result.scalars().all()
+
+    best_rows: dict[uuid.UUID, tuple[int, date, datetime | None, EmployeeIdentity]] = {}
+    for identity in identities:
+        rank = 1 if identity.valid_to is None else 0
+        candidate = (rank, identity.valid_from, identity.created_at, identity)
+        current = best_rows.get(identity.employee_id)
+        if current is None or candidate > current:
+            best_rows[identity.employee_id] = candidate
+
+    return {
+        employee_id: f"{row.first_name} {row.last_name}".strip()
+        for employee_id, (_, _, _, row) in best_rows.items()
     }
 
 
@@ -551,195 +598,65 @@ async def get_employee(
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
     emp = await _get_employee_or_404(db, employee_id, tenant_id)
+    identity_rows = await _fetch_employee_rows(db, EmployeeIdentity, employee_id)
+    personal_rows = await _fetch_employee_rows(db, EmployeePersonal, employee_id)
+    contact_rows = await _fetch_employee_rows(db, EmployeeContact, employee_id)
+    employment_rows = await _fetch_employee_rows(db, EmployeeEmployment, employee_id)
+    compensation_rows = await _fetch_employee_rows(db, EmployeeCompensation, employee_id)
+    bank_rows = await _fetch_employee_rows(db, EmployeeBankAccount, employee_id)
 
-    async def fetch_mappings(query: str) -> list[dict[str, Any]]:
-        result = await db.execute(text(query), {"tenant_id": tenant_id, "employee_id": employee_id})
-        return [dict(row) for row in result.mappings().all()]
+    event_result = await db.execute(
+        select(EmploymentEvent)
+        .where(EmploymentEvent.employee_id == employee_id)
+        .order_by(EmploymentEvent.event_date.desc(), EmploymentEvent.created_at.desc())
+    )
+    event_rows = event_result.scalars().all()
 
-    async def fetch_scalar(query: str, **params: Any) -> Any | None:
-        result = await db.execute(text(query), params)
-        return result.scalar_one_or_none()
+    training_result = await db.execute(
+        select(EmployeeTraining)
+        .where(EmployeeTraining.employee_id == employee_id)
+        .order_by(EmployeeTraining.course_date.desc(), EmployeeTraining.created_at.desc())
+    )
+    training_rows = training_result.scalars().all()
 
-    identity_rows = await fetch_mappings(
-        """
-        SELECT id, first_name, last_name, legal_id_number, gender, valid_from, valid_to, created_at
-        FROM employee_identity
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY valid_from DESC
-        """
+    children_result = await db.execute(
+        text(
+            """
+            SELECT id, child_name, last_name, legal_id_number, birth_date, gender, allowance_eligible, notes, created_at
+            FROM employee_children
+            WHERE tenant_id = :tenant_id AND employee_id = :employee_id
+            ORDER BY birth_date DESC NULLS LAST, created_at DESC
+            """
+        ),
+        {"tenant_id": tenant_id, "employee_id": employee_id},
     )
-    employment_rows = await fetch_mappings(
-        """
-        SELECT id, org_unit_id, position_id, manager_employee_id, branch_name, employment_type,
-               employment_status, salary_type, start_date, end_date, work_site, valid_from, valid_to, created_at
-        FROM employee_employment
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY valid_from DESC
-        """
-    )
-    compensation_rows = await fetch_mappings(
-        """
-        SELECT id, base_salary, currency, pay_cycle, cost_center, valid_from, valid_to, created_at
-        FROM employee_compensation
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY valid_from DESC
-        """
-    )
-    bank_rows = await fetch_mappings(
-        """
-        SELECT id, bank_code, bank_name, branch_number, branch_description, account_number,
-               account_holder_name, payment_method, payment_percent, fixed_amount, payment_priority,
-               company_name, notes, valid_from, valid_to, created_at
-        FROM employee_bank_accounts
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY valid_from DESC, created_at DESC
-        """
-    )
-    event_rows = await fetch_mappings(
-        """
-        SELECT id, event_type, effective_date, notes, created_at
-        FROM employment_events
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY effective_date DESC, created_at DESC
-        """
-    )
-    training_rows = await fetch_mappings(
-        """
-        SELECT id, course_name, provider, started_on, completed_on, score, created_at
-        FROM employee_courses
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY COALESCE(completed_on, started_on) DESC NULLS LAST, created_at DESC
-        """
-    )
-    child_rows = await fetch_mappings(
-        """
-        SELECT id, child_name, last_name, legal_id_number, birth_date, gender, allowance_eligible, notes, created_at
-        FROM employee_children
-        WHERE tenant_id = :tenant_id AND employee_id = :employee_id
-        ORDER BY birth_date DESC NULLS LAST, created_at DESC
-        """
-    )
+    child_rows = [dict(row) for row in children_result.mappings().all()]
 
-    active_ident = next((row for row in identity_rows if row["valid_to"] is None), identity_rows[0] if identity_rows else None)
+    active_ident = next((row for row in identity_rows if row.valid_to is None), identity_rows[0] if identity_rows else None)
+    employment_names = await _resolve_org_pos_names(db, tenant_id, employment_rows)
+    manager_names = await _resolve_manager_names(db, employment_rows)
 
     employment_payload: list[dict[str, Any]] = []
     for row in employment_rows:
-        org_name = None
-        if row["org_unit_id"]:
-            org_name = await fetch_scalar("SELECT name FROM org_units WHERE id = :id", id=row["org_unit_id"])
-
-        position_name = None
-        if row["position_id"]:
-            position_name = await fetch_scalar("SELECT title FROM positions WHERE id = :id", id=row["position_id"])
-
-        manager_name = None
-        if row["manager_employee_id"]:
-            manager_result = await db.execute(
-                text(
-                    """
-                    SELECT first_name, last_name
-                    FROM employee_identity
-                    WHERE employee_id = :manager_employee_id
-                    ORDER BY valid_to IS NULL DESC, valid_from DESC
-                    LIMIT 1
-                    """
-                ),
-                {"manager_employee_id": row["manager_employee_id"]},
-            )
-            manager_row = manager_result.mappings().first()
-            if manager_row:
-                manager_name = f"{manager_row['first_name']} {manager_row['last_name']}".strip()
-
-        employment_payload.append({
-            "id": str(row["id"]),
-            "org_unit_id": str(row["org_unit_id"]) if row["org_unit_id"] else None,
-            "org_unit_name": org_name,
-            "position_id": str(row["position_id"]) if row["position_id"] else None,
-            "position_name": position_name,
-            "branch_name": row["branch_name"],
-            "employment_type": row["employment_type"],
-            "employment_status": row["employment_status"],
-            "salary_type": row["salary_type"],
-            "manager_id": str(row["manager_employee_id"]) if row["manager_employee_id"] else None,
-            "manager_name": manager_name,
-            "work_site": row["work_site"],
-            "start_date": _fmtd(row["start_date"]),
-            "end_date": _fmtd(row["end_date"]),
-            "valid_from": _fmtd(row["valid_from"]),
-            "valid_to": _fmtd(row["valid_to"]),
-            "created_at": _fmtdt(row["created_at"]),
-            "_current": row["valid_to"] is None,
-            "_valid_from_raw": _fmtd(row["valid_from"]),
-            "_valid_to_raw": _fmtd(row["valid_to"]),
-        })
+        org_name, position_name = employment_names.get(row.id, (None, None))
+        payload = _ser_employment(row, org_name, position_name)
+        payload["manager_name"] = manager_names.get(row.manager_id) if row.manager_id else None
+        employment_payload.append(payload)
 
     return {
         "id": str(emp.id),
         "employee_number": emp.employee_number,
         "status": emp.status,
         "photo_url": emp.photo_url,
-        "full_name": f"{active_ident['first_name']} {active_ident['last_name']}" if active_ident else "—",
-        "id_number": active_ident["legal_id_number"] if active_ident else None,
+        "full_name": f"{active_ident.first_name} {active_ident.last_name}" if active_ident else "—",
+        "id_number": active_ident.id_number if active_ident else None,
         "created_at": _fmtdt(emp.created_at),
-        "identity": [
-            {
-                "id": str(row["id"]),
-                "first_name": row["first_name"],
-                "last_name": row["last_name"],
-                "id_number": row["legal_id_number"],
-                "gender": row["gender"],
-                "valid_from": _fmtd(row["valid_from"]),
-                "valid_to": _fmtd(row["valid_to"]),
-                "created_at": _fmtdt(row["created_at"]),
-                "_current": row["valid_to"] is None,
-                "_valid_from_raw": _fmtd(row["valid_from"]),
-                "_valid_to_raw": _fmtd(row["valid_to"]),
-            }
-            for row in identity_rows
-        ],
-        "personal": [],
-        "contact": [],
+        "identity": [_ser_identity(row) for row in identity_rows],
+        "personal": [_ser_personal(row) for row in personal_rows],
+        "contact": [_ser_contact(row) for row in contact_rows],
         "employment": employment_payload,
-        "compensation": [
-            {
-                "id": str(row["id"]),
-                "base_salary": float(row["base_salary"]) if row["base_salary"] is not None else None,
-                "currency": row["currency"],
-                "pay_cycle": row["pay_cycle"],
-                "cost_center": row["cost_center"],
-                "valid_from": _fmtd(row["valid_from"]),
-                "valid_to": _fmtd(row["valid_to"]),
-                "created_at": _fmtdt(row["created_at"]),
-                "_current": row["valid_to"] is None,
-                "_valid_from_raw": _fmtd(row["valid_from"]),
-                "_valid_to_raw": _fmtd(row["valid_to"]),
-            }
-            for row in compensation_rows
-        ],
-        "bank": [
-            {
-                "id": str(row["id"]),
-                "bank_code": row["bank_code"],
-                "bank_name": row["bank_name"],
-                "branch": row["branch_number"],
-                "branch_description": row["branch_description"],
-                "account": row["account_number"],
-                "account_holder_name": row["account_holder_name"],
-                "payment_method": row["payment_method"],
-                "pct_payment": float(row["payment_percent"]) if row["payment_percent"] is not None else None,
-                "fixed_amount": float(row["fixed_amount"]) if row["fixed_amount"] is not None else None,
-                "payment_priority": row["payment_priority"],
-                "company_name": row["company_name"],
-                "notes": row["notes"],
-                "valid_from": _fmtd(row["valid_from"]),
-                "valid_to": _fmtd(row["valid_to"]),
-                "created_at": _fmtdt(row["created_at"]),
-                "_current": row["valid_to"] is None,
-                "_valid_from_raw": _fmtd(row["valid_from"]),
-                "_valid_to_raw": _fmtd(row["valid_to"]),
-            }
-            for row in bank_rows
-        ],
+        "compensation": [_ser_compensation(row) for row in compensation_rows],
+        "bank": [_ser_bank(row) for row in bank_rows],
         "children": [
             {
                 "id": str(row["id"]),
@@ -754,27 +671,8 @@ async def get_employee(
             }
             for row in child_rows
         ],
-        "events": [
-            {
-                "id": str(row["id"]),
-                "event_type": row["event_type"],
-                "event_date": _fmtd(row["effective_date"]),
-                "description": row["notes"],
-                "created_at": _fmtdt(row["created_at"]),
-            }
-            for row in event_rows
-        ],
-        "training": [
-            {
-                "id": str(row["id"]),
-                "course_name": row["course_name"],
-                "course_date": _fmtd(row["completed_on"] or row["started_on"]),
-                "score": row["score"],
-                "institute": row["provider"],
-                "created_at": _fmtdt(row["created_at"]),
-            }
-            for row in training_rows
-        ],
+        "events": [_ser_event(row) for row in event_rows],
+        "training": [_ser_training(row) for row in training_rows],
     }
 
 
@@ -848,6 +746,76 @@ async def update_identity(
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = _build_identity_temporal_data(body)
     await _handle_temporal(db, EmployeeIdentity, tenant_id, employee_id, body, user.id, data)
+    return {"ok": True}
+
+
+@router.put("/employees/{employee_id}/identity/record")
+async def update_identity_record(
+    employee_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    body: EmployeeIdentityActionBody,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_permission("core", "edit")),
+):
+    await _get_employee_or_404(db, employee_id, tenant_id)
+
+    _IDENTITY_FIELDS = (
+        "first_name", "last_name", "preferred_name", "email", "phone",
+        "birth_date", "immigration_date", "gender",
+        "marital_status", "children_count", "spouse_name", "spouse_legal_id",
+        "legal_id_type", "legal_id_number", "nationality",
+        "address_line1", "address_line2", "city", "postal_code", "country",
+        "emergency_contact_name", "emergency_contact_phone",
+    )
+    data = {f: getattr(body, f) for f in _IDENTITY_FIELDS if getattr(body, f) is not None}
+
+    valid_from = body.valid_from or date.today()
+    extra = {"employee_id": employee_id}
+
+    if body.action == "add":
+        # first_name/last_name are NOT NULL — inherit from the active row when not supplied
+        if "first_name" not in data or "last_name" not in data:
+            active_result = await db.execute(
+                select(EmployeeIdentity)
+                .where(EmployeeIdentity.employee_id == employee_id)
+                .where(EmployeeIdentity.valid_to.is_(None))
+                .order_by(EmployeeIdentity.valid_from.desc(), EmployeeIdentity.created_at.desc())
+                .limit(1)
+            )
+            active = active_result.scalar_one_or_none()
+            if active:
+                data.setdefault("first_name", active.first_name)
+                data.setdefault("last_name", active.last_name)
+
+        row = EmployeeIdentity(
+            **data,
+            employee_id=employee_id,
+            tenant_id=tenant_id,
+            valid_from=valid_from,
+            valid_to=body.valid_to,
+            created_by=user.id,
+        )
+        db.add(row)
+
+    elif body.action == "update":
+        await update_in_place(db, EmployeeIdentity, tenant_id, data, user.id,
+                              new_valid_from=valid_from, new_valid_to=body.valid_to, extra_filters=extra)
+
+    elif body.action == "set":
+        await kabiya(db, EmployeeIdentity, tenant_id, data, user.id,
+                     new_valid_from=valid_from, new_valid_to=body.valid_to, extra_filters=extra)
+
+    elif body.action == "close":
+        await close_active_row(db, EmployeeIdentity, tenant_id, body.valid_to or date.today(),
+                               actor_id=user.id, extra_filters=extra)
+
+    elif body.action == "delete":
+        await delete_specific_row(db, EmployeeIdentity, tenant_id, valid_from, extra_filters=extra)
+
+    else:
+        raise HTTPException(status_code=400, detail={"error": f"Unknown action: {body.action}", "code": "BAD_ACTION"})
+
+    await db.commit()
     return {"ok": True}
 
 

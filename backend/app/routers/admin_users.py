@@ -76,6 +76,38 @@ def _default_permissions_for_role(role: str) -> list:
     ]
 
 
+def _validate_role_tenant_scope(role: str, tenant_id: uuid.UUID | None) -> None:
+    if role == "org_admin":
+        if tenant_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "tenant_id is required for org_admin users", "code": "BAD_REQUEST"},
+            )
+        return
+
+    if tenant_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "tenant_id is only allowed for org_admin users", "code": "BAD_REQUEST"},
+        )
+
+
+def _resolve_role_tenant_update(
+    user: AdminUser,
+    requested_role: str | None,
+    requested_tenant_id: uuid.UUID | None,
+) -> tuple[str, uuid.UUID | None]:
+    effective_role = requested_role or user.role
+
+    if effective_role == "org_admin":
+        effective_tenant_id = requested_tenant_id if requested_tenant_id is not None else user.tenant_id
+        _validate_role_tenant_scope(effective_role, effective_tenant_id)
+        return effective_role, effective_tenant_id
+
+    _validate_role_tenant_scope(effective_role, None if requested_tenant_id is None else requested_tenant_id)
+    return effective_role, None
+
+
 async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
     """Create user in Supabase Auth and return their UUID."""
     if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
@@ -172,18 +204,7 @@ async def create_user(
         )
 
     # org_admin requires a tenant_id
-    if body.role == "org_admin" and not body.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "tenant_id is required for org_admin users", "code": "BAD_REQUEST"},
-        )
-
-    # system roles must not have a tenant_id
-    if body.role != "org_admin" and body.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "tenant_id is only allowed for org_admin users", "code": "BAD_REQUEST"},
-        )
+    _validate_role_tenant_scope(body.role, body.tenant_id)
 
     # Check duplicate email in our table
     existing = await db.execute(select(AdminUser).where(AdminUser.email == body.email))
@@ -262,12 +283,18 @@ async def update_user(
                 detail={"error": "Cannot demote the last super_admin", "code": "LAST_SUPER_ADMIN"},
             )
 
+    resolved_role, resolved_tenant_id = _resolve_role_tenant_update(user, body.role, body.tenant_id)
+
     if body.full_name is not None:
         user.full_name = body.full_name
-    if body.role is not None:
-        user.role = body.role
+    user.role = resolved_role
+    user.tenant_id = resolved_tenant_id
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.valid_from is not None:
+        user.valid_from = body.valid_from
+    if body.valid_to is not None:
+        user.valid_to = body.valid_to
 
     if body.permissions is not None:
         await _upsert_permissions(db, user.id, body.permissions)
@@ -409,10 +436,12 @@ async def temporal_user_action(
                     detail={"error": "Cannot demote the last super_admin", "code": "LAST_SUPER_ADMIN"},
                 )
 
+        resolved_role, resolved_tenant_id = _resolve_role_tenant_update(user, body.role, body.tenant_id)
+
         if body.full_name is not None:
             user.full_name = body.full_name
-        if body.role is not None:
-            user.role = body.role
+        user.role = resolved_role
+        user.tenant_id = resolved_tenant_id
         if body.is_active is not None:
             user.is_active = body.is_active
         if body.valid_from is not None:

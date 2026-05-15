@@ -385,6 +385,7 @@ function OrgStructureManagementPageContent({ config }: { config: CoreStructureCo
   const [editingRow, setEditingRow] = useState<StructureRow | null>(null);
   const [creating, setCreating] = useState(false);
   const [temporalFilter, setTemporalFilter] = useState<TemporalFilterState>(() => createDefaultTemporalFilterState());
+  const [resolvedTenantId, setResolvedTenantId] = useState("");
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -416,23 +417,36 @@ function OrgStructureManagementPageContent({ config }: { config: CoreStructureCo
       : api.get<OrgUnitRow[]>(`/api/org/org-units${tenantParam}`);
 
     const managerRequest = config.unitType
-      ? api.get<EmployeeOption[]>(`/api/core/employees?tenant_id=${tid}`).catch(() => [] as EmployeeOption[])
+      ? api.get<EmployeeOption[]>(`/api/org/employees${tenantParam}`).catch(() => [] as EmployeeOption[])
       : Promise.resolve<EmployeeOption[]>([]);
+
+    let active = true;
 
     Promise.all([structureRequest, mainRequest, parentRequest, unitOptionsRequest, managerRequest])
       .then(([structure, mainRows, parentRows, unitRows, managerRows]) => {
+        if (!active) return;
         setTenantConfig(structure);
         setRows(mainRows);
         setParentOptions(parentRows);
         setOrgUnitOptions(unitRows);
         setManagerOptions(managerRows);
+        setResolvedTenantId(tid);
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [config.parentType, config.unitType, orgAdminTenantId]);
 
   useEffect(() => {
-    if (tenantId) loadData(tenantId);
+    if (!tenantId) return;
+    return loadData(tenantId);
   }, [tenantId, loadData]);
 
   const filteredRows = useMemo(() => {
@@ -460,6 +474,8 @@ function OrgStructureManagementPageContent({ config }: { config: CoreStructureCo
         : orgUnitOptions.filter((row) => row.unit_type === tenantConfig.position_attachment_level),
     [orgUnitOptions, tenantConfig],
   );
+
+  const isCurrentTenantResolved = resolvedTenantId === tenantId;
 
   const visibleRows = useMemo(
     () =>
@@ -511,7 +527,7 @@ function OrgStructureManagementPageContent({ config }: { config: CoreStructureCo
           <div className="flex-1 overflow-auto bg-white min-h-0">
             {loading ? (
               <div className="py-20 text-center text-sm text-slate-400">טוען נתונים...</div>
-            ) : !levelEnabled ? (
+            ) : isCurrentTenantResolved && !levelEnabled ? (
               <div className="py-20 text-center text-sm text-slate-400">
                 הרמה הזו לא מוגדרת לארגון זה.
               </div>

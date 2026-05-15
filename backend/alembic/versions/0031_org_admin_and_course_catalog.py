@@ -17,37 +17,63 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add tenant_id to admin_users for org_admin role
-    op.add_column(
-        "admin_users",
-        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.tenant_id"), nullable=True),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
 
-    # Create course_catalog table
-    op.create_table(
-        "course_catalog",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("tenant_id", UUID(as_uuid=True), sa.ForeignKey("tenants.tenant_id"), nullable=False),
-        sa.Column("code", sa.String(), nullable=False),
-        sa.Column("name", sa.String(), nullable=False),
-        sa.Column("name_en", sa.String(), nullable=True),
-        sa.Column("category", sa.String(), nullable=True),
-        sa.Column("duration_hours", sa.Integer(), nullable=True),
-        sa.Column("is_mandatory", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column("valid_from", sa.Date(), nullable=False),
-        sa.Column("valid_to", sa.Date(), nullable=True),
-        sa.Column("created_by", UUID(as_uuid=True), sa.ForeignKey("admin_users.id"), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_by", UUID(as_uuid=True), sa.ForeignKey("admin_users.id"), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_unique_constraint(
-        "uq_course_catalog_tenant_code",
-        "course_catalog",
-        ["tenant_id", "code"],
-    )
+    admin_user_columns = {column["name"] for column in inspector.get_columns("admin_users")}
+    admin_user_foreign_keys = {fk["name"] for fk in inspector.get_foreign_keys("admin_users")}
+    if "tenant_id" not in admin_user_columns:
+        op.add_column(
+            "admin_users",
+            sa.Column("tenant_id", UUID(as_uuid=True), nullable=True),
+        )
+    if "fk_admin_users_tenant_id_tenants" not in admin_user_foreign_keys:
+        op.create_foreign_key(
+            "fk_admin_users_tenant_id_tenants",
+            "admin_users",
+            "tenants",
+            ["tenant_id"],
+            ["tenant_id"],
+        )
+
+    if "course_catalog" not in inspector.get_table_names():
+        op.create_table(
+            "course_catalog",
+            sa.Column("id", UUID(as_uuid=True), primary_key=True),
+            sa.Column("tenant_id", UUID(as_uuid=True), nullable=False),
+            sa.Column("code", sa.String(), nullable=False),
+            sa.Column("name", sa.String(), nullable=False),
+            sa.Column("name_en", sa.String(), nullable=True),
+            sa.Column("category", sa.String(), nullable=True),
+            sa.Column("duration_hours", sa.Integer(), nullable=True),
+            sa.Column("is_mandatory", sa.Boolean(), nullable=False, server_default="false"),
+            sa.Column("valid_from", sa.Date(), nullable=False),
+            sa.Column("valid_to", sa.Date(), nullable=True),
+            sa.Column("created_by", UUID(as_uuid=True), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.Column("updated_by", UUID(as_uuid=True), nullable=True),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+            sa.ForeignKeyConstraint(["tenant_id"], ["tenants.tenant_id"]),
+            sa.ForeignKeyConstraint(["created_by"], ["admin_users.id"]),
+            sa.ForeignKeyConstraint(["updated_by"], ["admin_users.id"]),
+        )
+        op.create_unique_constraint(
+            "uq_course_catalog_tenant_code",
+            "course_catalog",
+            ["tenant_id", "code"],
+        )
 
 
 def downgrade() -> None:
-    op.drop_table("course_catalog")
-    op.drop_column("admin_users", "tenant_id")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if "course_catalog" in inspector.get_table_names():
+        op.drop_table("course_catalog")
+
+    admin_user_columns = {column["name"] for column in inspector.get_columns("admin_users")}
+    admin_user_foreign_keys = {fk["name"] for fk in inspector.get_foreign_keys("admin_users")}
+    if "fk_admin_users_tenant_id_tenants" in admin_user_foreign_keys:
+        op.drop_constraint("fk_admin_users_tenant_id_tenants", "admin_users", type_="foreignkey")
+    if "tenant_id" in admin_user_columns:
+        op.drop_column("admin_users", "tenant_id")

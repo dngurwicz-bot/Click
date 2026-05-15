@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { Suspense, type ReactNode, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ShieldCheck, Trash2, UserRound } from "lucide-react";
 
@@ -1819,7 +1819,7 @@ function DeleteEmployeeModal({
   );
 }
 
-export default function EmployeeCardPage() {
+function EmployeeCardPageContent() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -2416,5 +2416,13 @@ export default function EmployeeCardPage() {
       ) : null}
 
     </>
+  );
+}
+
+export default function EmployeeCardPage() {
+  return (
+    <Suspense fallback={<main className="flex min-h-0 flex-1 items-center justify-center text-sm text-slate-400">טוען כרטיס עובד...</main>}>
+      <EmployeeCardPageContent />
+    </Suspense>
   );
 }

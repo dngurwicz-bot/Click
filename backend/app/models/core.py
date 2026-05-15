@@ -3,7 +3,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
 
 class OrgUnit(Base):
@@ -172,10 +172,17 @@ class EmployeeEmployment(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
     org_unit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("org_units.id"), nullable=True)
     position_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("positions.id"), nullable=True)
-    company: Mapped[str | None] = mapped_column(String, nullable=True)
-    employment_type: Mapped[str | None] = mapped_column(String, nullable=True)  # full_time, part_time, temp
-    manager_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id"), nullable=True)
+    manager_employee_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id"), nullable=True)
+    employment_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    employment_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    salary_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    employment_scope_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    branch_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    work_site: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    time_clock_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
@@ -191,10 +198,11 @@ class EmployeeCompensation(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
-    comp_code: Mapped[str | None] = mapped_column(String, nullable=True)
-    comp_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    percentage: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    base_salary: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    pay_cycle: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    cost_center: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    components_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
@@ -210,14 +218,18 @@ class EmployeeBankAccount(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
-    payment_code: Mapped[str | None] = mapped_column(String, nullable=True)
-    bank_code: Mapped[str | None] = mapped_column(String, nullable=True)
-    bank_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    branch: Mapped[str | None] = mapped_column(String, nullable=True)
-    account: Mapped[str | None] = mapped_column(String, nullable=True)
-    pct_payment: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
-    fixed_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
-    signature_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    bank_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    branch_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    branch_description: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    account_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    account_holder_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payment_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    fixed_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    payment_priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    company_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
@@ -256,8 +268,150 @@ class EmployeeTraining(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-# Alias kept for backward-compat with existing imports in tenants.py
-EmployeeDocumentIndex = EmployeeTraining  # placeholder — not used in MVP
+class EmployeeDocumentIndex(Base):
+    """Employee document index — temporal."""
+    __tablename__ = "employee_documents_index"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    issued_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeChild(Base):
+    """Employee's children — append-only."""
+    __tablename__ = "employee_children"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    child_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    legal_id_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    military_service_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    service_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    service_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    allowance_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeAward(Base):
+    """Employee awards — append-only."""
+    __tablename__ = "employee_awards"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    award_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    award_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    granted_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeCertification(Base):
+    """Employee certifications — temporal."""
+    __tablename__ = "employee_certifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    certification_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    issuer: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    issued_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeCourse(Base):
+    """Employee courses/training — temporal."""
+    __tablename__ = "employee_courses"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    course_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    started_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    score: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeSkill(Base):
+    """Employee skills — append-only."""
+    __tablename__ = "employee_skills"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    skill_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    assessed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EmployeeWorkBreak(Base):
+    """Employee work breaks / leaves of absence — temporal."""
+    __tablename__ = "employee_work_breaks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.tenant_id"), nullable=False)
+    break_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ended_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CourseCatalog(Base):

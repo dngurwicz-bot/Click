@@ -86,6 +86,7 @@ class AdminUserCreate(BaseModel):
 class AdminUserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[ROLE_NAMES] = None
+    tenant_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
     permissions: Optional[list[PermissionIn]] = None
     valid_from: Optional[date] = None
@@ -112,7 +113,8 @@ class AdminUserActionBody(BaseModel):
     """Temporal action body: update (in-place) | close (set valid_to) | delete."""
     action: str = "update"
     full_name: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[ROLE_NAMES] = None
+    tenant_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None

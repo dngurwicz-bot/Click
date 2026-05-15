@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, X, Zap } from "lucide-react";
 import { isLoggedIn, api } from "@/lib/api";
@@ -18,7 +18,7 @@ import {
   StatusBadge,
 } from "../_shared";
 
-export default function BillingChargesPage() {
+function BillingChargesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [charges, setCharges] = useState<BillingChargeOut[]>([]);
@@ -213,5 +213,13 @@ export default function BillingChargesPage() {
         />
       )}
     </main>
+  );
+}
+
+export default function BillingChargesPage() {
+  return (
+    <Suspense fallback={<main className="flex min-h-0 flex-1 items-center justify-center text-sm text-slate-400">טוען חיובים...</main>}>
+      <BillingChargesPageContent />
+    </Suspense>
   );
 }

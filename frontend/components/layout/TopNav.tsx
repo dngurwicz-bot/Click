@@ -92,7 +92,7 @@ export function TopNav() {
   const [explanationScreen, setExplanationScreen] = useState<DashboardScreen | null>(null);
   const [pinnedScreenIds, setPinnedScreenIds] = useState<string[]>([]);
 
-  const selectedTenantId = workspace?.selectedTenantId ?? user?.tenant_id ?? "";
+  const selectedTenantId = workspace?.selectedTenantId || user?.tenant_id || "";
   const { modules } = useTenantModuleNav(workspace?.selectedTenantId ?? "");
   const { tenantConfig } = useTenantOrgStructureItems(selectedTenantId);
 
@@ -256,7 +256,7 @@ export function TopNav() {
         label: coursesItem.label,
         href: coursesItem.href,
         icon: coursesItem.icon,
-        active: coursesItem.active,
+        active: pathname === coursesItem.href || Boolean(pathname?.startsWith(`${coursesItem.href}/`)),
         screen: coursesItem,
       });
     }

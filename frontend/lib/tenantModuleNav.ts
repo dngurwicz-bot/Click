@@ -11,8 +11,58 @@ interface TenantSubscriptionModuleNavItem {
   valid_to?: string | null;
 }
 
+const tenantModulesCache = new Map<string, ModuleNavItem[]>();
+const tenantModulesRequests = new Map<string, Promise<ModuleNavItem[]>>();
+
+function fetchTenantModules(selectedTenantId: string) {
+  const cacheKey = selectedTenantId || "__empty__";
+  const cached = tenantModulesCache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
+  const existingRequest = tenantModulesRequests.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = (async () => {
+    const catalogPromise = api
+      .get<ModuleNavItem[]>("/api/admin/modules")
+      .catch(() => [] as ModuleNavItem[]);
+
+    const tenantModulesPromise = selectedTenantId
+      ? api
+          .get<TenantSubscriptionModuleNavItem[]>(`/api/admin/tenants/${selectedTenantId}/subscription-modules`)
+          .catch(() => [] as TenantSubscriptionModuleNavItem[])
+      : Promise.resolve([] as TenantSubscriptionModuleNavItem[]);
+
+    const [catalogRows, tenantModuleRows] = await Promise.all([catalogPromise, tenantModulesPromise]);
+
+    const activeTenantModuleSlugs = new Set(
+      (Array.isArray(tenantModuleRows) ? tenantModuleRows : [])
+        .filter((item) => item.status === "active")
+        .map((item) => item.module_slug),
+    );
+
+    const nextModules = (Array.isArray(catalogRows) ? catalogRows : []).filter(
+      (item) => item.is_active && activeTenantModuleSlugs.has(item.slug),
+    );
+
+    tenantModulesCache.set(cacheKey, nextModules);
+    tenantModulesRequests.delete(cacheKey);
+    return nextModules;
+  })().catch((error) => {
+    tenantModulesRequests.delete(cacheKey);
+    throw error;
+  });
+
+  tenantModulesRequests.set(cacheKey, request);
+  return request;
+}
+
 export function useTenantModuleNav(selectedTenantId: string) {
-  const [modules, setModules] = useState<ModuleNavItem[]>([]);
+  const [modules, setModules] = useState<ModuleNavItem[]>(() => tenantModulesCache.get(selectedTenantId || "__empty__") ?? []);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -24,36 +74,24 @@ export function useTenantModuleNav(selectedTenantId: string) {
     let cancelled = false;
 
     async function loadModules() {
-      setLoading(true);
+      const cacheKey = selectedTenantId || "__empty__";
+      const cached = tenantModulesCache.get(cacheKey);
+      if (cached) {
+        setModules(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
 
       try {
-        const catalogPromise = api
-          .get<ModuleNavItem[]>("/api/admin/modules")
-          .catch(() => [] as ModuleNavItem[]);
-
-        const tenantModulesPromise = selectedTenantId
-          ? api
-              .get<TenantSubscriptionModuleNavItem[]>(`/api/admin/tenants/${selectedTenantId}/subscription-modules`)
-              .catch(() => [] as TenantSubscriptionModuleNavItem[])
-          : Promise.resolve([] as TenantSubscriptionModuleNavItem[]);
-
-        const [catalogRows, tenantModuleRows] = await Promise.all([catalogPromise, tenantModulesPromise]);
+        const nextModules = await fetchTenantModules(selectedTenantId);
         if (cancelled) return;
-
-        const activeTenantModuleSlugs = new Set(
-          (Array.isArray(tenantModuleRows) ? tenantModuleRows : [])
-            .filter((item) => item.status === "active")
-            .map((item) => item.module_slug),
-        );
-
-        const nextModules = (Array.isArray(catalogRows) ? catalogRows : []).filter(
-          (item) => item.is_active && activeTenantModuleSlugs.has(item.slug),
-        );
-
         setModules(nextModules);
       } catch {
         if (!cancelled) {
-          setModules([]);
+          if (!tenantModulesCache.has(cacheKey)) {
+            setModules([]);
+          }
         }
       } finally {
         if (!cancelled) {
