@@ -214,6 +214,7 @@ async def update_lookup_item(
             detail={"error": "לא ניתן לבטל פריט מערכת", "code": "SYSTEM_ITEM"},
         )
     if body.label_he   is not None: item.label_he   = body.label_he
+    if body.code       is not None: item.code       = body.code
     if body.sort_order is not None: item.sort_order = body.sort_order
     if body.is_active  is not None: item.is_active  = body.is_active
     await db.commit()

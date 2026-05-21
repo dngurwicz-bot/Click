@@ -89,15 +89,17 @@ async def _load_user_permissions(db: AsyncSession, user_id: uuid.UUID) -> list[P
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    # Authenticate via Supabase Auth REST API
+    # Authenticate via Firebase Auth REST API (Google Identity Toolkit)
+    if not settings.FIREBASE_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Firebase API key not configured", "code": "FIREBASE_NOT_CONFIGURED"},
+        )
+        
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{settings.SUPABASE_URL}/auth/v1/token?grant_type=password",
-            headers={
-                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
-                "Content-Type": "application/json",
-            },
-            json={"email": body.email, "password": body.password},
+            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={settings.FIREBASE_API_KEY}",
+            json={"email": body.email, "password": body.password, "returnSecureToken": True},
             timeout=10,
         )
 
@@ -107,8 +109,8 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
             detail={"error": "Invalid credentials", "code": "INVALID_CREDENTIALS"},
         )
 
-    supabase_data = resp.json()
-    supabase_user_id = uuid.UUID(supabase_data["user"]["id"])
+    firebase_data = resp.json()
+    firebase_user_id = uuid.UUID(firebase_data["localId"])
 
     # Look up in our admin_users table
     result = await db.execute(

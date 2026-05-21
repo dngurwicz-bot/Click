@@ -16,8 +16,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.database import get_db
 from app.middleware.audit import AuditMiddleware
 from app.routers import auth, tenants, modules, core, admin_users, lookups, templates, audit, insights, dynamic_reports, org_admin
+from app.routers import org_lookups
+from app.seeders.lookup_seeder import seed_core_lookups
 import app.models.admin_user_permission  # noqa: F401 – ensure model is registered
 import app.models.saved_report_view      # noqa: F401 – ensure saved report model is registered
 
@@ -62,6 +65,14 @@ app.include_router(audit.router)
 app.include_router(insights.router)
 app.include_router(dynamic_reports.router)
 app.include_router(org_admin.router)
+app.include_router(org_lookups.router)
+
+
+@app.on_event("startup")
+async def on_startup():
+    async for db in get_db():
+        await seed_core_lookups(db)
+        break
 
 
 @app.get("/api/health")

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState, ReactNode } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -88,9 +88,10 @@ function ItemModal({ listKey, item, onClose, onSaved }: ItemModalProps) {
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-sm overflow-hidden">
+      <AdminModalPanel >
         <AdminModalHeader title={isNew ? "פריט חדש" : "עריכת פריט"} onClose={onClose} />
         <AdminModalBody className="space-y-3">
+          <div className="mx-auto max-w-md space-y-3">
           {error && (
             <AdminModalMessage tone="danger">{error}</AdminModalMessage>
           )}
@@ -121,6 +122,7 @@ function ItemModal({ listKey, item, onClose, onSaved }: ItemModalProps) {
               />
             </div>
           )}
+          </div>
         </AdminModalBody>
 
         <AdminModalFooter className="justify-start">

@@ -1731,6 +1731,7 @@ async def hard_delete_tenant(
         )
     await db.execute(delete(TenantSubscription).where(TenantSubscription.tenant_id == tenant.tenant_id))
     await db.execute(delete(TenantStatus).where(TenantStatus.tenant_id == tenant.tenant_id))
+    await db.execute(delete(TenantOrgStructureConfig).where(TenantOrgStructureConfig.tenant_id == tenant.tenant_id))
     await db.execute(delete(TenantAddress).where(TenantAddress.tenant_id == tenant.tenant_id))
     await db.execute(delete(TenantContact).where(TenantContact.tenant_id == tenant.tenant_id))
     await db.execute(delete(TenantIdentity).where(TenantIdentity.tenant_id == tenant.tenant_id))

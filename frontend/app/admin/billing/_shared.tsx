@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { api, apiFetch } from "@/lib/api";
 import { HebrewMonthPicker } from "@/components/ui/HebrewMonthPicker";
 import { HebrewDatePicker } from "@/components/ui/HebrewDatePicker";
-import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
+import { AdminModal, AdminModalPanel, ADMIN_MODAL_DATE_INPUT } from "@/components/ui/AdminModal";
 import {
   Plus, Zap, FileText, FileDown, X, AlertCircle,
   CheckCircle2, Ban, Send, Wallet, Quote, Trash2, TrendingUp,
@@ -272,9 +272,9 @@ export function GenerateChargesModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-4xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
-          <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <Zap size={14} /> יצירת חיובים אוטומטית
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
@@ -383,9 +383,9 @@ export function NewInvoiceModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
-          <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <FileText size={14} /> חשבונית חדשה
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
@@ -415,14 +415,12 @@ export function NewInvoiceModal({
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">תאריך הנפקה</label>
               <HebrewDatePicker value={issueDate} onChange={setIssueDate}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md
-                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right bg-white" />
+                className={ADMIN_MODAL_DATE_INPUT} />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">לתשלום עד</label>
               <HebrewDatePicker value={dueDate} onChange={setDueDate}
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md
-                           focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right bg-white" />
+                className={ADMIN_MODAL_DATE_INPUT} />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">מע&quot;מ %</label>
@@ -653,10 +651,10 @@ export function InvoiceDetailModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-[#1a3a6e]">{initial.invoice_number}</span>
+            <span className="text-sm font-bold text-slate-800">{initial.invoice_number}</span>
             <StatusBadge cfg={statusCfg} />
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-slate-500"><X size={16} /></button>
@@ -757,8 +755,7 @@ export function InvoiceDetailModal({
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">תאריך תשלום</label>
                     <HebrewDatePicker value={paymentDate} onChange={setPaymentDate}
-                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md
-                                 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 text-right bg-white" />
+                      className={ADMIN_MODAL_DATE_INPUT} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">אסמכתא (אופציונלי)</label>
@@ -945,9 +942,9 @@ export function QuoteBuilderModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
-          <h2 className="text-sm font-bold text-[#1a3a6e] flex items-center gap-2">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <Quote size={14} /> הצעת מחיר חדשה
           </h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
@@ -964,7 +961,7 @@ export function QuoteBuilderModal({
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">תוקף עד</label>
               <HebrewDatePicker value={validUntil} onChange={setValidUntil} fieldLabel="תוקף עד"
-                className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:border-brand-400 text-right bg-white" />
+                className={ADMIN_MODAL_DATE_INPUT} />
             </div>
           </div>
           <div>
@@ -1185,10 +1182,10 @@ export function QuoteDetailModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-[#1a3a6e]">{quote?.quote_number ?? "הצעת מחיר"}</span>
+            <span className="text-sm font-bold text-slate-800">{quote?.quote_number ?? "הצעת מחיר"}</span>
             <StatusBadge cfg={statusCfg} />
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/70 text-slate-500"><X size={16} /></button>

@@ -6,34 +6,51 @@ import { X } from "lucide-react";
 // ── CSS constants ─────────────────────────────────────────────────────────────
 
 export const ADMIN_MODAL_ACTION_PRIMARY =
-  "flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+  "flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
 export const ADMIN_MODAL_ACTION_SECONDARY =
-  "flex items-center gap-1.5 rounded-md bg-white border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+  "flex items-center gap-1.5 rounded bg-white border border-slate-300 px-4 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
 export const ADMIN_MODAL_ACTION_DANGER =
-  "flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+  "flex items-center gap-1.5 rounded bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
 export const ADMIN_MODAL_ACTION_WARNING =
-  "flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+  "flex items-center gap-1.5 rounded bg-amber-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
+// 2-column form grid — tight desktop spacing
 export const ADMIN_MODAL_GRID =
-  "grid grid-cols-1 gap-4 sm:grid-cols-2";
+  "grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2";
 
+// 3-column form grid — for sections with many fields
+export const ADMIN_MODAL_GRID_3 =
+  "grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-3";
+
+// Standard text input — filled style (no border, gray bg)
 export const ADMIN_MODAL_INPUT =
-  "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50 disabled:text-slate-400";
+  "w-full rounded bg-slate-100 px-3 py-2 text-sm text-slate-800 " +
+  "focus:bg-brand-50 focus:outline-none focus:ring-1 focus:ring-brand-300 " +
+  "disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+
+// Date input — compact fixed width, monospace, filled
+export const ADMIN_MODAL_DATE_INPUT =
+  "w-36 rounded bg-slate-100 px-3 py-2 text-sm text-slate-800 font-mono " +
+  "focus:bg-brand-50 focus:outline-none focus:ring-1 focus:ring-brand-300 " +
+  "disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 
 export const ADMIN_MODAL_TEXTAREA =
-  "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100 resize-y min-h-[80px] disabled:bg-slate-50";
+  "w-full rounded bg-slate-100 px-3 py-2 text-sm text-slate-800 " +
+  "focus:bg-brand-50 focus:outline-none focus:ring-1 focus:ring-brand-300 " +
+  "resize-y min-h-[80px] disabled:opacity-50 transition-colors";
 
+// Full-page overlay — covers everything below the top nav, solid white
 export const ADMIN_MODAL_OVERLAY_CLASS =
-  "fixed inset-x-0 bottom-0 top-[52px] z-50 bg-[linear-gradient(180deg,rgba(241,245,249,0.92)_0%,rgba(226,232,240,0.96)_100%)] backdrop-blur-sm";
+  "fixed inset-x-0 bottom-0 top-[52px] z-50 bg-white";
 
 export const ADMIN_MODAL_CONTAINER_CLASS =
-  "flex h-full w-full justify-center overflow-hidden px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2 lg:px-4 lg:pb-4";
+  "flex h-full w-full overflow-hidden";
 
 export const ADMIN_MODAL_PANEL_CLASS =
-  "relative flex h-full w-full flex-col overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]";
+  "relative flex h-full w-full flex-col overflow-hidden bg-white";
 
 // ── Components ────────────────────────────────────────────────────────────────
 
@@ -42,15 +59,10 @@ interface AdminModalProps {
   children: ReactNode;
 }
 
-export function AdminModal({ onBackdropClick, children }: AdminModalProps) {
+export function AdminModal({ children }: AdminModalProps) {
   return (
     <div className={ADMIN_MODAL_OVERLAY_CLASS}>
-      <div
-        className={ADMIN_MODAL_CONTAINER_CLASS}
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onBackdropClick?.();
-        }}
-      >
+      <div className={ADMIN_MODAL_CONTAINER_CLASS}>
         {children}
       </div>
     </div>
@@ -81,15 +93,23 @@ interface AdminModalHeaderProps {
 
 export function AdminModalHeader({ title, subtitle, onClose }: AdminModalHeaderProps) {
   return (
-    <div className="flex items-start justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
-      <div>
-        <h2 className="text-lg font-bold text-[#1a3a6e]">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
+    // justify-between in RTL: first child → physical RIGHT, last child → physical LEFT
+    <div
+      className="flex items-center justify-between border-b border-slate-200 bg-white px-5 shrink-0"
+      style={{ minHeight: 48 }}
+    >
+      {/* RIGHT side in RTL — title + optional subtitle */}
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold text-slate-800">{title}</h2>
+        {subtitle && <span className="h-3.5 w-px bg-slate-200" />}
+        {subtitle && <span className="text-sm text-slate-400">{subtitle}</span>}
       </div>
+      {/* LEFT side in RTL — close button */}
       {onClose && (
         <button
           onClick={onClose}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"
+          className="flex h-7 w-7 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          title="סגור"
         >
           <X size={16} />
         </button>
@@ -105,7 +125,10 @@ interface AdminModalBodyProps {
 
 export function AdminModalBody({ className, children }: AdminModalBodyProps) {
   return (
-    <div className={`overflow-y-auto px-6 py-6 ${className ?? ""}`} style={{ flex: "1 1 auto" }}>
+    <div
+      className={`overflow-y-auto bg-slate-50 px-6 py-5 ${className ?? ""}`}
+      style={{ flex: "1 1 auto" }}
+    >
       {children}
     </div>
   );
@@ -117,8 +140,11 @@ interface AdminModalFooterProps {
 }
 
 export function AdminModalFooter({ className, children }: AdminModalFooterProps) {
+  // justify-start in RTL = physical RIGHT — buttons always on the right
   return (
-    <div className={`flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 shrink-0 ${className ?? "justify-end"}`}>
+    <div
+      className={`flex items-center gap-2 border-t border-slate-200 bg-white px-5 py-3 shrink-0 ${className ?? "justify-start"}`}
+    >
       {children}
     </div>
   );
@@ -138,7 +164,7 @@ const MESSAGE_STYLES = {
 
 export function AdminModalMessage({ tone = "info", children }: AdminModalMessageProps) {
   return (
-    <div className={`rounded-lg px-3 py-2.5 text-xs leading-relaxed ${MESSAGE_STYLES[tone]}`}>
+    <div className={`rounded px-3 py-2 text-sm leading-relaxed ${MESSAGE_STYLES[tone]}`}>
       {children}
     </div>
   );
@@ -154,8 +180,10 @@ interface AdminFieldProps {
 export function AdminField({ label, value, className, children }: AdminFieldProps) {
   return (
     <div className={className}>
-      <label className="block text-[11px] font-medium text-slate-500 mb-1">{label}</label>
-      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 min-h-[32px]">
+      <label className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </label>
+      <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 min-h-[36px]">
         {children ?? value ?? "—"}
       </div>
     </div>
@@ -170,15 +198,25 @@ interface AdminDateFieldsProps {
   className?: string;
 }
 
-export function AdminDateFields({ fromLabel = "מתאריך", fromField, toLabel = "עד תאריך", toField, className }: AdminDateFieldsProps) {
+export function AdminDateFields({
+  fromLabel = "מתאריך",
+  fromField,
+  toLabel = "עד תאריך",
+  toField,
+  className,
+}: AdminDateFieldsProps) {
   return (
-    <div className={`grid grid-cols-2 gap-3 ${className ?? ""}`}>
+    <div className={`flex items-end gap-4 ${className ?? ""}`}>
       <div>
-        <label className="block text-[11px] font-medium text-slate-500 mb-1">{fromLabel}</label>
+        <label className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+          {fromLabel}
+        </label>
         {fromField}
       </div>
       <div>
-        <label className="block text-[11px] font-medium text-slate-500 mb-1">{toLabel}</label>
+        <label className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+          {toLabel}
+        </label>
         {toField}
       </div>
     </div>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
@@ -16,7 +16,7 @@ import {
   ADMIN_MODAL_ACTION_DANGER,
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
-  ADMIN_MODAL_INPUT,
+  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_TEXTAREA,
   AdminField,
   AdminModal,
@@ -131,7 +131,7 @@ function CourseModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-xl">
+      <AdminModalPanel >
         <AdminModalHeader title={title} onClose={onClose} />
         <AdminModalBody className="space-y-4">
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
@@ -151,7 +151,7 @@ function CourseModal({
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">קוד</label>
                   <input
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={code}
                     onChange={(event) => setCode(event.target.value)}
                     disabled={!isCreate}
@@ -160,7 +160,7 @@ function CourseModal({
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">שם קורס</label>
                   <input
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                   />
@@ -168,7 +168,7 @@ function CourseModal({
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">שם באנגלית</label>
                   <input
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={nameEn}
                     onChange={(event) => setNameEn(event.target.value)}
                   />
@@ -176,7 +176,7 @@ function CourseModal({
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">קטגוריה</label>
                   <input
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={category}
                     onChange={(event) => setCategory(event.target.value)}
                   />
@@ -186,7 +186,7 @@ function CourseModal({
                   <input
                     type="number"
                     min="0"
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={durationHours}
                     onChange={(event) => setDurationHours(event.target.value)}
                   />
@@ -194,7 +194,7 @@ function CourseModal({
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">סוג</label>
                   <select
-                    className={ADMIN_MODAL_INPUT}
+                    className={ADMIN_MODAL_DATE_INPUT}
                     value={isMandatory ? "mandatory" : "optional"}
                     onChange={(event) => setIsMandatory(event.target.value === "mandatory")}
                   >
@@ -206,11 +206,11 @@ function CourseModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">מתאריך</label>
-                  <HebrewDatePicker value={validFrom} onChange={setValidFrom} className={ADMIN_MODAL_INPUT} />
+                  <HebrewDatePicker value={validFrom} onChange={setValidFrom} className={ADMIN_MODAL_DATE_INPUT} />
                 </div>
                 <div>
                   <label className="mb-1 block text-[11px] font-medium text-slate-500">עד תאריך</label>
-                  <HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_INPUT} />
+                  <HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_DATE_INPUT} />
                 </div>
               </div>
               <div>

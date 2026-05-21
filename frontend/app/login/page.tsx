@@ -4,7 +4,8 @@ import { Suspense, useState, FormEvent, ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/firebase";
+import { sendPasswordResetEmail } from "firebase/auth";
 import { Logo } from "@/components/layout/Logo";
 
 export default function LoginPage() {
@@ -64,10 +65,9 @@ function LoginPageContent() {
     setError(null);
     setLoading(true);
     try {
-      const { error: sbError } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      await sendPasswordResetEmail(auth, forgotEmail, {
+        url: `${window.location.origin}/reset-password`,
       });
-      if (sbError) throw sbError;
       setForgotSuccess(true);
     } catch (err: unknown) {
       const e = err as { message?: string };

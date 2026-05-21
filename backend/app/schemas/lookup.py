@@ -7,6 +7,7 @@ from typing import Optional
 class LookupItemBase(BaseModel):
     item_key:   str
     label_he:   str
+    code:       Optional[str] = None
     sort_order: int = 0
     is_active:  bool = True
 
@@ -17,6 +18,7 @@ class LookupItemCreate(LookupItemBase):
 
 class LookupItemUpdate(BaseModel):
     label_he:   Optional[str]  = None
+    code:       Optional[str]  = None
     sort_order: Optional[int]  = None
     is_active:  Optional[bool] = None
 

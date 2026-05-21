@@ -10,7 +10,6 @@ from app.database import get_db
 from app.main import app
 from app.middleware.auth import CurrentUser, get_current_user
 from app.routers import core as core_router
-from app.schemas.core import EmploymentEventIn
 
 
 class FakeSession:
@@ -100,41 +99,6 @@ async def test_create_employee_rejects_sensitive_write_without_manage_sensitive(
 
 
 @pytest.mark.asyncio
-async def test_create_employee_event_rejects_sensitive_write_without_manage_sensitive():
-    async def override_current_user():
-        return CurrentUser(
-            id=uuid4(),
-            email="support@example.com",
-            role="support",
-            permissions={"core": {"can_view": True, "can_edit": True, "can_manage_sensitive": False}},
-        )
-
-    async def override_db():
-        yield FakeSession()
-
-    app.dependency_overrides[get_current_user] = override_current_user
-    app.dependency_overrides[get_db] = override_db
-
-    payload = {
-        "event_type": "compensation_change",
-        "effective_date": "2026-05-02",
-        "compensation": {
-            "base_salary": 15000,
-            "currency": "ILS",
-            "pay_cycle": "monthly",
-        },
-    }
-
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(f"/api/core/employees/{uuid4()}/events", json=payload)
-        assert response.status_code == 403
-        assert response.json()["detail"]["code"] == "FORBIDDEN"
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
 async def test_create_employee_bank_account_rejects_without_manage_sensitive():
     async def override_current_user():
         return CurrentUser(
@@ -207,87 +171,6 @@ async def test_create_employee_rejects_spouse_legal_id_without_manage_sensitive(
         assert response.json()["detail"]["code"] == "FORBIDDEN"
     finally:
         app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_status_only_event_preserves_existing_employment_fields(monkeypatch):
-    employee_id = uuid4()
-    tenant_id = uuid4()
-    current_user = CurrentUser(
-        id=uuid4(),
-        email="admin@example.com",
-        role="admin",
-        permissions={"core": {"can_view": True, "can_edit": True, "can_manage_sensitive": True}},
-    )
-    current_employment = SimpleNamespace(
-        tenant_id=tenant_id,
-        employee_id=employee_id,
-        org_unit_id=uuid4(),
-        manager_employee_id=uuid4(),
-        position_id=uuid4(),
-        employment_status="active",
-        employment_type="employee",
-        salary_type="monthly",
-        start_date=date(2026, 1, 5),
-        end_date=None,
-        employment_scope_pct=100,
-        branch_name="Jerusalem",
-        work_site="HQ",
-        time_clock_id="CLK-77",
-        notes="Existing notes",
-        valid_from=date(2026, 1, 5),
-        valid_to=None,
-    )
-    captured: dict[str, object] = {}
-
-    class FakeDb:
-        def __init__(self):
-            self.added = []
-
-        def add(self, obj):
-            self.added.append(obj)
-
-        async def flush(self):
-            for obj in self.added:
-                if getattr(obj, "id", None) is None:
-                    obj.id = uuid4()
-                if getattr(obj, "created_at", None) is None:
-                    obj.created_at = datetime.now(UTC)
-
-        async def refresh(self, _obj):
-            return None
-
-    async def fake_ensure_employee(_db, requested_employee_id):
-        return SimpleNamespace(id=requested_employee_id, tenant_id=tenant_id, is_active=True)
-
-    async def fake_get_active(_db, model, _tenant_id, extra_filters=None, **_kwargs):
-        if model is core_router.EmployeeEmployment and extra_filters == {"employee_id": employee_id}:
-            return current_employment
-        return None
-
-    async def fake_close_and_create(_db, _model, _tenant_id, payload, _user_id, **_kwargs):
-        captured["payload"] = payload
-        return SimpleNamespace(**payload)
-
-    monkeypatch.setattr(core_router, "_ensure_employee", fake_ensure_employee)
-    monkeypatch.setattr(core_router, "get_active", fake_get_active)
-    monkeypatch.setattr(core_router, "close_and_create", fake_close_and_create)
-
-    body = EmploymentEventIn(
-        event_type="status_change",
-        effective_date=date(2026, 6, 1),
-        notes="Changed status",
-    )
-
-    await core_router.create_employee_event(
-        employee_id,
-        body,
-        db=FakeDb(),
-        current_user=current_user,
-    )
-
-    assert captured["payload"]["branch_name"] == "Jerusalem"
-    assert captured["payload"]["time_clock_id"] == "CLK-77"
 
 
 @pytest.mark.asyncio
@@ -492,19 +375,6 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
         _ScalarResult([]),
         # work_breaks
         _ScalarResult([]),
-        # events
-        _ScalarResult(
-            [
-                SimpleNamespace(
-                    id=uuid4(),
-                    event_type="hire",
-                    event_date=date(2026, 1, 1),
-                    reason="new hire",
-                    description="joined",
-                    created_at=datetime(2026, 1, 1, tzinfo=UTC),
-                )
-            ]
-        ),
         # training
         _ScalarResult(
             [
@@ -575,5 +445,4 @@ async def test_get_employee_returns_model_aligned_sections(monkeypatch):
     assert payload["compensation"][0]["base_salary"] == 14500.0
     assert "amount" not in payload["compensation"][0]
     assert payload["bank"][0]["branch_number"] == "123"
-    assert payload["events"][0]["event_date"] == "2026-01-01"
     assert payload["training"][0]["institute"] == "Click Academy"

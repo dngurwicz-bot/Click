@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { LayoutTemplate, Lock, Save, Users, X } from "lucide-react";
@@ -48,12 +48,12 @@ export function ReportTemplateModal({ isOpen, defaultName = "", onClose, onSave 
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-4xl" dir="rtl">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+      <AdminModalPanel  dir="rtl">
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="flex items-center gap-2">
             <LayoutTemplate size={15} className="text-brand-700" />
             <div>
-              <div className="text-lg font-bold text-[#1a3a6e]">שמירה כתבנית</div>
+              <div className="text-sm font-semibold text-slate-800">שמירה כתבנית</div>
               <div className="text-sm text-slate-600">סט שדות והגדרות לשימוש חוזר</div>
             </div>
           </div>

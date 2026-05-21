@@ -12,10 +12,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/click_db"
 
-    # Supabase
-    SUPABASE_URL: str = ""
-    SUPABASE_SECRET_KEY: str = ""
-    SUPABASE_PUBLISHABLE_KEY: str = ""
+    # Firebase
+    FIREBASE_API_KEY: str = ""
+    FIREBASE_SERVICE_ACCOUNT_PATH: str = ""
 
     # JWT
     JWT_SECRET: str = "change-me-in-production-min-32-chars!!"
@@ -46,8 +45,8 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be overridden outside development")
             if self.DATABASE_URL == "postgresql+asyncpg://postgres:password@localhost:5432/click_db":
                 raise ValueError("DATABASE_URL must be overridden outside development")
-            if not self.SUPABASE_URL:
-                raise ValueError("SUPABASE_URL must be set outside development")
+            if not self.FIREBASE_API_KEY:
+                raise ValueError("FIREBASE_API_KEY must be set outside development")
         return self
 
     @property

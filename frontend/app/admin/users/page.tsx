@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -305,28 +305,28 @@ function UserModal({
   const editHeaderBg =
     userMode === "delete" ? "bg-red-50" :
     userMode === "close"  ? "bg-orange-50" :
-    "bg-[#dce4f0]";
+    "bg-white";
   const editHeaderText =
     userMode === "delete" ? "text-red-800" :
     userMode === "close"  ? "text-orange-800" :
-    "text-[#1a3a6e]";
+    "text-slate-800";
   const editModalTitle =
     userMode === "delete" ? "מחיקת משתמש" :
     userMode === "close"  ? "סגירת תקופה — משתמש" :
     "עדכון משתמש";
 
-  const dateCls = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
+  const dateCls = "rounded px-3 py-2 text-sm w-36 focus:outline-none focus:ring-1 focus:ring-brand-300 font-mono transition-colors";
 
   // ── CREATE modal
   if (!isEdit) {
     return (
       <AdminModal onBackdropClick={onClose}>
-        <AdminModalPanel className="max-w-6xl" style={{ direction: "rtl" }}>
+        <AdminModalPanel  style={{ direction: "rtl" }}>
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-brand-50 rounded-xl"><ShieldCheck size={16} className="text-brand-600" /></div>
-              <h2 className="text-lg font-bold text-[#1a3a6e]">הוספת משתמש חדש</h2>
+              <h2 className="text-sm font-semibold text-slate-800">הוספת משתמש חדש</h2>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 transition-colors hover:bg-white/70 hover:text-slate-700"><X size={16} /></button>
           </div>
@@ -445,7 +445,7 @@ function UserModal({
   // ── EDIT modal (with split-button)
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
+      <AdminModalPanel  dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* Header */}
         <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${editHeaderBg}`}>
@@ -481,7 +481,7 @@ function UserModal({
                   תוקף עד (אחרון)
                 </label>
                 <HebrewDatePicker value={validTo} onChange={setValidTo}
-                  className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
+                  className={`${dateCls} border border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
                 <span className="text-xs text-orange-700">יום אחרון שהמשתמש בתוקף</span>
               </div>
               {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{error}</p>}
@@ -594,12 +594,12 @@ function UserModal({
                     תוקף מתאריך
                   </label>
                   <HebrewDatePicker value={validFrom} onChange={setValidFrom}
-                    className={`${dateCls} border-slate-300 focus:border-blue-400`} />
+                    className={`${dateCls} bg-slate-100 focus:bg-brand-50`} />
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוקף עד (אופציונלי)</label>
                   <HebrewDatePicker value={validTo} onChange={setValidTo}
-                    className={`${dateCls} border-slate-300 focus:border-blue-400`} />
+                    className={`${dateCls} bg-slate-100 focus:bg-brand-50`} />
                   {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
                   {validTo && <span className="text-xs text-blue-600 cursor-pointer hover:underline" onClick={() => setValidTo("")}>✕ נקה</span>}
                 </div>
@@ -714,7 +714,7 @@ function DeleteConfirm({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-5xl" style={{ direction: "rtl" }}>
+      <AdminModalPanel  style={{ direction: "rtl" }}>
         <div className="border-b border-slate-200 bg-red-50 px-6 py-5">
           <h2 className="text-lg font-bold text-red-800">מחיקת משתמש</h2>
         </div>

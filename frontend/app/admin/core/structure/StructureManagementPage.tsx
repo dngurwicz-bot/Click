@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import {
   AdminActionBar,
@@ -28,6 +28,7 @@ import {
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
   ADMIN_MODAL_ACTION_WARNING,
+  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_GRID,
   ADMIN_MODAL_INPUT,
   ADMIN_MODAL_TEXTAREA,
@@ -224,16 +225,8 @@ function StructureRecordModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="relative max-w-xl" onClick={() => setDropdownOpen(false)}>
-        <AdminModalHeader
-          title={
-            <span className="flex items-center gap-2 text-[#1a3a6e]">
-              <span className="rounded-xl bg-white/60 p-2 text-brand-600"><ShieldCheck size={16} /></span>
-              <span>{title}</span>
-            </span>
-          }
-          onClose={onClose}
-        />
+      <AdminModalPanel className="relative" onClick={() => setDropdownOpen(false)}>
+        <AdminModalHeader title={title} onClose={onClose} />
         <AdminModalBody className="space-y-4">
           {row ? null : (
             <AdminModalMessage>
@@ -321,8 +314,8 @@ function StructureRecordModal({
           ) : null}
 
           <AdminDateFields
-            fromField={<HebrewDatePicker className={inputCls} value={validFrom} onChange={setValidFrom} />}
-            toField={<HebrewDatePicker className={inputCls} value={validTo} onChange={setValidTo} />}
+            fromField={<HebrewDatePicker className={ADMIN_MODAL_DATE_INPUT} value={validFrom} onChange={setValidFrom} />}
+            toField={<HebrewDatePicker className={ADMIN_MODAL_DATE_INPUT} value={validTo} onChange={setValidTo} />}
             className={mode === "delete" ? "hidden" : ""}
           />
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}

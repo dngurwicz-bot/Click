@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -180,12 +180,12 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
     } finally { setSaving(false); }
   }
 
-  const inputCls = "border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400";
+  const inputCls = "rounded bg-slate-100 px-3 py-2 text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 transition-colors";
 
   if (confirmDel) {
     return (
       <AdminModal onBackdropClick={onClose}>
-        <AdminModalPanel className="max-w-5xl" dir="rtl">
+        <AdminModalPanel  dir="rtl">
           <div className="flex items-center justify-between border-b border-slate-200 bg-red-50 px-6 py-5">
             <h2 className="text-lg font-bold text-red-800">מחיקת מודול — {data.name}</h2>
             <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
@@ -216,10 +216,10 @@ function EditModuleModal({ data, onClose, onSaved, onDeleted }: EditModuleModalP
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-5xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
+      <AdminModalPanel  dir="rtl" onClick={() => setDropdownOpen(false)}>
 
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
-          <h2 className="text-lg font-bold text-[#1a3a6e]">עדכון — פרטי מודול</h2>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
+          <h2 className="text-sm font-semibold text-slate-800">עדכון — פרטי מודול</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-white/60 text-slate-500"><X size={16} /></button>
         </div>
 
@@ -424,20 +424,20 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
     mode === "set"    ? "bg-amber-50"  :
     mode === "delete" ? "bg-red-50"    :
     mode === "close"  ? "bg-orange-50" :
-    "bg-[#dce4f0]";
+    "bg-white";
 
   const headerText =
     mode === "set"    ? "text-amber-800"  :
     mode === "delete" ? "text-red-800"    :
     mode === "close"  ? "text-orange-800" :
-    "text-[#1a3a6e]";
+    "text-slate-800";
 
-  const inputCls = "border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 text-right";
-  const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
+  const inputCls = "rounded bg-slate-100 px-2.5 py-1.5 text-xs flex-1 focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 text-right transition-colors";
+  const dateCls  = "rounded px-3 py-2 text-sm w-36 focus:outline-none focus:ring-1 focus:ring-brand-300 font-mono transition-colors";
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-5xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
+      <AdminModalPanel  dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* Header */}
         <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${headerBg}`}>
@@ -477,7 +477,7 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                 <HebrewDatePicker
                   value={validTo}
                   onChange={setValidTo}
-                  className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`}
+                  className={`${dateCls} border border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`}
                 />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
               </div>
@@ -531,8 +531,8 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                   onChange={setValidFrom}
                   className={`${dateCls}
                     ${mode === "add" || mode === "set"
-                      ? "border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
-                      : "border-slate-300 focus:border-blue-400"}`}
+                      ? "border border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
+                      : "bg-slate-100 focus:bg-brand-50"}`}
                 />
                 {mode === "add" && <span className="text-xs text-amber-700 font-medium">תאריך תחילת תוקף חדש</span>}
                 {mode === "set" && <span className="text-xs text-amber-700 font-medium">תחילת תקופת הקביעה</span>}
@@ -545,7 +545,7 @@ function PriceModal({ slug, priceHistory, editRow, onClose, onSaved }: PriceModa
                   value={validTo}
                   onChange={setValidTo}
                   className={`${dateCls}
-                    ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "border-slate-300 focus:border-blue-400"}`}
+                    ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "bg-slate-100 focus:bg-brand-50"}`}
                 />
                 {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
                 {validTo && (

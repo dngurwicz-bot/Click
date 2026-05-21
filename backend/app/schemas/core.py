@@ -492,30 +492,6 @@ class TeamMemberOut(BaseModel):
     start_date: Optional[date] = None
 
 
-class EmploymentEventIn(BaseModel):
-    event_type: str
-    effective_date: date
-    notes: Optional[str] = None
-    identity: Optional[EmployeeIdentityIn] = None
-    employment: Optional[EmployeeEmploymentIn] = None
-    compensation: Optional[EmployeeCompensationIn] = None
-    documents: list[EmployeeDocumentIn] = Field(default_factory=list)
-    payload_json: Optional[dict[str, Any]] = None
-
-
-class EmploymentEventOut(BaseModel):
-    id: uuid.UUID
-    tenant_id: uuid.UUID
-    employee_id: uuid.UUID
-    event_type: str
-    effective_date: date
-    payload_json: Optional[dict[str, Any]] = None
-    notes: Optional[str] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class EmployeeCreate(BaseModel):
     tenant_id: uuid.UUID
     employee_number: str
@@ -568,7 +544,6 @@ class EmployeeDetailOut(BaseModel):
     department_movements: list[DepartmentMovementOut] = Field(default_factory=list)
     position_history: list[PositionHistoryOut] = Field(default_factory=list)
     team_members: list[TeamMemberOut] = Field(default_factory=list)
-    timeline: list[EmploymentEventOut] = Field(default_factory=list)
 
 
 class OrgUnitBase(BaseModel):

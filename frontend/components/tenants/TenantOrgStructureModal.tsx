@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import {
@@ -105,7 +105,7 @@ export function TenantOrgStructureModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-2xl">
+      <AdminModalPanel >
         <AdminModalHeader
           title={title}
           subtitle="המסכים והוולידציה של CLICK Core ייגזרו מההגדרה הזו."

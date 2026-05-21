@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FolderTree, ShieldCheck } from "lucide-react";
+import { FolderTree, List, ShieldCheck } from "lucide-react";
 
 import { AdminGrandchildLayout, AdminSectionCard } from "@/components/layout/AdminShell";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
@@ -49,6 +49,16 @@ export default function OrgStructureOverviewPage() {
               </Link>
             );
           })}
+          <Link
+            href="/admin/lookups"
+            className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-brand-300 hover:bg-brand-50/30"
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+              <List size={18} />
+            </div>
+            <div className="text-sm font-semibold text-slate-800">ניהול רשימות</div>
+            <div className="mt-1 text-xs text-slate-500">עריכת ערכי בחירה ורשימות מובנות</div>
+          </Link>
         </div>
       </AdminSectionCard>
     </AdminGrandchildLayout>

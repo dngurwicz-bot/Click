@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,6 +23,7 @@ import {
   AdminModalPanel,
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
+  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_GRID,
   ADMIN_MODAL_INPUT,
   ADMIN_MODAL_TEXTAREA,
@@ -715,7 +716,7 @@ function DraftSectionModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-2xl">
+      <AdminModalPanel >
         <AdminModalHeader title={title} subtitle={subtitle} onClose={onClose} />
         <AdminModalBody>
         <div className={ADMIN_MODAL_GRID}>
@@ -882,8 +883,8 @@ function DraftSectionModal({
 
         </div>
         <AdminDateFields
-          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => patch({ valid_from: value })} className={inputCls} />}
-          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => patch({ valid_to: value })} className={inputCls} />}
+          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => patch({ valid_from: value })} className={ADMIN_MODAL_DATE_INPUT} />}
+          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => patch({ valid_to: value })} className={ADMIN_MODAL_DATE_INPUT} />}
         />
         {error ? <div className="mt-4"><AdminModalMessage tone="danger">{error}</AdminModalMessage></div> : null}
         </AdminModalBody>
@@ -966,7 +967,7 @@ function DraftModuleModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-2xl">
+      <AdminModalPanel >
         <AdminModalHeader
           title={initialRow ? "עדכון מודול מנוי" : "רשומת מודול חדשה"}
           subtitle="ניהול מודולים בפועל בטיוטת הארגון."
@@ -1036,8 +1037,8 @@ function DraftModuleModal({
           </div>
         </div>
         <AdminDateFields
-          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => setField("valid_from", value)} className={inputCls} />}
-          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => setField("valid_to", value)} className={inputCls} />}
+          fromField={<HebrewDatePicker value={form.valid_from} onChange={(value) => setField("valid_from", value)} className={ADMIN_MODAL_DATE_INPUT} />}
+          toField={<HebrewDatePicker value={form.valid_to} onChange={(value) => setField("valid_to", value)} className={ADMIN_MODAL_DATE_INPUT} />}
         />
         {error ? <div className="mt-4"><AdminModalMessage tone="danger">{error}</AdminModalMessage></div> : null}
         </AdminModalBody>

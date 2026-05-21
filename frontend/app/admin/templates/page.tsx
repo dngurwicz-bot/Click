@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -405,15 +405,15 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
     mode === "set"    ? "bg-amber-50"  :
     mode === "delete" ? "bg-red-50"    :
     mode === "close"  ? "bg-orange-50" :
-    "bg-[#dce4f0]";
+    "bg-white";
 
   const headerText =
     mode === "set"    ? "text-amber-800"  :
     mode === "delete" ? "text-red-800"    :
     mode === "close"  ? "text-orange-800" :
-    "text-[#1a3a6e]";
-  const inputCls = "border border-slate-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:border-blue-400 text-right";
-  const dateCls  = "border rounded px-2 py-1 text-xs w-36 focus:outline-none font-mono";
+    "text-slate-800";
+  const inputCls = "rounded bg-slate-100 px-3 py-2 text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 text-right transition-colors";
+  const dateCls  = "rounded px-3 py-2 text-sm w-36 focus:outline-none focus:ring-1 focus:ring-brand-300 font-mono transition-colors";
 
   return (
     <AdminModal onBackdropClick={onClose}>
@@ -458,7 +458,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                   תוקף עד (אחרון)
                 </label>
                 <HebrewDatePicker value={validTo} onChange={setValidTo}
-                  className={`${dateCls} border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
+                  className={`${dateCls} border border-orange-400 bg-orange-50 focus:border-orange-600 font-semibold`} />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
               </div>
               {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded">{error}</p>}
@@ -658,7 +658,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                                       onChange={(e) => setModuleSeatDefault(module.slug, e.target.value)}
                                       onClick={(e) => e.stopPropagation()}
                                       placeholder={String(Math.max(parseInt(seatCount) || 0, 0))}
-                                      className="w-20 rounded border border-slate-300 px-2 py-1 text-left text-[11px] focus:border-blue-400 focus:outline-none"
+                                      className="w-24 rounded bg-slate-100 px-2.5 py-2 text-left text-sm focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 transition-colors"
                                     />
                                     <span className="text-slate-400">ריק = ברירת מחדל</span>
                                   </div>
@@ -754,8 +754,8 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                 <HebrewDatePicker value={validFrom} onChange={setValidFrom}
                   className={`${dateCls}
                     ${mode === "add" || mode === "set"
-                      ? "border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
-                      : "border-slate-300 focus:border-blue-400"}`} />
+                      ? "border border-amber-400 bg-amber-50 focus:border-amber-600 font-semibold"
+                      : "bg-slate-100 focus:bg-brand-50"}`} />
                 {mode === "add" && <span className="text-xs text-amber-700 font-medium">תאריך תחילת תוקף חדש</span>}
                 {mode === "set" && <span className="text-xs text-amber-700 font-medium">תחילת תקופת הקביעה</span>}
               </div>
@@ -763,7 +763,7 @@ function TemplateModal({ templates, editRow, onClose, onSaved, modules }: Templa
                 <label className="text-xs font-semibold text-slate-600 w-28 shrink-0">תוקף עד (אופציונלי)</label>
                 <HebrewDatePicker value={validTo} onChange={setValidTo}
                   className={`${dateCls}
-                    ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "border-slate-300 focus:border-blue-400"}`} />
+                    ${mode === "set" ? "border-amber-300 bg-amber-50 focus:border-amber-500" : "bg-slate-100 focus:bg-brand-50"}`} />
                 {!validTo && <span className="text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
                 {validTo && (
                   <span className="text-xs text-blue-600 cursor-pointer hover:underline" onClick={() => setValidTo("")}>✕ נקה</span>

@@ -1,13 +1,15 @@
-"use client";
+﻿"use client";
 
 import { Suspense, type ReactNode, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { MoreVertical, Settings2, Trash2, UserRound } from "lucide-react";
 
-import { api, ApiRequestError, isLoggedIn } from "@/lib/api";
+import { api, ApiRequestError, getOrgAdminTenantId, getStoredUser, isLoggedIn } from "@/lib/api";
 import { useTenantOrgStructureItems, type TenantOrgStructureConfig } from "@/lib/orgStructureConfig";
 import { CardPage, type ChildTab } from "@/components/layout/CardPage";
 import { useWorkspace } from "@/components/layout/WorkspaceShell";
+import { LookupPickerModal, type LookupOption as PickerOption } from "@/components/ui/LookupPickerField";
+import { LOOKUP_ADMIN_HREF, LOOKUP_ORG_HREF } from "@/lib/lookupRegistry";
 import {
   AdminDateFields,
   AdminModal,
@@ -20,7 +22,9 @@ import {
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
   ADMIN_MODAL_ACTION_WARNING,
+  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_GRID,
+  ADMIN_MODAL_GRID_3,
   ADMIN_MODAL_INPUT,
 } from "@/components/ui/AdminModal";
 import { FormField } from "@/components/ui/FormField";
@@ -174,15 +178,6 @@ interface ChildRow {
   created_at?: string;
 }
 
-interface EventRow {
-  id: string;
-  event_type: string;
-  event_date: string;
-  reason?: string;
-  description?: string;
-  created_at?: string;
-}
-
 interface TrainingRow {
   id: string;
   course_name: string;
@@ -207,7 +202,6 @@ interface EmployeeCard {
   compensation: CompensationRow[];
   bank: BankRow[];
   children: ChildRow[];
-  events: EventRow[];
   training: TrainingRow[];
 }
 
@@ -322,12 +316,6 @@ interface LegacyEmployeeDetail {
   employment_history?: LegacyEmployeeEmployment[];
   compensation_history?: LegacyEmployeeCompensation[];
   bank_accounts?: LegacyEmployeeBankAccount[];
-  timeline?: Array<{
-    id: string;
-    event_type: string;
-    effective_date: string;
-    notes?: string | null;
-  }>;
   courses?: LegacyEmployeeCourse[];
 }
 
@@ -526,12 +514,6 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
         _valid_to_raw: row.valid_to ?? undefined,
       })),
       children: [],
-      events: (card.timeline ?? []).map((row) => ({
-        id: row.id,
-        event_type: row.event_type,
-        event_date: row.effective_date,
-        description: row.notes ?? undefined,
-      })),
       training: (card.courses ?? []).map((row) => ({
         id: row.id,
         course_name: row.course_name,
@@ -552,7 +534,6 @@ function normalizeEmployeeCard(card: EmployeeCard | LegacyEmployeeDetail): Emplo
     compensation: card.compensation ?? [],
     bank: card.bank ?? [],
     children: card.children ?? [],
-    events: card.events ?? [],
     training: card.training ?? [],
   };
 }
@@ -606,22 +587,72 @@ const EMPLOYMENT_TYPE_MAP: Record<string, string> = {
   consultant: "יועץ",
 };
 
+const LOOKUP_FALLBACKS: Record<string, PickerOption[]> = {
+  gender: [
+    { value: "M", label: "זכר",           code: "M" },
+    { value: "F", label: "נקבה",          code: "F" },
+  ],
+  marital_status: [
+    { value: "single",   label: "רווק/ה",       code: "1" },
+    { value: "married",  label: "נשוי/נשואה",   code: "2" },
+    { value: "divorced", label: "גרוש/ה",        code: "3" },
+    { value: "widowed",  label: "אלמן/ה",        code: "4" },
+  ],
+  employment_type: [
+    { value: "employee",   label: "עובד",     code: "1" },
+    { value: "contractor", label: "קבלן",     code: "2" },
+    { value: "temporary",  label: "זמני",     code: "3" },
+    { value: "intern",     label: "מתמחה",    code: "4" },
+    { value: "consultant", label: "יועץ",     code: "5" },
+  ],
+  employment_status: [
+    { value: "active",           label: "פעיל",      code: "1" },
+    { value: "leave_of_absence", label: "חופשה",     code: "2" },
+    { value: "unpaid_leave",     label: 'חל"ת',      code: "3" },
+    { value: "terminated",       label: "סיום",      code: "4" },
+    { value: "future",           label: "עתידי",     code: "5" },
+    { value: "suspended",        label: "מושהה",     code: "6" },
+  ],
+  salary_type: [
+    { value: "monthly", label: "חודשי",  code: "1" },
+    { value: "hourly",  label: "שעתי",   code: "2" },
+    { value: "daily",   label: "יומי",   code: "3" },
+    { value: "global",  label: "גלובלי", code: "4" },
+  ],
+  pay_cycle: [
+    { value: "monthly",  label: "חודשי",    code: "1" },
+    { value: "biweekly", label: "דו שבועי", code: "2" },
+    { value: "weekly",   label: "שבועי",    code: "3" },
+  ],
+  payment_method: [
+    { value: "bank_transfer", label: "העברה בנקאית", code: "1" },
+    { value: "check",         label: "שיק",           code: "2" },
+    { value: "cash",          label: "מזומן",          code: "3" },
+  ],
+};
+
 function ModalSection({
   title,
   description,
   children,
+  cols = 2,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  cols?: 2 | 3;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
-        {description ? <p className="text-[11px] text-slate-500">{description}</p> : null}
+    <section className="rounded-md border border-slate-200 bg-white overflow-hidden">
+      <div className="flex items-baseline gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+        {description ? (
+          <span className="text-xs font-normal text-slate-400">{description}</span>
+        ) : null}
       </div>
-      {children}
+      <div className={`px-4 py-3 ${cols === 3 ? ADMIN_MODAL_GRID_3 : ADMIN_MODAL_GRID}`}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -634,12 +665,13 @@ function ModalField({
 }: {
   label: string;
   required?: boolean;
-  span?: 1 | 2;
+  span?: 1 | 2 | 3;
   children: ReactNode;
 }) {
+  const spanClass = span === 3 ? "sm:col-span-3" : span === 2 ? "sm:col-span-2" : undefined;
   return (
-    <div className={span === 2 ? "md:col-span-2" : undefined}>
-      <label className="mb-1 block text-xs font-semibold text-slate-600">
+    <div className={spanClass}>
+      <label className="mb-0.5 block text-xs sm:text-sm font-medium text-slate-500">
         {required ? <span className="text-red-500 ml-0.5">*</span> : null}
         {label}
       </label>
@@ -661,7 +693,7 @@ function ModalTextField({
   onChange: (value: string) => void;
   required?: boolean;
   type?: "text" | "email";
-  span?: 1 | 2;
+  span?: 1 | 2 | 3;
 }) {
   return (
     <ModalField label={label} required={required} span={span}>
@@ -680,26 +712,75 @@ function ModalSelectField({
   value,
   onChange,
   options,
-  placeholder = "בחר...",
   span = 1,
+  lookupKey,
 }: {
   label: string;
   value?: string | null;
   onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; code?: string }>;
   placeholder?: string;
-  span?: 1 | 2;
+  span?: 1 | 2 | 3;
+  lookupKey?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const selectedOption = options.find((o) => o.value === value);
+  const displayLabel = selectedOption?.label ?? "";
+
+  const user = getStoredUser();
+  const role = user?.role ?? "";
+  const isSuperOrAdmin = role === "super_admin" || role === "admin";
+  const isOrgAdmin = role === "org_admin";
+  const lookupHref = lookupKey
+    ? isSuperOrAdmin
+      ? LOOKUP_ADMIN_HREF[lookupKey]
+      : isOrgAdmin
+        ? LOOKUP_ORG_HREF[lookupKey]
+        : undefined
+    : undefined;
+  const canAdmin = !!(lookupHref && (isSuperOrAdmin || isOrgAdmin));
+
   return (
     <ModalField label={label} span={span}>
-      <select className={ADMIN_MODAL_INPUT} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={displayLabel}
+          readOnly
+          className={`${ADMIN_MODAL_INPUT} flex-1 cursor-default`}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+          title="בחר ערך"
+        >
+          <MoreVertical size={13} />
+        </button>
+        {canAdmin && lookupHref && (
+          <a
+            href={lookupHref}
+            className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-brand-600 transition-colors shrink-0"
+            title="הגדרות רשימה"
+          >
+            <Settings2 size={12} />
+          </a>
+        )}
+      </div>
+      {open && (
+        <LookupPickerModal
+          title={label}
+          options={options}
+          value={value ?? ""}
+          onSelect={(v) => {
+            onChange(v);
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+          lookupHref={canAdmin ? lookupHref : undefined}
+          zIndex="z-[200]"
+        />
+      )}
     </ModalField>
   );
 }
@@ -713,23 +794,14 @@ function ModalDateField({
   label: string;
   value?: string | null;
   onChange: (value: string) => void;
-  span?: 1 | 2;
+  span?: 1 | 2 | 3;
 }) {
   return (
     <ModalField label={label} span={span}>
-      <HebrewDatePicker value={value ?? ""} onChange={onChange} className={ADMIN_MODAL_INPUT} />
+      <HebrewDatePicker value={value ?? ""} onChange={onChange} className={ADMIN_MODAL_DATE_INPUT} />
     </ModalField>
   );
 }
-
-const EVENT_TYPE_MAP: Record<string, string> = {
-  hire: "גיוס",
-  promotion: "קידום",
-  transfer: "העברה",
-  leave: "חופשה",
-  termination: "סיום עבודה",
-  other: "אחר",
-};
 
 function getSectionTitle(section: TemporalSection) {
   switch (section) {
@@ -1000,18 +1072,8 @@ function TemporalModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="relative max-w-3xl overflow-hidden" onClick={() => setDropdownOpen(false)}>
-        <AdminModalHeader
-          title={
-            <span className="flex items-center gap-2 text-[#1a3a6e]">
-              <span className="rounded-xl bg-white/60 p-2 text-brand-600">
-                <ShieldCheck size={16} />
-              </span>
-              <span>{title}</span>
-            </span>
-          }
-          onClose={onClose}
-        />
+      <AdminModalPanel onClick={() => setDropdownOpen(false)}>
+        <AdminModalHeader title={title} onClose={onClose} />
         <AdminModalBody className="space-y-4">
           {mode === "delete" ? (
             <AdminModalMessage tone="danger">
@@ -1035,7 +1097,6 @@ function TemporalModal({
             <>
               {state.section === "identity" ? (
                 <ModalSection title="זהות בסיסית" description="פרטי הזיהוי העיקריים של העובד כפי שהם נתמכים כיום בכרטיס העובד.">
-                  <div className={ADMIN_MODAL_GRID}>
                     <ModalTextField label="שם פרטי" required value={form.first_name ?? ""} onChange={(value) => setField("first_name", value)} />
                     <ModalTextField label="שם משפחה" required value={form.last_name ?? ""} onChange={(value) => setField("last_name", value)} />
                     <ModalTextField label="ת.ז." value={form.id_number ?? ""} onChange={(value) => setField("id_number", value)} />
@@ -1043,41 +1104,29 @@ function TemporalModal({
                       label="מגדר"
                       value={form.gender ?? ""}
                       onChange={(value) => setField("gender", value)}
-                      options={[
-                        { value: "M", label: "זכר" },
-                        { value: "F", label: "נקבה" },
-                      ]}
+                      options={lo("gender")}
+                      lookupKey="gender"
                     />
-                  </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "personal" ? (
-                <ModalSection title="פרטים אישיים" description="נתונים אישיים ודמוגרפיים של העובד לצרכי משאבי אנוש ודיווח.">
-                  <div className={ADMIN_MODAL_GRID}>
+                <ModalSection title="פרטים אישיים" description="נתונים אישיים ודמוגרפיים של העובד לצרכי משאבי אנוש ודיווח." cols={3}>
                     <ModalTextField label="ארץ לידה" value={form.birth_country ?? ""} onChange={(value) => setField("birth_country", value)} />
                     <ModalSelectField
                       label="מצב משפחתי"
                       value={form.marital_status ?? ""}
                       onChange={(value) => setField("marital_status", value)}
-                      options={[
-                        { value: "single", label: "רווק/ה" },
-                        { value: "married", label: "נשוי/נשואה" },
-                        { value: "divorced", label: "גרוש/ה" },
-                        { value: "widowed", label: "אלמן/ה" },
-                      ]}
+                      options={lo("marital_status")}
+                      lookupKey="marital_status"
                     />
                     <ModalDateField label="תאריך לידה" value={form.birth_date ?? ""} onChange={(value) => setField("birth_date", value)} />
                     <ModalSelectField
                       label="מצב משפחתי קודם"
                       value={form.prev_marital_status ?? ""}
                       onChange={(value) => setField("prev_marital_status", value)}
-                      options={[
-                        { value: "single", label: "רווק/ה" },
-                        { value: "married", label: "נשוי/נשואה" },
-                        { value: "divorced", label: "גרוש/ה" },
-                        { value: "widowed", label: "אלמן/ה" },
-                      ]}
+                      options={lo("marital_status")}
+                      lookupKey="marital_status"
                     />
                     <ModalDateField label="תאריך עליה" value={form.immigration_date ?? ""} onChange={(value) => setField("immigration_date", value)} />
                     <ModalDateField label="ת. שינוי מצב משפחתי" value={form.marital_status_change_date ?? ""} onChange={(value) => setField("marital_status_change_date", value)} />
@@ -1087,62 +1136,55 @@ function TemporalModal({
                     <ModalTextField label="שם משפחה קודם" value={form.prev_surname ?? ""} onChange={(value) => setField("prev_surname", value)} />
                     <ModalTextField label="אזרחות 2" value={form.citizenship2 ?? ""} onChange={(value) => setField("citizenship2", value)} />
                     <ModalTextField label="שם האב" value={form.father_name ?? ""} onChange={(value) => setField("father_name", value)} />
-                  </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "spouse" ? (
-                <ModalSection title="פרטי בן הזוג" description="פרטי בן או בת הזוג של העובד.">
-                  <div className={ADMIN_MODAL_GRID}>
+                <ModalSection title="פרטי בן הזוג" description="פרטי בן או בת הזוג של העובד." cols={3}>
                     <ModalTextField label="שם בן/בת זוג" value={form.spouse_first_name ?? ""} onChange={(value) => setField("spouse_first_name", value)} />
-                    <ModalTextField label="טלפון ניד" value={form.spouse_mobile ?? ""} onChange={(value) => setField("spouse_mobile", value)} />
                     <ModalTextField label="שם משפחה" value={form.spouse_last_name ?? ""} onChange={(value) => setField("spouse_last_name", value)} />
-                    <ModalTextField label="טלפון בעבודה" value={form.spouse_work_phone ?? ""} onChange={(value) => setField("spouse_work_phone", value)} />
                     <ModalTextField label="מספר זהות" value={form.spouse_id_number ?? ""} onChange={(value) => setField("spouse_id_number", value)} />
                     <ModalTextField label="מקום עבודה" value={form.spouse_workplace ?? ""} onChange={(value) => setField("spouse_workplace", value)} />
+                    <ModalTextField label="טלפון ניד" value={form.spouse_mobile ?? ""} onChange={(value) => setField("spouse_mobile", value)} />
+                    <ModalTextField label="טלפון בעבודה" value={form.spouse_work_phone ?? ""} onChange={(value) => setField("spouse_work_phone", value)} />
                     <ModalDateField label="תאריך לידה" value={form.spouse_birth_date ?? ""} onChange={(value) => setField("spouse_birth_date", value)} />
                     <ModalDateField label="תאריך עליה" value={form.spouse_immigration_date ?? ""} onChange={(value) => setField("spouse_immigration_date", value)} />
-                  </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "additional" ? (
-                <ModalSection title="פרטים נוספים" description="רישיון נהיגה וקופת חולים.">
-                  <div className={ADMIN_MODAL_GRID}>
+                <ModalSection title="פרטים נוספים" description="רישיון נהיגה וקופת חולים." cols={3}>
                     <ModalTextField label="מס. רישיון נהיגה" value={form.license_number ?? ""} onChange={(value) => setField("license_number", value)} />
                     <ModalTextField label="שנת הוצאת רישיון" value={form.license_issue_year ?? ""} onChange={(value) => setField("license_issue_year", value)} />
                     <ModalTextField label="סוג רישיון" value={form.license_type ?? ""} onChange={(value) => setField("license_type", value)} />
                     <ModalDateField label="חוקף רישיון נהיגה" value={form.license_expiry ?? ""} onChange={(value) => setField("license_expiry", value)} />
                     <ModalTextField label="קופת חולים" value={form.health_fund ?? ""} onChange={(value) => setField("health_fund", value)} />
-                  </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "contact" ? (
-                <div className="space-y-4">
-                  <ModalSection title="כתובת" description="מיקום וכתובת למשלוח, תקשורת ומסמכים.">
-                    <div className={ADMIN_MODAL_GRID}>
-                      <ModalTextField label="כתובת שורה 1" value={form.address1 ?? ""} onChange={(value) => setField("address1", value)} span={2} />
-                      <ModalTextField label="כתובת שורה 2" value={form.address2 ?? ""} onChange={(value) => setField("address2", value)} span={2} />
+                <div className="space-y-5">
+                  <ModalSection title="כתובת" description="מיקום וכתובת למשלוח, תקשורת ומסמכים." cols={3}>
+                      <ModalTextField label="כתובת שורה 1" value={form.address1 ?? ""} onChange={(value) => setField("address1", value)} span={3} />
+                      <ModalTextField label="כתובת שורה 2" value={form.address2 ?? ""} onChange={(value) => setField("address2", value)} span={3} />
                       <ModalTextField label="עיר" value={form.city ?? ""} onChange={(value) => setField("city", value)} />
                       <ModalTextField label="מיקוד" value={form.zip_code ?? ""} onChange={(value) => setField("zip_code", value)} />
                       <ModalTextField label="ארץ" value={form.country ?? ""} onChange={(value) => setField("country", value)} />
-                    </div>
                   </ModalSection>
 
-                  <ModalSection title="ערוצי קשר" description="פרטי ההתקשרות הישירים של העובד.">
-                    <div className={ADMIN_MODAL_GRID}>
+                  <ModalSection title="ערוצי קשר" description="פרטי ההתקשרות הישירים של העובד." cols={3}>
                       <ModalTextField label="טלפון" value={form.phone ?? ""} onChange={(value) => setField("phone", value)} />
+                      <ModalTextField label="פקס" value={form.fax ?? ""} onChange={(value) => setField("fax", value)} />
+                      <ModalTextField label="טלפון נייד" value={form.mobile ?? ""} onChange={(value) => setField("mobile", value)} />
+                      <ModalTextField label="טלפון בבית" value={form.home_phone ?? ""} onChange={(value) => setField("home_phone", value)} />
                       <ModalTextField label="דוא״ל" type="email" value={form.email ?? ""} onChange={(value) => setField("email", value)} span={2} />
-                    </div>
                   </ModalSection>
                 </div>
               ) : null}
 
               {state.section === "employment" ? (
-                <div className="space-y-4">
-                  <ModalSection title="שיוך ארגוני" description="היחידה, התפקיד והדיווח הישיר של העובד בארגון.">
-                    <div className={ADMIN_MODAL_GRID}>
+                <div className="space-y-5">
+                  <ModalSection title="שיוך ארגוני" description="היחידה, התפקיד והדיווח הישיר של העובד בארגון." cols={3}>
                       {showHierarchicalOrgAssignment ? (
                         activeOrgLevels.map((level) => {
                           const options = getOrgUnitOptionsForLevel(
@@ -1209,11 +1251,9 @@ function TemporalModal({
                           ))}
                         </select>
                       </ModalField>
-                    </div>
                   </ModalSection>
 
-                  <ModalSection title="מאפייני העסקה" description="פרטי מסגרת ההעסקה כפי שהם מנוהלים בכרטיס העובד.">
-                    <div className={ADMIN_MODAL_GRID}>
+                  <ModalSection title="מאפייני העסקה" description="פרטי מסגרת ההעסקה כפי שהם מנוהלים בכרטיס העובד." cols={3}>
                       <ModalTextField label="סניף / חברה" value={form.company ?? ""} onChange={(value) => setField("company", value)} />
                       <ModalTextField label="אתר עבודה" value={form.work_site ?? ""} onChange={(value) => setField("work_site", value)} />
                       <ModalSelectField
@@ -1254,14 +1294,12 @@ function TemporalModal({
                       />
                       <ModalDateField label="תאריך תחילה" value={form.start_date ?? ""} onChange={(value) => setField("start_date", value)} />
                       <ModalDateField label="תאריך סיום" value={form.end_date ?? ""} onChange={(value) => setField("end_date", value)} />
-                    </div>
                   </ModalSection>
                 </div>
               ) : null}
 
               {state.section === "compensation" ? (
-                <ModalSection title="מאפייני שכר" description="פרטי השכר הנתמכים כיום בכרטיס העובד.">
-                  <div className={ADMIN_MODAL_GRID}>
+                <ModalSection title="מאפייני שכר" description="פרטי השכר הנתמכים כיום בכרטיס העובד." cols={2}>
                     <ModalTextField label="שכר בסיס" value={form.amount ?? ""} onChange={(value) => setField("amount", value)} />
                     <ModalTextField label="מטבע" value={form.currency ?? ""} onChange={(value) => setField("currency", value)} />
                     <ModalSelectField
@@ -1275,14 +1313,12 @@ function TemporalModal({
                       ]}
                     />
                     <ModalTextField label="מרכז עלות" value={form.cost_center ?? ""} onChange={(value) => setField("cost_center", value)} />
-                  </div>
                 </ModalSection>
               ) : null}
 
               {state.section === "bank" ? (
-                <div className="space-y-4">
-                  <ModalSection title="נתוני תשלום" description="הגדרות העברת התשלום הנתמכות כיום במערכת.">
-                    <div className={ADMIN_MODAL_GRID}>
+                <div className="space-y-5">
+                  <ModalSection title="נתוני תשלום" description="הגדרות העברת התשלום הנתמכות כיום במערכת." cols={3}>
                       <ModalSelectField
                         label="שיטת תשלום"
                         value={form.payment_method ?? ""}
@@ -1297,25 +1333,22 @@ function TemporalModal({
                       <ModalTextField label="סכום קבוע" value={form.fixed_amount ?? ""} onChange={(value) => setField("fixed_amount", value)} />
                       <ModalTextField label="עדיפות" value={form.payment_priority ?? ""} onChange={(value) => setField("payment_priority", value)} />
                       <ModalTextField label="חברה" value={form.company_name ?? ""} onChange={(value) => setField("company_name", value)} />
-                    </div>
                   </ModalSection>
 
-                  <ModalSection title="חשבון בנק" description="פרטי הבנק שאליו ישויך התשלום לעובד.">
-                    <div className={ADMIN_MODAL_GRID}>
+                  <ModalSection title="חשבון בנק" description="פרטי הבנק שאליו ישויך התשלום לעובד." cols={3}>
                       <ModalTextField label="קוד בנק" value={form.bank_code ?? ""} onChange={(value) => setField("bank_code", value)} />
                       <ModalTextField label="שם בנק" value={form.bank_name ?? ""} onChange={(value) => setField("bank_name", value)} />
                       <ModalTextField label="מספר סניף" value={form.branch ?? ""} onChange={(value) => setField("branch", value)} />
                       <ModalTextField label="תיאור סניף" value={form.branch_description ?? ""} onChange={(value) => setField("branch_description", value)} />
                       <ModalTextField label="חשבון" value={form.account ?? ""} onChange={(value) => setField("account", value)} />
                       <ModalTextField label="שם בעל החשבון" value={form.account_holder_name ?? ""} onChange={(value) => setField("account_holder_name", value)} />
-                      <ModalField label="הערות" span={2}>
+                      <ModalField label="הערות" span={3}>
                         <textarea
                           value={form.notes ?? ""}
                           onChange={(event) => setField("notes", event.target.value)}
-                          className={`${ADMIN_MODAL_INPUT} min-h-[88px]`}
+                          className={`${ADMIN_MODAL_INPUT} min-h-[72px]`}
                         />
                       </ModalField>
-                    </div>
                   </ModalSection>
                 </div>
               ) : null}
@@ -1324,19 +1357,19 @@ function TemporalModal({
 
           {mode === "close" ? (
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">עד תאריך</label>
-              <HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_INPUT} />
+              <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-slate-400">עד תאריך</label>
+              <HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_DATE_INPUT} />
             </div>
           ) : mode !== "delete" ? (
             <AdminDateFields
-              fromField={<HebrewDatePicker value={validFrom} onChange={setValidFrom} className={ADMIN_MODAL_INPUT} />}
-              toField={<HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_INPUT} />}
+              fromField={<HebrewDatePicker value={validFrom} onChange={setValidFrom} className={ADMIN_MODAL_DATE_INPUT} />}
+              toField={<HebrewDatePicker value={validTo} onChange={setValidTo} className={ADMIN_MODAL_DATE_INPUT} />}
             />
           ) : null}
 
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
         </AdminModalBody>
-        <AdminModalFooter className="px-6">
+        <AdminModalFooter>
           <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
             ביטול
           </button>
@@ -1472,7 +1505,7 @@ function ChildModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-2xl overflow-hidden">
+      <AdminModalPanel>
         <AdminModalHeader title={editRow ? "עריכת ילד" : "הוסף ילד"} onClose={onClose} />
         <AdminModalBody className="space-y-4">
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
@@ -1538,83 +1571,6 @@ function ChildModal({
   );
 }
 
-function EventModal({
-  tenantId,
-  employeeId,
-  onClose,
-  onSaved,
-}: {
-  tenantId: string;
-  employeeId: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState({ event_type: "", event_date: todayIso(), reason: "", description: "" });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function setField(key: string, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function handleSave() {
-    if (!form.event_type || !form.event_date) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const notes = [form.reason, form.description].filter((value) => value.trim()).join(" — ");
-      await api.post(`/api/core/employees/${employeeId}/events`, {
-        event_type: form.event_type,
-        effective_date: form.event_date,
-        notes: notes || undefined,
-      });
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(getApiError(err, "שגיאה בשמירה"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-md overflow-hidden">
-        <AdminModalHeader title="הוסף אירוע" onClose={onClose} />
-        <AdminModalBody className="space-y-3">
-          {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-slate-500">סוג אירוע *</label>
-            <select className={ADMIN_MODAL_INPUT} value={form.event_type} onChange={(event) => setField("event_type", event.target.value)}>
-              <option value="">בחר...</option>
-              <option value="hire">גיוס</option>
-              <option value="promotion">קידום</option>
-              <option value="transfer">העברה</option>
-              <option value="leave">חופשה</option>
-              <option value="termination">סיום עבודה</option>
-              <option value="other">אחר</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-slate-500">תאריך *</label>
-            <HebrewDatePicker value={form.event_date} onChange={(value) => setField("event_date", value)} className={ADMIN_MODAL_INPUT} />
-          </div>
-          <FormField label="סיבה" value={form.reason} readOnly={false} onChange={(value) => setField("reason", value)} />
-          <FormField label="תיאור" value={form.description} readOnly={false} onChange={(value) => setField("description", value)} />
-        </AdminModalBody>
-        <AdminModalFooter>
-          <button onClick={handleSave} disabled={saving || !form.event_type || !form.event_date} className={ADMIN_MODAL_ACTION_PRIMARY}>
-            {saving ? "שומר..." : "שמור"}
-          </button>
-          <button onClick={onClose} className={ADMIN_MODAL_ACTION_SECONDARY}>
-            ביטול
-          </button>
-        </AdminModalFooter>
-      </AdminModalPanel>
-    </AdminModal>
-  );
-}
-
 function TrainingModal({
   tenantId,
   employeeId,
@@ -1656,17 +1612,19 @@ function TrainingModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-md overflow-hidden">
+      <AdminModalPanel>
         <AdminModalHeader title="הוסף קורס" onClose={onClose} />
         <AdminModalBody className="space-y-3">
+          <div className="mx-auto max-w-lg">
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
           <FormField label="שם קורס" required value={form.course_name} readOnly={false} onChange={(value) => setField("course_name", value)} />
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">תאריך</label>
-            <HebrewDatePicker value={form.course_date} onChange={(value) => setField("course_date", value)} className={ADMIN_MODAL_INPUT} />
+            <HebrewDatePicker value={form.course_date} onChange={(value) => setField("course_date", value)} className={ADMIN_MODAL_DATE_INPUT} />
           </div>
           <FormField label="ציון" value={form.score} readOnly={false} onChange={(value) => setField("score", value)} />
           <FormField label="גוף מלמד" value={form.institute} readOnly={false} onChange={(value) => setField("institute", value)} />
+          </div>
         </AdminModalBody>
         <AdminModalFooter>
           <button onClick={handleSave} disabled={saving || !form.course_name.trim()} className={ADMIN_MODAL_ACTION_PRIMARY}>
@@ -1714,9 +1672,10 @@ function StatusModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-sm overflow-hidden">
+      <AdminModalPanel>
         <AdminModalHeader title="שינוי סטטוס עובד" onClose={onClose} />
         <AdminModalBody className="space-y-3">
+          <div className="mx-auto max-w-md space-y-3">
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">סטטוס</label>
@@ -1729,6 +1688,7 @@ function StatusModal({
           {status === "terminated" ? (
             <AdminModalMessage tone="warning">שינוי לסטטוס מסיים הוא פעולה משמעותית המשפיעה על כל מחזור החיים של העובד.</AdminModalMessage>
           ) : null}
+          </div>
         </AdminModalBody>
         <AdminModalFooter>
           <button
@@ -1779,17 +1739,19 @@ function DeleteEmployeeModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-md overflow-hidden">
+      <AdminModalPanel>
         <AdminModalHeader title="מחיקת עובד" onClose={onClose} />
         <AdminModalBody className="space-y-4">
+          <div className="mx-auto max-w-lg space-y-4">
           <AdminModalMessage tone="danger">
             <strong>פעולה בלתי הפיכה.</strong> העובד <strong>{fullName}</strong> (מס׳ עובד {employeeNumber}) יימחק יחד עם
-            היסטוריית הפרטים, השיוכים, השכר, חשבונות הבנק, האירועים והקורסים שלו.
+            היסטוריית הפרטים, השיוכים, השכר, חשבונות הבנק והקורסים שלו.
           </AdminModalMessage>
           <AdminModalMessage tone="warning">
             אם רצית רק להפסיק פעילות, עדיף להשתמש בשינוי סטטוס או סגירת תקופה במקום מחיקה מלאה.
           </AdminModalMessage>
           {error ? <AdminModalMessage tone="danger">{error}</AdminModalMessage> : null}
+          </div>
         </AdminModalBody>
         <AdminModalFooter>
           <button onClick={handleDelete} disabled={saving} className={ADMIN_MODAL_ACTION_DANGER}>
@@ -1820,13 +1782,13 @@ function EmployeeCardPageContent() {
   const [temporalModal, setTemporalModal] = useState<TemporalModalState | null>(null);
   const [showChildModal, setShowChildModal] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildRow | undefined>(undefined);
-  const [showEventModal, setShowEventModal] = useState(false);
   const [showTrainingModal, setShowTrainingModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [orgUnitOptions, setOrgUnitOptions] = useState<LookupOption[]>([]);
   const [positionOptions, setPositionOptions] = useState<LookupOption[]>([]);
   const [managerOptions, setManagerOptions] = useState<EmployeeOption[]>([]);
+  const [lookupData, setLookupData] = useState<Record<string, PickerOption[]>>(LOOKUP_FALLBACKS);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadCard = useCallback(() => {
@@ -1874,6 +1836,29 @@ function EmployeeCardPageContent() {
     };
   }, [employeeRouteParam, tenantId]);
 
+  const loadCoreLookups = useCallback(() => {
+    const orgTenantId = getOrgAdminTenantId();
+    const base = orgTenantId ? "/api/org/lookups" : "/api/admin/lookups";
+    const keys = ["gender", "marital_status", "employment_type", "employment_status", "salary_type", "pay_cycle", "payment_method"];
+    Promise.all(
+      keys.map((k) =>
+        api.get<{ items: Array<{ item_key: string; label_he: string; code?: string | null }> }>(`${base}/${k}`),
+      ),
+    )
+      .then((results) => {
+        const data: Record<string, PickerOption[]> = {};
+        keys.forEach((k, i) => {
+          data[k] = results[i].items.map((item) => ({
+            value: item.item_key,
+            label: item.label_he,
+            code: item.code ?? undefined,
+          }));
+        });
+        setLookupData((prev) => ({ ...prev, ...data }));
+      })
+      .catch(console.error);
+  }, []);
+
   const loadEmploymentLookups = useCallback(() => {
     if (!tenantId) {
       setOrgUnitOptions([]);
@@ -1915,11 +1900,19 @@ function EmployeeCardPageContent() {
   }, [initialTenant, workspace]);
 
   useEffect(() => {
+    loadCoreLookups();
+  }, [loadCoreLookups]);
+
+  useEffect(() => {
     if (!tenantId) return;
     const cleanup = loadCard();
     loadEmploymentLookups();
     return cleanup;
   }, [tenantId, loadCard, loadEmploymentLookups]);
+
+  function lo(key: string): PickerOption[] {
+    return lookupData[key] ?? LOOKUP_FALLBACKS[key] ?? [];
+  }
 
   const identityRows = card?.identity ?? [];
   const personalRows = card?.personal ?? [];
@@ -2232,23 +2225,6 @@ function EmployeeCardPageContent() {
       })),
       onAddClick: () => setShowTrainingModal(true),
     },
-    {
-      id: "events",
-      label: "אירועים",
-      emptyMessage: "אין אירועים",
-      columns: [
-        { key: "event_type", label: "סוג אירוע" },
-        { key: "event_date", label: "תאריך" },
-        { key: "reason", label: "סיבה" },
-        { key: "description", label: "תיאור" },
-      ],
-      rows: (card?.events ?? []).map((row) => ({
-        event_type: EVENT_TYPE_MAP[row.event_type] ?? row.event_type,
-        event_date: fmtDate(row.event_date),
-        reason: row.reason ?? "—",
-        description: row.description ?? "—",
-      })),
-    },
   ];
 
   const parentContent = (
@@ -2356,15 +2332,6 @@ function EmployeeCardPageContent() {
           positionOptions={positionOptions}
           managerOptions={managerOptions}
           onClose={() => setTemporalModal(null)}
-          onSaved={loadCard}
-        />
-      ) : null}
-
-      {showEventModal && tenantId && resolvedEmployeeId ? (
-        <EventModal
-          tenantId={tenantId}
-          employeeId={resolvedEmployeeId}
-          onClose={() => setShowEventModal(false)}
           onSaved={loadCard}
         />
       ) : null}

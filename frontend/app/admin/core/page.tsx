@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -190,9 +190,10 @@ function NewEmployeeModal({ tenantId, employees, onClose, onCreated }: NewEmploy
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-sm">
+      <AdminModalPanel >
         <AdminModalHeader title="עובד חדש" onClose={onClose} />
         <AdminModalBody className="space-y-3">
+          <div className="mx-auto max-w-lg space-y-3">
           {error && <AdminModalMessage tone="danger">{error}</AdminModalMessage>}
           <FormField label="שם פרטי" required value={form.first_name} readOnly={false} onChange={(v) => set("first_name", v)} />
           <FormField label="שם משפחה" required value={form.last_name} readOnly={false} onChange={(v) => set("last_name", v)} />
@@ -232,6 +233,7 @@ function NewEmployeeModal({ tenantId, employees, onClose, onCreated }: NewEmploy
               </div>
             )}
             <div className="text-[11px] text-slate-400">עד 9 ספרות בלבד.</div>
+          </div>
           </div>
         </AdminModalBody>
         <AdminModalFooter>

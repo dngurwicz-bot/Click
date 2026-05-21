@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
@@ -26,6 +26,7 @@ import {
   ADMIN_MODAL_ACTION_PRIMARY,
   ADMIN_MODAL_ACTION_SECONDARY,
   ADMIN_MODAL_ACTION_WARNING,
+  ADMIN_MODAL_DATE_INPUT,
   ADMIN_MODAL_GRID,
   ADMIN_MODAL_INPUT,
   ADMIN_MODAL_TEXTAREA,
@@ -464,7 +465,7 @@ function LookupInput({ value, options, onChange }: {
           if (e.key === "Escape") setOpen(false);
         }}
         onClick={() => setOpen((v) => !v)}
-        className="border border-slate-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:border-blue-400 bg-white cursor-pointer select-none"
+        className="rounded bg-slate-100 px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 cursor-pointer select-none transition-colors"
         placeholder="לחץ F6 לבחירה…"
       />
       {open && (
@@ -691,19 +692,19 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
     mode === "set"    ? "bg-amber-50"  :
     mode === "delete" ? "bg-red-50"    :
     mode === "close"  ? "bg-orange-50" :
-    "bg-[#dce4f0]";
+    "bg-white";
 
   const headerText =
     mode === "set"    ? "text-amber-800"  :
     mode === "delete" ? "text-red-800"    :
     mode === "close"  ? "text-orange-800" :
-    "text-[#1a3a6e]";
+    "text-slate-800";
 
   const activeRow = relevantRows.find((r) => !r.valid_to);
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl" onClick={() => setDropdownOpen(false)}>
+      <AdminModalPanel  dir="rtl" onClick={() => setDropdownOpen(false)}>
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div className={`flex items-center justify-between border-b border-slate-200 px-6 py-5 ${headerBg}`}>
@@ -744,7 +745,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                 <HebrewDatePicker
                   value={validTo}
                   onChange={setValidTo}
-                  className="border border-orange-400 bg-orange-50 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:border-orange-600 font-semibold"
+                  className="w-36 rounded border border-orange-400 bg-orange-50 px-3 py-2 text-sm font-mono font-semibold focus:outline-none focus:border-orange-600"
                 />
                 <span className="text-xs text-orange-700">יום אחרון שהשורה בתוקף</span>
               </div>
@@ -810,7 +811,7 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
                       <HebrewDatePicker
                         value={form[f.key] ?? ""}
                         onChange={(value) => setForm((prev) => ({ ...prev, [f.key]: value }))}
-                        className={ADMIN_MODAL_INPUT}
+                        className={ADMIN_MODAL_DATE_INPUT}
                       />
                       {!!form[f.key] && (
                         <button
@@ -869,10 +870,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
               <HebrewDatePicker
                 value={validFrom}
                 onChange={setValidFrom}
-                className={`${ADMIN_MODAL_INPUT}
-                  ${mode === "add" ? "border-amber-400 bg-amber-50 font-semibold"
-                  : mode === "set" ? "border-amber-400 bg-amber-50 font-semibold"
-                  : "border-slate-300"}`}
+                className={`${ADMIN_MODAL_DATE_INPUT}
+                  ${mode === "add" || mode === "set" ? "border border-amber-400 !bg-amber-50 font-semibold" : ""}`}
               />
               {mode === "add" && <span className="text-xs text-amber-700 font-medium">תאריך תחילת תוקף חדש</span>}
               {mode === "set" && <span className="text-xs text-amber-700 font-medium">תחילת תקופת הקביעה</span>}
@@ -884,8 +883,8 @@ function EditModal({ section, initialData, initialValidFrom, initialValidTo, all
               <HebrewDatePicker
                 value={validTo}
                 onChange={setValidTo}
-                className={`${ADMIN_MODAL_INPUT}
-                  ${mode === "set" ? "border-amber-300 bg-amber-50" : "border-slate-300"}`}
+                className={`${ADMIN_MODAL_DATE_INPUT}
+                  ${mode === "set" ? "border border-amber-300 !bg-amber-50" : ""}`}
               />
               {!validTo && <span className="mt-1 block text-xs text-slate-400">ריק = ללא תאריך סיום</span>}
               {validTo && <span className="text-xs text-blue-600 cursor-pointer hover:underline"
@@ -1136,7 +1135,7 @@ function OrgStructureOverrideModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-3xl">
+      <AdminModalPanel >
         <AdminModalHeader
           title="שינוי חריג למבנה הארגוני"
           subtitle="הפעולה זמינה לסופר אדמין בלבד. הנתונים לא יימחקו, אלא יותאמו לרמות הפעילות החדשות."
@@ -1276,7 +1275,7 @@ function OrgStructureOverrideModal({
                   setPreview(null);
                   setConfirmed(false);
                 }}
-                className={ADMIN_MODAL_INPUT}
+                className={ADMIN_MODAL_DATE_INPUT}
               />
             }
             toLabel="החלה"
@@ -1958,7 +1957,7 @@ function TenantDeleteModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-3xl" dir="rtl">
+      <AdminModalPanel  dir="rtl">
         <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-6 py-5">
           <div>
             <h3 className="text-sm font-semibold text-red-900">מחיקת ארגון לצמיתות</h3>
@@ -2109,10 +2108,10 @@ function ApplyTemplateModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-5xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
           <div>
-            <h3 className="text-lg font-bold text-[#1a3a6e]">החל תבנית על הארגון</h3>
+            <h3 className="text-sm font-semibold text-slate-800">החל תבנית על הארגון</h3>
             <p className="mt-1 text-sm text-slate-600">הפעולה תעדכן את פרטי המנוי, המודולים והמושבים של הארגון מתאריך שתבחר.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
@@ -2140,7 +2139,7 @@ function ApplyTemplateModal({
               <HebrewDatePicker
                 value={effectiveFrom}
                 onChange={setEffectiveFrom}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400 bg-white"
+                className={ADMIN_MODAL_DATE_INPUT}
               />
             </div>
 
@@ -2324,8 +2323,8 @@ function SubscriptionModuleModal({
     }
   }
 
-  const inputCls = "w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
-  const areaCls = "min-h-24 w-full rounded-md border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:border-brand-400";
+  const inputCls = "w-full rounded bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 transition-colors";
+  const areaCls = "min-h-24 w-full rounded bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-300 focus:bg-brand-50 resize-y transition-colors";
   const showPayloadForm = mode === "add" || mode === "update" || mode === "set";
   const titleMap: Record<ModuleMode, string> = {
     update: "עדכון — מודולים בפועל",
@@ -2338,12 +2337,12 @@ function SubscriptionModuleModal({
     mode === "set" ? "bg-amber-50"
     : mode === "delete" ? "bg-red-50"
     : mode === "close" ? "bg-orange-50"
-    : "bg-[#dce4f0]";
+    : "bg-white";
   const headerText =
     mode === "set" ? "text-amber-800"
     : mode === "delete" ? "text-red-800"
     : mode === "close" ? "text-orange-800"
-    : "text-[#1a3a6e]";
+    : "text-slate-800";
   const subtitleMap: Record<ModuleMode, string> = {
     update: "עדכון שורת מודול קיימת תוך שמירה על מבנה זהה לשאר המסכים הטמפורליים.",
     add: "יצירת רשומת מודול חדשה עם טווח תוקף ומבנה זהה לשאר מסכי העריכה.",
@@ -2356,7 +2355,7 @@ function SubscriptionModuleModal({
   return (
     <AdminModal onBackdropClick={onClose}>
       <AdminModalPanel
-        className="max-w-6xl"
+        
         dir="rtl"
         onClick={() => setDropdownOpen(false)}
       >
@@ -2434,11 +2433,11 @@ function SubscriptionModuleModal({
           )}
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">מתאריך</label>
-            <HebrewDatePicker value={validFrom} onChange={setValidFrom} disabled={saving} className={`${inputCls} bg-white`} />
+            <HebrewDatePicker value={validFrom} onChange={setValidFrom} disabled={saving} className={ADMIN_MODAL_DATE_INPUT} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">עד תאריך</label>
-            <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={`${inputCls} bg-white`} />
+            <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={ADMIN_MODAL_DATE_INPUT} />
           </div>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs font-semibold text-slate-600">הערות</label>
@@ -2454,7 +2453,7 @@ function SubscriptionModuleModal({
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף עד</label>
-                <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={`${inputCls} bg-white`} />
+                <HebrewDatePicker value={validTo} onChange={setValidTo} disabled={saving} className={ADMIN_MODAL_DATE_INPUT} />
               </div>
             </>
           )}
@@ -2630,10 +2629,10 @@ function SyncTemplateModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
           <div>
-            <h3 className="text-lg font-bold text-[#1a3a6e]">רענון מנוי מתבנית</h3>
+            <h3 className="text-sm font-semibold text-slate-800">רענון מנוי מתבנית</h3>
             <p className="mt-1 text-sm text-slate-600">המערכת תחשב פערים מול התבנית ותאפשר apply רק אחרי תצוגה מקדימה.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200"><X size={16} /></button>
@@ -2649,7 +2648,7 @@ function SyncTemplateModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">תוקף מתאריך</label>
-              <HebrewDatePicker value={effectiveFrom} onChange={setEffectiveFrom} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:border-brand-400" />
+              <HebrewDatePicker value={effectiveFrom} onChange={setEffectiveFrom} className={ADMIN_MODAL_DATE_INPUT} />
             </div>
             <button onClick={handlePreview} disabled={previewing || loading} className="w-full rounded-md border border-brand-300 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50">
               {previewing ? "מחשב..." : "הצג השוואה"}
@@ -2763,10 +2762,10 @@ function InvoiceViewModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-6xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-[#1a3a6e]">{initial.invoice_number}</span>
+            <span className="text-sm font-semibold text-slate-800">{initial.invoice_number}</span>
             <BillingStatusBadge cfg={st} />
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 text-slate-500"><X size={16} /></button>
@@ -2828,7 +2827,7 @@ function InvoiceViewModal({
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">תאריך תשלום</label>
                     <HebrewDatePicker value={payDate} onChange={setPayDate}
-                      className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:border-brand-400 bg-white text-right" />
+                      className={ADMIN_MODAL_DATE_INPUT} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">אסמכתא</label>
@@ -2922,10 +2921,10 @@ function PaymentTrackingModal({
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-5xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
           <div>
-            <h3 className="text-lg font-bold text-[#1a3a6e]">תיעוד תשלום חיצוני</h3>
+            <h3 className="text-sm font-semibold text-slate-800">תיעוד תשלום חיצוני</h3>
             <p className="mt-1 text-sm text-slate-600">הגבייה עצמה נעשית במערכת נפרדת. כאן מתעדים מה קרה בפועל עבור {initial.billing_period}.</p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-white/70"><X size={16} /></button>
@@ -2961,7 +2960,7 @@ function PaymentTrackingModal({
               <HebrewDatePicker
                 value={paidAt}
                 onChange={setPaidAt}
-                className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-brand-400 focus:outline-none"
+                className={ADMIN_MODAL_DATE_INPUT}
               />
             </div>
             <div>

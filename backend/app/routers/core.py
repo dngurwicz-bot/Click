@@ -14,7 +14,7 @@ from app.middleware.auth import require_permission, CurrentUser
 from app.models.core import (
     Employee, EmployeeIdentity, EmployeePersonal, EmployeeContact,
     EmployeeEmployment, EmployeeCompensation, EmployeeBankAccount,
-    EmploymentEvent, EmployeeTraining, EmployeeDocumentIndex,
+    EmployeeTraining, EmployeeDocumentIndex,
     EmployeeChild, EmployeeAward, EmployeeCertification,
     EmployeeCourse, EmployeeSkill, EmployeeWorkBreak,
     OrgUnit, Position,
@@ -26,7 +26,6 @@ from app.schemas.core import (
     EmployeeCreate,
     EmployeeEmploymentOut,
     EmployeeIdentityActionBody,
-    EmploymentEventIn,
     OrgUnitActionBody,
     OrgUnitCreate,
     PositionCreate,
@@ -34,7 +33,7 @@ from app.schemas.core import (
 )
 from app.services.core import next_three_digit_code
 from app.services.temporal import (
-    close_and_create, get_active, get_history,
+    get_history,
     update_in_place, delete_specific_row, close_active_row, kabiya,
 )
 from app.services.tenant_org_structure import DEFAULT_ORG_STRUCTURE_LEVELS, get_expected_parent_level
@@ -462,12 +461,6 @@ class TemporalActionBody(BaseModel):
         return self
 
 
-class EventBody(BaseModel):
-    event_type: str
-    effective_date: date
-    notes: Optional[str] = None
-
-
 class TrainingBody(BaseModel):
     course_name: str
     course_date: Optional[date] = None
@@ -744,16 +737,6 @@ def _ser_bank(r: EmployeeBankAccount) -> dict[str, Any]:
         "_current": r.valid_to is None,
         "_valid_from_raw": _fmtd(r.valid_from),
         "_valid_to_raw": _fmtd(r.valid_to),
-    }
-
-
-def _ser_event(r: EmploymentEvent) -> dict[str, Any]:
-    return {
-        "id": str(r.id),
-        "event_type": r.event_type,
-        "event_date": _fmtd(r.effective_date),
-        "reason": r.notes,
-        "created_at": _fmtdt(r.created_at),
     }
 
 
@@ -1181,7 +1164,6 @@ async def get_employee(
     course_rows = await _fetch_employee_rows(db, EmployeeCourse, employee_id)
     work_break_rows = await _fetch_employee_rows(db, EmployeeWorkBreak, employee_id)
 
-    event_rows = await _fetch_employee_rows_simple(db, EmploymentEvent, employee_id)
     training_rows = await _fetch_employee_rows_simple(db, EmployeeTraining, employee_id)
 
     child_result = await db.execute(
@@ -1240,58 +1222,8 @@ async def get_employee(
         "children": [_ser_child(row) for row in child_rows],
         "awards": [_ser_award(row) for row in award_rows],
         "skills": [_ser_skill(row) for row in skill_rows],
-        "events": [_ser_event(row) for row in event_rows],
         "training": [_ser_training(row) for row in training_rows],
     }
-
-
-@router.post("/employees/{employee_id}/events", status_code=status.HTTP_201_CREATED)
-async def create_employee_event(
-    employee_id: uuid.UUID,
-    body: EmploymentEventIn,
-    db: AsyncSession = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("core", "edit")),
-):
-    can_manage_sensitive = (current_user.permissions or {}).get("core", {}).get("can_manage_sensitive", False)
-
-    # Compensation changes require sensitive permission — check before DB access
-    if body.compensation is not None and not can_manage_sensitive:
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "אין הרשאה לשינוי שכר", "code": "FORBIDDEN"},
-        )
-
-    emp = await _ensure_employee(db, employee_id)
-    tenant_id = emp.tenant_id
-
-    # Preserve existing employment fields when creating employment-touching events
-    current_emp = await get_active(db, EmployeeEmployment, tenant_id, extra_filters={"employee_id": employee_id})
-    if current_emp:
-        payload: dict[str, Any] = {
-            "tenant_id": tenant_id,
-            "employee_id": employee_id,
-            "org_unit_id": current_emp.org_unit_id,
-            "manager_employee_id": current_emp.manager_employee_id,
-            "position_id": current_emp.position_id,
-            "employment_status": current_emp.employment_status,
-            "employment_type": current_emp.employment_type,
-            "salary_type": current_emp.salary_type,
-            "start_date": current_emp.start_date,
-            "end_date": current_emp.end_date,
-            "employment_scope_pct": current_emp.employment_scope_pct,
-            "branch_name": current_emp.branch_name,
-            "work_site": current_emp.work_site,
-            "time_clock_id": current_emp.time_clock_id,
-            "notes": current_emp.notes,
-            "valid_from": body.effective_date,
-        }
-        if body.employment:
-            overrides = body.employment.model_dump(exclude_none=True, exclude={"valid_from"})
-            payload.update(overrides)
-        await close_and_create(db, EmployeeEmployment, tenant_id, payload, current_user.id,
-                               extra_filters={"employee_id": employee_id})
-
-    return {"ok": True}
 
 
 @router.post("/employees/{employee_id}/bank-accounts", status_code=status.HTTP_201_CREATED)
@@ -1907,52 +1839,6 @@ async def delete_skill(
     if not skill:
         raise HTTPException(status_code=404, detail={"error": "Skill not found", "code": "NOT_FOUND"})
     await db.delete(skill)
-    await db.commit()
-
-
-# ── Events and training ────────────────────────────────────────────────────────
-
-@router.post("/employees/{employee_id}/events/log", status_code=status.HTTP_201_CREATED)
-async def add_event_log(
-    employee_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    body: EventBody,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = Depends(require_permission("core", "edit")),
-):
-    await _get_employee_or_404(db, employee_id, tenant_id)
-    ev = EmploymentEvent(
-        employee_id=employee_id,
-        tenant_id=tenant_id,
-        event_type=body.event_type,
-        effective_date=body.effective_date,
-        notes=body.notes,
-        created_by=user.id,
-    )
-    db.add(ev)
-    await db.commit()
-    return {"ok": True}
-
-
-@router.delete("/employees/{employee_id}/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_event(
-    employee_id: uuid.UUID,
-    event_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    user: CurrentUser = Depends(require_permission("core", "edit")),
-):
-    await _get_employee_or_404(db, employee_id, tenant_id)
-    result = await db.execute(
-        select(EmploymentEvent)
-        .where(EmploymentEvent.id == event_id)
-        .where(EmploymentEvent.employee_id == employee_id)
-        .where(EmploymentEvent.tenant_id == tenant_id)
-    )
-    ev = result.scalar_one_or_none()
-    if not ev:
-        raise HTTPException(status_code=404, detail={"error": "Event not found", "code": "NOT_FOUND"})
-    await db.delete(ev)
     await db.commit()
 
 

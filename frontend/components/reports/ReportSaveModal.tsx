@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useState } from "react";
 import { X, Save, Users, Lock } from "lucide-react";
 import { AdminModal, AdminModalPanel } from "@/components/ui/AdminModal";
@@ -39,14 +39,14 @@ export function ReportSaveModal({ isOpen, onClose, onSave, defaultName = "" }: R
 
   return (
     <AdminModal onBackdropClick={onClose}>
-      <AdminModalPanel className="max-w-4xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+      <AdminModalPanel  dir="rtl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
               <Save size={16} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[#1a3a6e]">שמירת דוח</h2>
+              <h2 className="text-sm font-semibold text-slate-800">שמירת דוח</h2>
               <p className="text-sm text-slate-600">שמור את הגדרות הדוח לשימוש עתידי</p>
             </div>
           </div>

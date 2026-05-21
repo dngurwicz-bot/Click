@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { HelpCircle, LayoutGrid, MinusCircle, PlusCircle, X } from "lucide-react";
 
@@ -92,13 +92,13 @@ export function ScreenExplanationModal({
         className="max-w-5xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-[#dce4f0] px-6 py-5 shrink-0">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-5 shrink-0">
           <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
               <Icon size={18} />
             </div>
             <div className="text-right">
-              <div className="text-lg font-bold text-[#1a3a6e]">{screen.label}</div>
+              <div className="text-sm font-semibold text-slate-800">{screen.label}</div>
               <div className="mt-1 text-sm text-slate-600">{screen.shortDescription}</div>
             </div>
           </div>

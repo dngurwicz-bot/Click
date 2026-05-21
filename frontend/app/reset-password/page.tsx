@@ -1,41 +1,59 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { useRouter, useSearchParams } from "next/navigation";
+import { auth } from "@/lib/firebase";
+import { verifyPasswordResetCode, confirmPasswordReset } from "firebase/auth";
 import { Logo } from "@/components/layout/Logo";
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ResetPasswordContent />
+    </Suspense>
+  );
+}
+
+function ResetPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
+  
+  const oobCode = searchParams.get("oobCode");
 
   useEffect(() => {
     let mounted = true;
 
-    async function loadRecoverySession() {
-      const { data, error: sessionError } = await supabase.auth.getSession();
-      if (!mounted) return;
-
-      if (sessionError) {
-        setError(sessionError.message);
-      } else if (!data.session) {
-        setError("קישור האיפוס אינו תקף או שפג תוקפו. אפשר לבקש קישור חדש ממסך ההתחברות.");
+    async function verifyCode() {
+      if (!oobCode) {
+        if (mounted) {
+          setError("קישור האיפוס אינו תקף או שפג תוקפו. אפשר לבקש קישור חדש ממסך ההתחברות.");
+          setReady(true);
+        }
+        return;
       }
-
-      setReady(true);
+      try {
+        await verifyPasswordResetCode(auth, oobCode);
+        if (mounted) setReady(true);
+      } catch (err: any) {
+        if (mounted) {
+          setError(err.message || "קישור האיפוס אינו תקף.");
+          setReady(true);
+        }
+      }
     }
 
-    loadRecoverySession();
+    verifyCode();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [oobCode]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -50,11 +68,14 @@ export default function ResetPasswordPage() {
       setError("אימות הסיסמה אינו תואם.");
       return;
     }
+    if (!oobCode) {
+      setError("קוד איפוס חסר.");
+      return;
+    }
 
     setLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) throw updateError;
+      await confirmPasswordReset(auth, oobCode, password);
 
       setSuccess("הסיסמה עודכנה בהצלחה. מעביר למסך ההתחברות...");
       setTimeout(() => router.replace("/login"), 1200);
