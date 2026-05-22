@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, cast, Integer, text, delete
 
 from app.database import get_db
-from app.middleware.auth import require_permission, CurrentUser
+from app.middleware.auth import get_enforced_tenant_id, require_permission, CurrentUser
 from app.models.core import (
     Employee, EmployeeIdentity, EmployeePersonal, EmployeeContact,
     EmployeeEmployment, EmployeeCompensation, EmployeeBankAccount,
@@ -1034,6 +1034,7 @@ async def list_employees(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     stmt = (
         select(Employee, EmployeeIdentity)
         .outerjoin(
@@ -1069,6 +1070,7 @@ async def create_employee(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, user)
     can_manage_sensitive = (user.permissions or {}).get("core", {}).get("can_manage_sensitive", False)
 
     # Sensitive field guard — must happen before any DB access
@@ -1152,6 +1154,7 @@ async def get_employee(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     emp = await _get_employee_or_404(db, employee_id, tenant_id)
     identity_rows = await _fetch_employee_rows(db, EmployeeIdentity, employee_id)
     personal_rows = await _fetch_employee_rows(db, EmployeePersonal, employee_id)
@@ -1234,6 +1237,7 @@ async def create_bank_account(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     can_manage_sensitive = (user.permissions or {}).get("core", {}).get("can_manage_sensitive", False)
     if not can_manage_sensitive:
         raise HTTPException(
@@ -1280,6 +1284,7 @@ async def update_employee_status(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     emp = await _get_employee_or_404(db, employee_id, tenant_id)
     allowed = {"active", "inactive", "terminated"}
     if body.status not in allowed:
@@ -1296,6 +1301,7 @@ async def delete_employee(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     employee = await _get_employee_or_404(db, employee_id, tenant_id)
 
     await db.execute(
@@ -1336,6 +1342,7 @@ async def update_identity(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = _build_identity_temporal_data(body)
     await _handle_temporal(db, EmployeeIdentity, tenant_id, employee_id, body, user.id, data)
@@ -1350,6 +1357,7 @@ async def update_identity_record(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
 
     _IDENTITY_FIELDS = (
@@ -1406,6 +1414,7 @@ async def update_personal(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "birth_date": body.birth_date,
@@ -1427,6 +1436,7 @@ async def update_contact(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "address1": body.address1,
@@ -1452,6 +1462,7 @@ async def update_employment(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "org_unit_id": body.org_unit_id,
@@ -1480,6 +1491,7 @@ async def update_compensation(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "base_salary": body.base_salary,
@@ -1500,6 +1512,7 @@ async def update_bank(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "bank_code": body.bank_code,
@@ -1527,6 +1540,7 @@ async def update_documents(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "document_type": body.document_type,
@@ -1549,6 +1563,7 @@ async def update_certifications(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "certification_type": body.certification_type,
@@ -1570,6 +1585,7 @@ async def update_courses(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "course_name": body.course_name,
@@ -1592,6 +1608,7 @@ async def update_work_breaks(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     data = {k: v for k, v in {
         "break_type": body.break_type,
@@ -1615,6 +1632,7 @@ async def add_child(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     child = EmployeeChild(
         employee_id=employee_id,
@@ -1646,6 +1664,7 @@ async def update_child(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeChild)
@@ -1673,6 +1692,7 @@ async def delete_child(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeChild)
@@ -1697,6 +1717,7 @@ async def add_award(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     award = EmployeeAward(
         employee_id=employee_id,
@@ -1723,6 +1744,7 @@ async def update_award(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeAward)
@@ -1750,6 +1772,7 @@ async def delete_award(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeAward)
@@ -1774,6 +1797,7 @@ async def add_skill(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     skill = EmployeeSkill(
         employee_id=employee_id,
@@ -1801,6 +1825,7 @@ async def update_skill(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeSkill)
@@ -1828,6 +1853,7 @@ async def delete_skill(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeSkill)
@@ -1850,6 +1876,7 @@ async def add_training(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     tr = EmployeeTraining(
         employee_id=employee_id,
@@ -1873,6 +1900,7 @@ async def delete_training(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     await _get_employee_or_404(db, employee_id, tenant_id)
     result = await db.execute(
         select(EmployeeTraining)
@@ -1895,6 +1923,7 @@ async def list_org_units(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     result = await db.execute(
         text(
             """
@@ -1926,6 +1955,7 @@ async def list_positions(
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_permission("core", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, user)
     result = await db.execute(
         text(
             """

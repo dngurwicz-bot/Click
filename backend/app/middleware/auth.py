@@ -4,7 +4,7 @@ Validates JWT tokens, extracts user_id + role + permissions.
 """
 from typing import Optional
 import uuid
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status, Query
 from fastapi.security import APIKeyCookie
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -194,3 +194,15 @@ def get_enforced_tenant_id(
             detail={"error": "tenant_id is required", "code": "BAD_REQUEST"},
         )
     return tenant_id_param
+
+
+def require_tenant_id(
+    tenant_id: uuid.UUID | None = Query(None),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> uuid.UUID:
+    """
+    FastAPI Dependency that enforces tenant isolation.
+    - If user is org_admin, returns their bound tenant_id, ignoring query params.
+    - If user is super_admin/admin, returns the requested tenant_id (or 400 if missing).
+    """
+    return get_enforced_tenant_id(tenant_id, current_user)

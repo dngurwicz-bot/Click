@@ -13,6 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { api, restoreSession } from "@/lib/api";
 import { TENANT_OPTIONS_UPDATED_EVENT } from "@/lib/workspaceTenants";
 import { TopNav } from "./TopNav";
+import { ModuleSidebar } from "./ModuleSidebar";
 
 export interface ScreenDescriptor {
   pathname: string;
@@ -303,6 +304,7 @@ function WorkspaceShellInner({
               {children}
             </div>
           </div>
+          <ModuleSidebar />
         </div>
       </div>
     </WorkspaceContext.Provider>

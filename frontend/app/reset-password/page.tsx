@@ -2,9 +2,8 @@
 
 import { FormEvent, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { auth } from "@/lib/firebase";
-import { verifyPasswordResetCode, confirmPasswordReset } from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 import { Logo } from "@/components/layout/Logo";
 
 export default function ResetPasswordPage() {
@@ -17,43 +16,36 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
-  
-  const oobCode = searchParams.get("oobCode");
 
   useEffect(() => {
-    let mounted = true;
+    // Supabase puts access_token + type=recovery in the URL hash
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const type = params.get("type");
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token") ?? "";
 
-    async function verifyCode() {
-      if (!oobCode) {
-        if (mounted) {
-          setError("קישור האיפוס אינו תקף או שפג תוקפו. אפשר לבקש קישור חדש ממסך ההתחברות.");
-          setReady(true);
-        }
-        return;
-      }
-      try {
-        await verifyPasswordResetCode(auth, oobCode);
-        if (mounted) setReady(true);
-      } catch (err: any) {
-        if (mounted) {
-          setError(err.message || "קישור האיפוס אינו תקף.");
-          setReady(true);
-        }
-      }
+    if (type === "recovery" && accessToken) {
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error: sessionError }) => {
+          if (sessionError) {
+            setError("קישור האיפוס אינו תקף או שפג תוקפו. אפשר לבקש קישור חדש ממסך ההתחברות.");
+          } else {
+            setReady(true);
+          }
+        });
+    } else {
+      setError("קישור האיפוס אינו תקף או שפג תוקפו. אפשר לבקש קישור חדש ממסך ההתחברות.");
+      setReady(true);
     }
-
-    verifyCode();
-    return () => {
-      mounted = false;
-    };
-  }, [oobCode]);
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -68,14 +60,11 @@ function ResetPasswordContent() {
       setError("אימות הסיסמה אינו תואם.");
       return;
     }
-    if (!oobCode) {
-      setError("קוד איפוס חסר.");
-      return;
-    }
 
     setLoading(true);
     try {
-      await confirmPasswordReset(auth, oobCode, password);
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
 
       setSuccess("הסיסמה עודכנה בהצלחה. מעביר למסך ההתחברות...");
       setTimeout(() => router.replace("/login"), 1200);
@@ -103,7 +92,7 @@ function ResetPasswordContent() {
             <p className="text-xs text-slate-400 mt-1">הזן סיסמה חדשה לחשבון שלך.</p>
           </div>
 
-          {!ready ? (
+          {!ready && !error ? (
             <div className="py-6 text-center text-sm text-slate-400">טוען...</div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -116,6 +105,7 @@ function ResetPasswordContent() {
                   onChange={(e) => setPassword(e.target.value)}
                   className={inputClass}
                   placeholder="לפחות 8 תווים"
+                  disabled={!ready}
                 />
               </div>
 
@@ -128,6 +118,7 @@ function ResetPasswordContent() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className={inputClass}
                   placeholder="הזן שוב את הסיסמה"
+                  disabled={!ready}
                 />
               </div>
 
@@ -162,7 +153,8 @@ function ResetPasswordContent() {
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 " +
   "placeholder-slate-300 text-right " +
-  "focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition";
+  "focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
 
 const btnClass =
   "px-6 py-2.5 rounded-lg bg-[#3b5bdb] hover:bg-[#3451c7] active:bg-[#2f48b0] " +

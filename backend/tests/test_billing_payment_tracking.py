@@ -199,10 +199,11 @@ async def test_get_tenant_billing_falls_back_to_legacy_tables(monkeypatch):
     monkeypatch.setattr(billing_router, "_tenant_name", fake_tenant_name)
     monkeypatch.setattr(billing_router, "_module_name", fake_module_name)
 
+    from app.middleware.auth import CurrentUser
     summary = await billing_router.get_tenant_billing(
         tenant_id,
         db=db,
-        _=object(),
+        _=CurrentUser(id=uuid4(), email="test@test", role="super_admin", permissions={}),
     )
 
     assert db.rollback_calls == 1

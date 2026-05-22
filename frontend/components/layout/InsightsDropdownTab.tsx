@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
-import { ChevronDown, FileText, Save, Share2 } from "lucide-react";
+import { BarChart3, ChevronDown, FileText, Save, Share2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getStaticScreen, type DashboardScreen } from "@/lib/dashboardScreens";
 import { ReportCatalogItem, SavedReportView } from "../reports/types";
@@ -75,12 +75,16 @@ export function InsightsDropdownTab({
         type="button"
         onClick={handleOpen}
         onContextMenu={insightsScreen && onScreenContextMenu ? (event) => onScreenContextMenu(insightsScreen, event) : undefined}
-        className={`relative flex h-full items-center gap-1.5 whitespace-nowrap px-4 text-sm transition-colors ${
-          active ? "text-brand-600 font-medium" : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+        className={`relative flex h-full flex-col items-center justify-center gap-0.5 px-3 transition-colors ${
+          active ? "text-brand-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
         }`}
+        style={{ minWidth: 44 }}
       >
-        CLICK Insights
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <div className="flex items-center gap-0.5">
+          <BarChart3 size={16} className={active ? "text-brand-500" : "text-slate-400"} />
+          <ChevronDown size={10} className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        </div>
+        <span className="whitespace-nowrap text-[10px] font-medium leading-none">Insights</span>
         {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />}
       </button>
 

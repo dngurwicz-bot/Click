@@ -13,6 +13,7 @@ class LookupList(Base):
     list_key:    Mapped[str]       = mapped_column(String, nullable=False, unique=True)
     name_he:     Mapped[str]       = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
+    scope:       Mapped[str]       = mapped_column(String(20), nullable=False, default="org")
     is_system:   Mapped[bool]      = mapped_column(Boolean, nullable=False, default=False)
     is_active:   Mapped[bool]      = mapped_column(Boolean, nullable=False, default=True)
     created_at:  Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now())

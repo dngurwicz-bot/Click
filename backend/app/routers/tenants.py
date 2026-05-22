@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 
 from app.database import get_db
 from app.config import get_settings
-from app.middleware.auth import require_permission, require_super_admin, CurrentUser
+from app.middleware.auth import get_enforced_tenant_id, require_permission, require_super_admin, CurrentUser
 from app.models.admin_user import AdminUser
 from app.models.tenant import (
     Tenant, TenantIdentity, TenantContact, TenantAddress,
@@ -1440,6 +1440,7 @@ async def get_tenant(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1453,6 +1454,7 @@ async def get_tenant_org_structure(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1486,6 +1488,7 @@ async def preview_tenant_org_structure_override(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_super_admin),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1546,6 +1549,7 @@ async def update_tenant_org_structure(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_super_admin),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1627,6 +1631,7 @@ async def get_tenant_delete_impact(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_super_admin),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1647,6 +1652,7 @@ async def hard_delete_tenant(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_super_admin),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1750,6 +1756,7 @@ async def update_tenant(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -1989,6 +1996,7 @@ async def apply_template_to_tenant(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -2044,6 +2052,7 @@ async def list_tenant_subscription_modules(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     subscription = await get_active(db, TenantSubscription, tenant_id)
     if not subscription:
         raise HTTPException(status_code=404, detail={"error": "Active subscription not found", "code": "NOT_FOUND"})
@@ -2056,6 +2065,7 @@ async def list_tenant_subscription_module_history(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
@@ -2432,6 +2442,7 @@ async def temporal_tenant_subscription_module(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     return await _execute_subscription_module_action(
         tenant_id,
         body,
@@ -2447,6 +2458,7 @@ async def add_tenant_subscription_module(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await _execute_subscription_module_action(
         tenant_id,
         TenantSubscriptionModuleActionBody(action="add", valid_from=date.today(), **body.model_dump()),
@@ -2466,6 +2478,7 @@ async def update_tenant_subscription_module(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     result = await _execute_subscription_module_action(
         tenant_id,
         TenantSubscriptionModuleActionBody(action="update", module_id=module_id, **body.model_dump(exclude_none=True)),
@@ -2484,6 +2497,7 @@ async def delete_tenant_subscription_module(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     await _execute_subscription_module_action(
         tenant_id,
         TenantSubscriptionModuleActionBody(action="delete", module_id=module_id),
@@ -2500,6 +2514,7 @@ async def preview_tenant_sync(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     template_result = await db.execute(select(OrgTemplate).where(OrgTemplate.id == template_id))
     template = template_result.scalar_one_or_none()
     if not template:
@@ -2520,6 +2535,7 @@ async def apply_tenant_sync(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     tenant_result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     tenant = tenant_result.scalar_one_or_none()
     if not tenant:
@@ -2572,6 +2588,7 @@ async def get_tenant_history(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})

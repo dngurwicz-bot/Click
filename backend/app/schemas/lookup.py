@@ -40,7 +40,7 @@ class LookupListBase(BaseModel):
 
 
 class LookupListCreate(LookupListBase):
-    pass
+    scope: str = "org"
 
 
 class LookupListUpdate(BaseModel):
@@ -51,6 +51,7 @@ class LookupListUpdate(BaseModel):
 
 class LookupListOut(LookupListBase):
     id:         uuid.UUID
+    scope:      str
     is_system:  bool
     created_at: datetime
     items:      list[LookupItemOut] = []
@@ -64,6 +65,7 @@ class LookupListItem(BaseModel):
     list_key:    str
     name_he:     str
     description: Optional[str]
+    scope:       str
     is_system:   bool
     is_active:   bool
     item_count:  int

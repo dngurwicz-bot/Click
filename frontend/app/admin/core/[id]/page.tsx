@@ -844,6 +844,7 @@ function TemporalModal({
   orgUnitOptions,
   positionOptions,
   managerOptions,
+  lookupData,
   onClose,
   onSaved,
 }: {
@@ -854,6 +855,7 @@ function TemporalModal({
   orgUnitOptions: LookupOption[];
   positionOptions: LookupOption[];
   managerOptions: EmployeeOption[];
+  lookupData: Record<string, PickerOption[]>;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -883,6 +885,10 @@ function TemporalModal({
     if (state.section !== "employment") return;
     setOrgUnitAssignments(getOrgUnitAssignmentsFromSelection(form.org_unit_id || undefined, orgUnitOptions));
   }, [form.org_unit_id, orgUnitOptions, state.section]);
+
+  function lo(key: string): PickerOption[] {
+    return lookupData[key] ?? LOOKUP_FALLBACKS[key] ?? [];
+  }
 
   function setField(key: string, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -2331,6 +2337,7 @@ function EmployeeCardPageContent() {
           orgUnitOptions={orgUnitOptions}
           positionOptions={positionOptions}
           managerOptions={managerOptions}
+          lookupData={lookupData}
           onClose={() => setTemporalModal(null)}
           onSaved={loadCard}
         />

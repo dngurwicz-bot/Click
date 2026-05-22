@@ -68,15 +68,14 @@ export const DASHBOARD_SCREEN_DEFS: DashboardScreen[] = [
     navGroup: "admin",
   },
   {
-    id: "admin:lookups",
-    href: "/admin/lookups",
+    id: "org:lookups",
+    href: "/org/lookups",
     label: "רשימות",
-    shortDescription: "ניהול רשימות ערכים ותוכן קבוע במערכת.",
+    shortDescription: "ניהול רשימות ערכים ותוכן קבוע של הארגון.",
     fullDescription:
-      "מסך הרשימות מאפשר לנהל רשימות מערכתיות כמו ערכי בחירה, קטלוגים, וספריות נתונים שמוזנות למסכים אחרים. שינויים כאן משפיעים על טפסים ותהליכים ברחבי המערכת.",
+      "מסך הרשימות מאפשר לנהל רשימות ארגוניות כמו ערכי בחירה, קטלוגים, וספריות נתונים שמוזנות למסכים אחרים. שינויים כאן משפיעים על טפסים ותהליכים ברחבי המערכת.",
     icon: List,
-    resource: "lookups",
-    navGroup: "admin",
+    navGroup: "org_admin",
   },
   {
     id: "admin:modules",
@@ -270,11 +269,11 @@ export const ORG_ADMIN_SCREEN_IDS = [
   "org:positions",
   "org:structure",
   "org:courses",
+  "org:lookups",
 ] as const;
 
 export const ADMIN_SCREEN_IDS = [
   "admin:tenants",
-  "admin:lookups",
   "admin:modules",
   "admin:reports",
   "admin:billing",

@@ -1,11 +1,12 @@
 """
-Auth router: login + me.
-We authenticate against Supabase Auth, then issue our own JWT containing role info.
+Auth router: login, logout, me, forgot-password.
+Authenticates against Supabase Auth, then issues our own JWT containing role info.
 """
 from datetime import datetime, timedelta, timezone
 import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -89,17 +90,20 @@ async def _load_user_permissions(db: AsyncSession, user_id: uuid.UUID) -> list[P
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
-    # Authenticate via Firebase Auth REST API (Google Identity Toolkit)
-    if not settings.FIREBASE_API_KEY:
+    if not settings.SUPABASE_URL or not settings.SUPABASE_PUBLISHABLE_KEY:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "Firebase API key not configured", "code": "FIREBASE_NOT_CONFIGURED"},
+            detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
         )
-        
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={settings.FIREBASE_API_KEY}",
-            json={"email": body.email, "password": body.password, "returnSecureToken": True},
+            f"{settings.SUPABASE_URL}/auth/v1/token?grant_type=password",
+            json={"email": body.email, "password": body.password},
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Content-Type": "application/json",
+            },
             timeout=10,
         )
 
@@ -109,13 +113,13 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
             detail={"error": "Invalid credentials", "code": "INVALID_CREDENTIALS"},
         )
 
-    firebase_data = resp.json()
-    firebase_user_id = uuid.UUID(firebase_data["localId"])
+    supabase_data = resp.json()
+    supabase_email = supabase_data["user"]["email"]
 
-    # Look up in our admin_users table
+    # Look up in our admin_users table by email
     result = await db.execute(
         select(AdminUser)
-        .where(AdminUser.id == supabase_user_id)
+        .where(AdminUser.email == supabase_email)
         .where(AdminUser.is_active == True)  # noqa: E712
     )
     user = result.scalar_one_or_none()
@@ -133,9 +137,7 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
     )
     await db.commit()
 
-    # Load permissions
     perms = await _load_user_permissions(db, user.id)
-
     token = _create_token(user)
     user_info = UserInfo(
         id=user.id,
@@ -147,6 +149,36 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
     )
     _set_session_cookie(response, token)
     return LoginResponse(user=user_info)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    redirect_to: str = ""
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+async def forgot_password(body: ForgotPasswordRequest):
+    if not settings.SUPABASE_URL or not settings.SUPABASE_PUBLISHABLE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Supabase not configured", "code": "SUPABASE_NOT_CONFIGURED"},
+        )
+
+    payload: dict = {"email": body.email}
+    if body.redirect_to:
+        payload["redirectTo"] = body.redirect_to
+
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/recover",
+            json=payload,
+            headers={
+                "apikey": settings.SUPABASE_PUBLISHABLE_KEY,
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+    # Always return 204 — never expose whether email exists
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

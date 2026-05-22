@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.auth import CurrentUser, require_permission
+from app.middleware.auth import get_enforced_tenant_id, CurrentUser, require_permission
 from app.models.billing_engine import (
     BillingBillRun,
     BillingChangeEvent,
@@ -165,6 +165,7 @@ async def list_billing_contracts(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     query = sa.select(BillingContract).order_by(BillingContract.created_at.desc())
     if tenant_id:
         query = query.where(BillingContract.tenant_id == tenant_id)
@@ -193,6 +194,7 @@ async def create_billing_contract(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, current_user)
     contract = BillingContract(
         tenant_id=body.tenant_id,
         status=body.status,
@@ -624,6 +626,7 @@ async def list_billing_documents(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     query = sa.select(BillingDocument).order_by(BillingDocument.created_at.desc())
     if tenant_id:
         query = query.where(BillingDocument.tenant_id == tenant_id)

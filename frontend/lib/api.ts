@@ -265,6 +265,10 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return data;
 }
 
+export async function forgotPassword(email: string, redirectTo: string): Promise<void> {
+  await api.post("/api/auth/forgot-password", { email, redirect_to: redirectTo });
+}
+
 export async function restoreSession(): Promise<UserInfo | null> {
   if (typeof window === "undefined" || !hasSessionCookie()) return null;
 

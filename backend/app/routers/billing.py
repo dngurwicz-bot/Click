@@ -48,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.middleware.auth import require_permission, CurrentUser
+from app.middleware.auth import get_enforced_tenant_id, require_permission, CurrentUser
 from app.models.billing import BillingCharge, BillingSettings, Invoice, InvoiceLine, Quote, QuoteLine, TenantPaymentRecord
 from app.models.billing_engine import BillingLedgerEntry, BillingDocument, BillingDocumentLine
 from app.models.module import Module, ModulePrice
@@ -433,6 +433,7 @@ async def generate_charges(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, current_user)
     """
     Auto-generate pricing charges for every active/trial tenant for a given
     billing period. Idempotent per (tenant, period, module, type).
@@ -699,6 +700,7 @@ async def list_charges(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     q = sa.select(BillingCharge).order_by(
         BillingCharge.billing_period.desc(), BillingCharge.created_at.desc()
     )
@@ -722,6 +724,7 @@ async def create_charge(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, current_user)
     amount = _round2(body.quantity * body.unit_price_ils)
     after_discount = _round2(amount * (1 - body.discount_pct / 100))
 
@@ -830,6 +833,7 @@ async def list_invoices(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     q = sa.select(Invoice).order_by(Invoice.issue_date.desc(), Invoice.invoice_number.desc())
     if tenant_id:
         q = q.where(Invoice.tenant_id == tenant_id)
@@ -850,6 +854,7 @@ async def create_invoice(
     current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
     # ── Fetch charges ─────────────────────────────────────────────────────────
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, current_user)
     if body.charge_ids:
         q = sa.select(BillingCharge).where(BillingCharge.id.in_(body.charge_ids))
     else:
@@ -1231,6 +1236,7 @@ async def list_seat_changes(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     """Return seat-change history for a tenant, used to audit proration charges."""
     t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
     if not t_result.scalar_one_or_none():
@@ -1259,6 +1265,7 @@ async def get_tenant_billing(
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
     # Verify tenant exists
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
     if not t_result.scalar_one_or_none():
         raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
@@ -1409,6 +1416,7 @@ async def get_tenant_payment_tracking(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("tenants", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
     if not t_result.scalar_one_or_none():
         raise HTTPException(404, detail={"error": "Tenant not found", "code": "NOT_FOUND"})
@@ -1431,6 +1439,7 @@ async def upsert_tenant_payment_tracking(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("tenants", "edit")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, current_user)
     _validate_billing_period(billing_period)
 
     t_result = await db.execute(sa.select(Tenant).where(Tenant.tenant_id == tenant_id))
@@ -1560,6 +1569,7 @@ async def list_quotes(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "view")),
 ):
+    tenant_id = get_enforced_tenant_id(tenant_id, _)
     q = sa.select(Quote).order_by(Quote.created_at.desc())
     if tenant_id:
         q = q.where(Quote.tenant_id == tenant_id)
@@ -1590,6 +1600,7 @@ async def create_quote(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, current_user)
     quote = Quote(
         tenant_id=body.tenant_id,
         prospect_name=body.prospect_name,
@@ -1648,6 +1659,7 @@ async def update_quote(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_permission("billing", "edit")),
 ):
+    body.tenant_id = get_enforced_tenant_id(body.tenant_id, _)
     quote = await _get_quote_or_404(db, quote_id)
     if quote.status not in ("draft",):
         raise HTTPException(409, detail={"error": "Only draft quotes can be edited", "code": "INVALID_STATUS"})

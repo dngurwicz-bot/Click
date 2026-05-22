@@ -123,7 +123,7 @@ async def test_create_employee_bank_account_rejects_without_manage_sensitive():
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(f"/api/core/employees/{uuid4()}/bank-accounts", json=payload)
+            response = await client.post(f"/api/core/employees/{uuid4()}/bank-accounts?tenant_id={uuid4()}", json=payload)
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "FORBIDDEN"
     finally:

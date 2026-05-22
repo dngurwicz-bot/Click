@@ -3,9 +3,7 @@
 import { Suspense, useState, FormEvent, ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
-import { login } from "@/lib/api";
-import { auth } from "@/lib/firebase";
-import { sendPasswordResetEmail } from "firebase/auth";
+import { login, forgotPassword } from "@/lib/api";
 import { Logo } from "@/components/layout/Logo";
 
 export default function LoginPage() {
@@ -65,9 +63,8 @@ function LoginPageContent() {
     setError(null);
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, forgotEmail, {
-        url: `${window.location.origin}/reset-password`,
-      });
+      const redirectTo = `${window.location.origin}/reset-password`;
+      await forgotPassword(forgotEmail, redirectTo);
       setForgotSuccess(true);
     } catch (err: unknown) {
       const e = err as { message?: string };
@@ -194,7 +191,7 @@ function LoginPageContent() {
 
               {error && <ErrorBox>{error}</ErrorBox>}
 
-              {/* Actions row — button left, forgot right (RTL) */}
+              {/* Actions row */}
               <div className="flex items-center justify-between pt-2">
                 <button
                   type="submit"
@@ -248,7 +245,6 @@ const btnClass =
   "disabled:opacity-60 disabled:cursor-not-allowed " +
   "text-white text-sm font-semibold transition-colors shadow-sm";
 
-/* ── FormRow: label above input (RTL safe) ── */
 function FormRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
@@ -260,7 +256,6 @@ function FormRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/* ── Error box ── */
 function ErrorBox({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-600 text-right flex items-start gap-2">

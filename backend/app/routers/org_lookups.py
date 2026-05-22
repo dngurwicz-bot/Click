@@ -2,7 +2,7 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.database import get_db
 from app.middleware.auth import require_org_or_system_admin, CurrentUser
@@ -11,19 +11,46 @@ from app.schemas.lookup import (
     LookupItemCreate,
     LookupItemOut,
     LookupItemUpdate,
+    LookupListCreate,
     LookupListItem,
     LookupListOut,
+    LookupListUpdate,
 )
 
 router = APIRouter(prefix="/api/org/lookups", tags=["org-lookups"])
 
 
 async def _get_list_or_404(db: AsyncSession, list_key: str) -> LookupList:
-    result = await db.execute(select(LookupList).where(LookupList.list_key == list_key))
+    result = await db.execute(
+        select(LookupList)
+        .where(LookupList.list_key == list_key)
+        .where(LookupList.scope == "org")
+    )
     lst = result.scalar_one_or_none()
     if not lst:
         raise HTTPException(status_code=404, detail={"error": "List not found", "code": "NOT_FOUND"})
     return lst
+
+
+@router.post("", response_model=LookupListOut, status_code=status.HTTP_201_CREATED)
+async def create_lookup_list(
+    body: LookupListCreate,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_org_or_system_admin()),
+):
+    existing = await db.execute(select(LookupList).where(LookupList.list_key == body.list_key))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "list_key already exists", "code": "DUPLICATE_KEY"},
+        )
+    lst = LookupList(**body.model_dump())
+    db.add(lst)
+    await db.commit()
+    await db.refresh(lst)
+    out = LookupListOut.model_validate(lst)
+    out.items = []
+    return out
 
 
 @router.get("", response_model=list[LookupListItem])
@@ -31,7 +58,9 @@ async def list_lookup_lists(
     db: AsyncSession = Depends(get_db),
     _: CurrentUser = Depends(require_org_or_system_admin()),
 ):
-    result = await db.execute(select(LookupList).where(LookupList.is_active == True).order_by(LookupList.name_he))  # noqa: E712
+    result = await db.execute(
+        select(LookupList).where(LookupList.scope == "org").order_by(LookupList.name_he)
+    )
     lists = result.scalars().all()
 
     items = []
@@ -53,6 +82,51 @@ async def list_lookup_lists(
             created_at=lst.created_at,
         ))
     return items
+
+
+@router.delete("/{list_key}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lookup_list(
+    list_key: str,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_org_or_system_admin()),
+):
+    lst = await _get_list_or_404(db, list_key)
+    if lst.is_system:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "לא ניתן למחוק רשימת מערכת", "code": "SYSTEM_LIST"},
+        )
+    await db.execute(delete(LookupItem).where(LookupItem.list_id == lst.id))
+    await db.delete(lst)
+    await db.commit()
+
+
+@router.put("/{list_key}", response_model=LookupListOut)
+async def update_lookup_list(
+    list_key: str,
+    body: LookupListUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: CurrentUser = Depends(require_org_or_system_admin()),
+):
+    lst = await _get_list_or_404(db, list_key)
+    if body.name_he is not None:     lst.name_he = body.name_he
+    if body.description is not None: lst.description = body.description
+    if body.is_active is not None:
+        if lst.is_system and not body.is_active:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "לא ניתן לבטל רשימת מערכת", "code": "SYSTEM_LIST"},
+            )
+        lst.is_active = body.is_active
+    await db.commit()
+    await db.refresh(lst)
+    items_result = await db.execute(
+        select(LookupItem).where(LookupItem.list_id == lst.id)
+        .order_by(LookupItem.sort_order, LookupItem.label_he)
+    )
+    out = LookupListOut.model_validate(lst)
+    out.items = [LookupItemOut.model_validate(i) for i in items_result.scalars().all()]
+    return out
 
 
 @router.get("/{list_key}", response_model=LookupListOut)

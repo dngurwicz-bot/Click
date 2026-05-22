@@ -9,7 +9,6 @@ def test_production_settings_reject_default_jwt_secret():
             APP_ENV="production",
             DATABASE_URL="postgresql+asyncpg://prod-user:secret@db:5432/click",
             JWT_SECRET="change-me-in-production-min-32-chars!!",  # force the default value
-            SUPABASE_URL="https://example.supabase.co",
         )
 
 
@@ -18,7 +17,6 @@ def test_production_settings_accept_overrides():
         APP_ENV="production",
         DATABASE_URL="postgresql+asyncpg://prod-user:secret@db:5432/click",
         JWT_SECRET="super-secret-production-key-1234567890",
-        SUPABASE_URL="https://example.supabase.co",
     )
 
     assert settings.APP_ENV == "production"

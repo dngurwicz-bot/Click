@@ -12,9 +12,10 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/click_db"
 
-    # Firebase
-    FIREBASE_API_KEY: str = ""
-    FIREBASE_SERVICE_ACCOUNT_PATH: str = ""
+    # Supabase
+    SUPABASE_URL: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
+    SUPABASE_SECRET_KEY: str = ""
 
     # JWT
     JWT_SECRET: str = "change-me-in-production-min-32-chars!!"

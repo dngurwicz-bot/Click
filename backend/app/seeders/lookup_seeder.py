@@ -103,6 +103,7 @@ async def seed_core_lookups(db: AsyncSession) -> None:
                 list_key=list_key,
                 name_he=name_he,
                 description=description,
+                scope="org",
                 is_system=True,
                 is_active=True,
             )

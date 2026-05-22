@@ -3,16 +3,24 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Activity,
+  Archive,
+  BarChart3,
   Bell,
+  BookOpen,
   Building2,
-  FolderTree,
   ChevronDown,
   ChevronRight,
+  Eye,
+  FolderTree,
+  GitBranch,
+  Home,
   LogOut,
   Menu,
   Search,
   Settings,
   ShieldCheck,
+  TrendingUp,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -34,7 +42,6 @@ import { useTenantModuleNav } from "@/lib/tenantModuleNav";
 import { Logo } from "./Logo";
 import { useWorkspace } from "./WorkspaceShell";
 import { InsightsDropdownTab } from "./InsightsDropdownTab";
-import { CoreDropdownTab } from "./CoreDropdownTab";
 import {
   DashboardScreenContextMenu,
   ScreenExplanationModal,
@@ -57,6 +64,26 @@ interface HierarchicalMenuItem {
 
 const ADMIN_ROLES = ["super_admin", "admin", "support", "billing"];
 const ORG_ADMIN_ACCESSIBLE_ROLES = ["org_admin", "super_admin", "admin"];
+
+const MODULE_ICONS: Record<string, LucideIcon> = {
+  core: ShieldCheck,
+  insights: BarChart3,
+  flow: GitBranch,
+  docs: BookOpen,
+  vision: Eye,
+  assets: Archive,
+  vibe: Activity,
+  grow: TrendingUp,
+};
+
+function getModuleIcon(screenId: string, fallback: LucideIcon): LucideIcon {
+  const slug = screenId.startsWith("module:") ? screenId.slice(7) : "";
+  return MODULE_ICONS[slug] ?? fallback;
+}
+
+function getModuleShortLabel(label: string): string {
+  return label.replace(/^CLICK\s+/i, "");
+}
 
 function UserAvatar({ name }: { name: string | null | undefined }) {
   const initials = (name || "")
@@ -198,7 +225,6 @@ export function TopNav() {
   const canSeeOrgAdminMenu = Boolean(user && ORG_ADMIN_ACCESSIBLE_ROLES.includes(user.role));
   const dashboardScreen = getStaticScreen("dashboard");
   const insightsScreen = visibleScreenMap.get("module:insights") ?? null;
-  const coreScreen = visibleScreenMap.get("module:core") ?? null;
 
   const adminItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
@@ -220,6 +246,7 @@ export function TopNav() {
     const structureItem = visibleScreenMap.get("org:structure");
     const positionsItem = visibleScreenMap.get("org:positions");
     const coursesItem = visibleScreenMap.get("org:courses");
+    const lookupsItem = visibleScreenMap.get("org:lookups");
     const orgStructureEntries = getOrgStructureNavEntries(tenantConfig?.levels ?? []);
 
     const items: HierarchicalMenuItem[] = [];
@@ -258,6 +285,17 @@ export function TopNav() {
         icon: coursesItem.icon,
         active: pathname === coursesItem.href || Boolean(pathname?.startsWith(`${coursesItem.href}/`)),
         screen: coursesItem,
+      });
+    }
+
+    if (lookupsItem) {
+      items.push({
+        id: lookupsItem.id,
+        label: lookupsItem.label,
+        href: lookupsItem.href,
+        icon: lookupsItem.icon,
+        active: pathname === lookupsItem.href || Boolean(pathname?.startsWith(`${lookupsItem.href}/`)),
+        screen: lookupsItem,
       });
     }
 
@@ -312,15 +350,17 @@ export function TopNav() {
 
         <nav className="hidden h-full min-w-0 flex-1 items-center overflow-visible md:flex" style={{ scrollbarWidth: "none" }}>
           {dashboardScreen && (
-            <PriorityTab
+            <CompactModuleTab
               screen={dashboardScreen}
+              icon={Home}
+              label="ראשי"
               active={pathname === dashboardScreen.href}
               onNavigate={navigateTo}
               onScreenContextMenu={openScreenMenu}
             />
           )}
 
-          {moduleItems.map((item) => (
+          {moduleItems.map((item) =>
             item.href === "/modules/insights" ? (
               <InsightsDropdownTab
                 key={item.href}
@@ -329,24 +369,18 @@ export function TopNav() {
                 onScreenContextMenu={openScreenMenu}
                 insightsScreen={insightsScreen}
               />
-            ) : item.href === "/admin/core" ? (
-              <CoreDropdownTab
-                key={item.href}
-                active={item.active}
-                onNavigate={navigateTo}
-                onScreenContextMenu={openScreenMenu}
-                coreScreen={coreScreen}
-              />
             ) : (
-              <PriorityTab
+              <CompactModuleTab
                 key={item.href}
                 screen={item}
+                icon={getModuleIcon(item.id, item.icon)}
+                label={getModuleShortLabel(item.label)}
                 active={item.active}
                 onNavigate={navigateTo}
                 onScreenContextMenu={openScreenMenu}
               />
             )
-          ))}
+          )}
         </nav>
 
         <div className="flex h-full shrink-0 items-center gap-1 px-3">
@@ -649,13 +683,17 @@ function TenantWorkspaceSelector({
   );
 }
 
-function PriorityTab({
+function CompactModuleTab({
   screen,
+  icon: Icon,
+  label,
   active,
   onNavigate,
   onScreenContextMenu,
 }: {
   screen: DashboardScreen;
+  icon: LucideIcon;
+  label: string;
   active: boolean;
   onNavigate: (href: string) => void;
   onScreenContextMenu: (screen: DashboardScreen, event: ReactMouseEvent<HTMLElement>) => void;
@@ -665,13 +703,15 @@ function PriorityTab({
       type="button"
       onClick={() => onNavigate(screen.href)}
       onContextMenu={(event) => onScreenContextMenu(screen, event)}
-      className={`relative flex h-full items-center whitespace-nowrap px-4 text-sm transition-colors ${
+      className={`relative flex h-full flex-col items-center justify-center gap-0.5 px-3 transition-colors ${
         active
-          ? "font-medium text-brand-600"
-          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+          ? "text-brand-600"
+          : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
       }`}
+      style={{ minWidth: 44 }}
     >
-      {screen.label}
+      <Icon size={16} className={active ? "text-brand-500" : "text-slate-400"} />
+      <span className="whitespace-nowrap text-[10px] font-medium leading-none">{label}</span>
       {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-500" />}
     </button>
   );

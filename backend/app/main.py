@@ -14,6 +14,8 @@ if not RUNNING_UNDER_PYTEST and sys.stderr and hasattr(sys.stderr, 'buffer'):
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.config import get_settings
 from app.database import get_db
@@ -66,6 +68,11 @@ app.include_router(insights.router)
 app.include_router(dynamic_reports.router)
 app.include_router(org_admin.router)
 app.include_router(org_lookups.router)
+
+# Static file serving — logo uploads stored locally
+_static_dir = Path(__file__).parent.parent / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.on_event("startup")

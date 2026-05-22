@@ -108,30 +108,39 @@ def _resolve_role_tenant_update(
     return effective_role, None
 
 
-async def _create_firebase_user(email: str, password: str) -> uuid.UUID:
-    """Create user in Firebase Auth and return a generated UUID."""
-    try:
-        from firebase_admin import auth
-        user_id = uuid.uuid4()
-        auth.create_user(
-            uid=str(user_id),
-            email=email,
-            password=password,
-            email_verified=True,
+async def _create_supabase_user(email: str, password: str) -> uuid.UUID:
+    """Create user in Supabase Auth and return their UUID."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            json={"email": email, "password": password, "email_confirm": True},
+            headers={
+                "apikey": settings.SUPABASE_SECRET_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
         )
-        return user_id
-    except Exception as e:
+    if resp.status_code not in (200, 201):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": str(e), "code": "FIREBASE_ERROR"},
+            detail={"error": resp.text, "code": "SUPABASE_ERROR"},
         )
+    return uuid.UUID(resp.json()["id"])
 
 
-async def _delete_firebase_user(user_id: uuid.UUID) -> None:
-    """Remove user from Firebase Auth (best-effort, no raise on failure)."""
+async def _delete_supabase_user(user_id: uuid.UUID) -> None:
+    """Remove user from Supabase Auth (best-effort, no raise on failure)."""
     try:
-        from firebase_admin import auth
-        auth.delete_user(str(user_id))
+        async with httpx.AsyncClient() as client:
+            await client.delete(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers={
+                    "apikey": settings.SUPABASE_SECRET_KEY,
+                    "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
+                },
+                timeout=10,
+            )
     except Exception:
         pass
 
@@ -200,7 +209,7 @@ async def create_user(
         )
 
     # Create in Supabase Auth
-    supabase_id = await _create_firebase_user(body.email, body.password)
+    supabase_id = await _create_supabase_user(body.email, body.password)
 
     # Create in our admin_users table
     user = AdminUser(
@@ -325,7 +334,7 @@ async def delete_user(
             )
 
     # Remove from Supabase Auth (best-effort)
-    await _delete_firebase_user(user_id)
+    await _delete_supabase_user(user_id)
 
     # Permissions cascade-deleted by FK
     await db.delete(user)
